@@ -38,4 +38,20 @@ in `ext/` package extensions; the core loads without them.
   `shift` (R) for later reciprocal-space / spin-spiral rows. Validated against an
   independent over-large-shell brute force (cubic multi-shell + sheared triclinic).
 
-(Sections for M2–M10 added as they land.)
+### basis — `Harmonics` submodule (M2)
+- `Harmonics.Zlm(l, m, u)` — real tesseral harmonic (Drautz convention, per-site
+  `(4π)^(−1/2)`); `Harmonics.grad_Zlm(l, m, u)` — tangent-projected Cartesian
+  gradient `∂Z − u(u·∂Z)`. `lm_index(l, m) = l²+l+m+1`, `num_lm(lmax)`. Legendre
+  primitive from `LegendrePolynomials.dnPl`.
+- Validated by: closed-form standard solid harmonics (`l ≤ 2`), gradient tangency
+  + on-sphere central difference, and bit-for-bit agreement with Magesty's
+  `TesseralHarmonics` (oracle).
+
+## Oracle environment (`test/oracle/`)
+
+A separate Julia env (`[sources]`-deving both `MagestyRebuild` and a pinned
+`Magesty.jl`) cross-checks convention-fixed kernels and gauge-invariant
+aggregates / predictions against Magesty. The core suite never depends on
+Magesty. Run: `julia --project=test/oracle test/oracle/runtests.jl`.
+
+(Sections for M3–M10 added as they land.)
