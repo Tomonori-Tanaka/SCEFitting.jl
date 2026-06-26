@@ -1,0 +1,40 @@
+"""
+    Lattice(vectors; pbc = (true, true, true)) -> Lattice
+
+A (possibly partially) periodic Bravais lattice.
+
+# Arguments
+- `vectors::AbstractMatrix{<:Real}`: 3×3 matrix whose **columns** are the lattice
+  vectors `a₁ a₂ a₃` (Å).
+
+# Keyword arguments
+- `pbc = (true, true, true)`: periodicity along each lattice direction.
+
+# Notes
+The reciprocal matrix is `inv(vectors)`; its **rows** `bᵢ` satisfy `aᵢ·bⱼ = δᵢⱼ`
+(crystallographic convention, no 2π factor). The interplanar spacing along
+direction `i` is `dᵢ = 1/‖bᵢ‖`; see [`interplanar_spacing`](@ref).
+"""
+struct Lattice
+    vectors::SMatrix{3,3,Float64,9}
+    reciprocal::SMatrix{3,3,Float64,9}
+    pbc::SVector{3,Bool}
+end
+
+function Lattice(vectors::AbstractMatrix{<:Real};
+                pbc = (true, true, true))::Lattice
+    size(vectors) == (3, 3) || throw(ArgumentError("lattice `vectors` must be 3×3"))
+    A = SMatrix{3,3,Float64}(vectors)
+    abs(det(A)) > 0 ||
+        throw(ArgumentError("lattice vectors are singular (zero cell volume)"))
+    return Lattice(A, inv(A), SVector{3,Bool}(pbc...))
+end
+
+"""
+    interplanar_spacing(lattice, i) -> Float64
+
+Interplanar spacing `dᵢ = 1/‖row_i(reciprocal)‖` (Å) along lattice direction `i`.
+This sets the cutoff-driven image range in [`build_neighbor_list`](@ref).
+"""
+interplanar_spacing(lattice::Lattice, i::Integer)::Float64 =
+    1.0 / norm(lattice.reciprocal[i, :])
