@@ -92,4 +92,24 @@ rand_unit(rng) = (v = SVector{3,Float64}(randn(rng), randn(rng), randn(rng)); v 
             @test isapprox(lhs, rhs; atol = 1e-9)
         end
     end
+
+    @testset "complex→real unitary matches the closed form (paper Eq. B2)" begin
+        # U^{(l)}: Z_l^m = Σ_{m'} U[m,m'] Y_l^{m'}, indexed row/col = m+l+1.
+        # Convention-independent anchor (does not use the Magesty oracle).
+        for l = 0:3
+            U = MagestyRebuild.AngularMomentum.c2r_matrix(l)
+            ix(m) = m + l + 1
+            ref = zeros(ComplexF64, 2l + 1, 2l + 1)
+            ref[ix(0), ix(0)] = 1
+            for m = 1:l
+                s = 1 / sqrt(2.0)
+                ref[ix(m), ix(m)] = (-1.0)^m * s
+                ref[ix(m), ix(-m)] = s
+                ref[ix(-m), ix(-m)] = im * s
+                ref[ix(-m), ix(m)] = -im * (-1.0)^m * s
+            end
+            @test isapprox(U, ref; atol = 1e-12)
+            @test isapprox(U' * U, Matrix(I, 2l + 1, 2l + 1); atol = 1e-12)  # unitary
+        end
+    end
 end
