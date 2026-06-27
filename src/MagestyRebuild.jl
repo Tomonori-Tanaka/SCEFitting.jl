@@ -26,9 +26,14 @@ include("basis/Harmonics.jl")
 include("basis/AngularMomentum.jl")
 include("basis/coupledbasis.jl")
 
+# --- clusters: enumeration + symmetry orbit reduction ---
+include("clusters/enumerate.jl")
+include("clusters/orbits.jl")
+
 export Lattice, Crystal, num_atoms
 export NeighborPair, NeighborList, build_neighbor_list
 export SymOp, SpaceGroup, AbstractSymmetryBackend, NoSymmetry, SpglibBackend,
     analyze_symmetry
+export ClusterMember, ClusterOrbit, ClusterSet, build_clusters
 
 end # module MagestyRebuild

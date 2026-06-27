@@ -116,4 +116,30 @@ end
             end
         end
     end
+
+    @testset "cluster orbits with Spglib (M6)" begin
+        Lattice = MagestyRebuild.Lattice
+        Crystal = MagestyRebuild.Crystal
+        SpglibBackend = MagestyRebuild.SpglibBackend
+        analyze = MagestyRebuild.analyze_symmetry
+        a = 3.0
+
+        # simple cubic (1 atom): nearest neighbors are the 6 edge atoms, all
+        # symmetry-equivalent → one 1-body orbit and one 2-body orbit.
+        sc = Crystal(Lattice(Matrix(a * I(3))), reshape([0.0, 0.0, 0.0], 3, 1), [1], ["X"])
+        sg = analyze(SpglibBackend(), sc)
+        cs = MagestyRebuild.build_clusters(sc, MagestyRebuild.build_neighbor_list(sc, a + 0.1),
+                                           sg; nbody = 2)
+        @test length(cs.by_body[1]) == 1
+        @test length(cs.by_body[2]) == 1
+
+        # bcc conventional cell (2 atoms): the 8 nearest neighbors are equivalent,
+        # and corner/center sites are equivalent under body-centering.
+        bcc = Crystal(Lattice(Matrix(a * I(3))), [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["X"])
+        sgb = analyze(SpglibBackend(), bcc)
+        csb = MagestyRebuild.build_clusters(bcc, MagestyRebuild.build_neighbor_list(bcc, 2.7),
+                                            sgb; nbody = 2)
+        @test length(csb.by_body[1]) == 1
+        @test length(csb.by_body[2]) == 1
+    end
 end
