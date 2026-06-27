@@ -6,6 +6,25 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — arbitrary body order (N-body clusters)
+
+- **Cluster enumeration** (`clusters/enumerate.jl`): `candidate_clusters` generalized
+  to `N`-body pairwise-within-cutoff cliques (`N = 2` stays the directed neighbor pairs).
+- **SALC projection** (`basis/salcbasis.jl`): general site stabilizer with induced
+  permutations; projection over the combined (ordering × coupling-path × `Mf`) space
+  with the action matrix built by contracting against the package's own orthonormal
+  coupled tensors (no 6j/9j). Handles, at `N ≥ 3`, coupling-path mixing and — for
+  unequal `l` on symmetry-equivalent sites (e.g. `l=(1,1,2)` on a triangle) —
+  `l`-ordering mixing. Improper-op parity is automatic (no proper-part special case).
+- **Multi-term SALCs** (`basis/salc.jl`): a SALC carries one `SALCTerm` (own `ls` +
+  `folded`) per `l`-ordering; `evaluate` and `accumulate_grad!` loop over terms.
+- **`SALCKey`** stays injective when a proper-subgroup stabilizer splits a degenerate
+  multiset into several ordering orbits (`block` runs across them).
+- Validated by ground-truth invariance / time-reversal / linear-independence tests at
+  `N = 3` (incl. the multi-term channel) and an energy+torque 3-body recovery;
+  cross-checked against Magesty.jl — per-`(body, ls, Lf)` invariant-subspace dimensions
+  agree exactly through 3-body, and Magesty's own SALCs independently pass invariance.
+
 ### Added — torque observable (energy + torque co-fit)
 
 - **Gradient kernel** (`basis/salc.jl`): `accumulate_grad!` sums `jϕ·∂Φ/∂e_a` per
@@ -45,7 +64,5 @@ release, so everything lives under *Unreleased*.
 
 ### Notes
 
-- Cluster enumeration is capped at 2-body (the angular-momentum machinery is
-  `N`-generic).
 - Bit-for-bit agreement with Magesty.jl is explicitly not a goal — see
   `docs/design-notes.md`.

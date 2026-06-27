@@ -11,6 +11,7 @@ using Test
 using Random
 using StaticArrays
 using LinearAlgebra
+using OffsetArrays
 import MagestyRebuild
 import Magesty
 import WignerSymbols
@@ -236,6 +237,82 @@ end
         for c in configs[1:5]
             @test isapprox(MagestyRebuild.predict_torque(f, c), analytic_torque(c, J_true);
                            atol = 1e-9)
+        end
+    end
+
+    @testset "N-body SALC dimensions vs Magesty (kagome, 1/2/3-body)" begin
+        # A kagome cell (P6/mmm): three equivalent sites whose triangle has C₃ᵥ site
+        # symmetry permuting them — exercises coupling-path mixing and, for unequal-l
+        # multisets like (1,1,2), l-ordering mixing. The number of independent
+        # invariants per (body, ls, Lf) channel is convention-free, so the two
+        # from-scratch constructions must agree exactly. This validates *both*
+        # implementations (and would expose a bug in either) at N ≥ 3.
+        a, c = 2.0, 8.0
+        A = [a -a/2 0.0; 0.0 a*sqrt(3)/2 0.0; 0.0 0.0 c]
+        frac = [0.0 0.5 0.5; 0.5 0.0 0.5; 0.0 0.0 0.0]
+        kd = [1, 1, 1]
+        cutoff, nbody = 1.2, 3
+
+        # Magesty: count SALCs per channel by key-group (= design-matrix columns),
+        # filtered to per-site l ≤ 2 to match the rebuild's subset.
+        st = Magesty.Structures.Structure(A, SVector{3,Bool}(true, true, true), ["Fe"], kd,
+                                          frac; verbosity = false)
+        sym = Magesty.Symmetries.Symmetry(st, 1e-5; verbosity = false)
+        cutarr = OffsetArray(fill(cutoff, nbody - 1, 1, 1), 2:nbody, 1:1, 1:1)
+        clu = Magesty.Clusters.Cluster(st, sym, nbody, cutarr; verbosity = false)
+        sb = Magesty.SALCBases.SALCBasis(st, sym, clu, [2], OffsetArray([4, 6], 2:nbody),
+                                         nbody; isotropy = false, verbosity = false)
+        magcount = Dict{Tuple{Int,Vector{Int},Int},Int}()
+        for group in sb.salc_list
+            cbc = group[1]
+            all(l -> l <= 2, cbc.ls) || continue
+            k = (length(cbc.atoms), sort(cbc.ls), cbc.Lf)
+            magcount[k] = get(magcount, k, 0) + 1
+        end
+
+        # MagestyRebuild: count SALCs per channel.
+        Lattice = MagestyRebuild.Lattice
+        Crystal = MagestyRebuild.Crystal
+        xtal = Crystal(Lattice(A), frac, kd, ["Fe"])
+        sg = MagestyRebuild.analyze_symmetry(MagestyRebuild.SpglibBackend(), xtal)
+        cs = MagestyRebuild.build_clusters(xtal, MagestyRebuild.build_neighbor_list(xtal, cutoff),
+                                           sg; nbody = nbody)
+        basis = MagestyRebuild.build_salc_basis(xtal, sg, cs; lmax_by_species = [2])
+        mrcount = Dict{Tuple{Int,Vector{Int},Int},Int}()
+        for s in basis.salcs
+            k = (s.key.body, sort(s.key.ls), s.key.Lf)
+            mrcount[k] = get(mrcount, k, 0) + 1
+        end
+
+        @test sym.spacegroup_number == 191
+        @test mrcount == magcount                       # every (body, ls, Lf) dimension agrees
+        @test sum(values(mrcount)) == 42
+        @test mrcount[(3, [1, 1, 2], 2)] == 5           # a multi-ordering 3-body channel
+
+        # Independent ground truth on *Magesty*: its own 3-body SALCs are invariant.
+        magsc(e) = Magesty.SpinConfigs.SpinConfig(0.0, ones(size(e, 2)), e, zeros(3, size(e, 2)))
+        function act_mag(e, g)
+            nat = size(e, 2)
+            R = Matrix(sym.symdata[g].rotation_cart)
+            out = similar(e)
+            for x = 1:nat
+                b = findfirst(==(x), @view sym.map_sym[:, g])
+                out[:, x] = R * e[:, b]
+            end
+            return out
+        end
+        rng = MersenneTwister(42)
+        rc() = reduce(hcat, [SVector{3,Float64}((v = randn(rng, 3); v / norm(v))) for _ = 1:3])
+        for _ = 1:4
+            e = Matrix(rc())
+            Xe = Magesty.Fitting.build_design_matrix_energy(sb.salc_list, [magsc(e)], sym;
+                                                           verbosity = false)
+            for g = 1:sym.nsym
+                Xg = Magesty.Fitting.build_design_matrix_energy(sb.salc_list,
+                                                               [magsc(act_mag(e, g))], sym;
+                                                               verbosity = false)
+                @test isapprox(Xg, Xe; atol = 1e-7)
+            end
         end
     end
 end

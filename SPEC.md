@@ -61,20 +61,27 @@ in `ext/` package extensions; the core loads without them.
   in-tree `NoSymmetry` (P1); `SpglibBackend` type in core, method in
   `ext/MagestyRebuildSpglibExt`. `map_sym` derived in-tree (shared by all backends).
 
-### clusters (M6)
+### clusters (M6) — arbitrary body order
 - `ClusterMember` (atoms + per-site lattice `shift` R), `ClusterOrbit`, `ClusterSet`;
-  `build_clusters` reduces neighbor-pair / atom candidates to symmetry orbits via a
-  canonical key built from the site-image map `(b, τ + W·R)`.
+  `candidate_clusters` enumerates `N`-body **pairwise-within-cutoff cliques** (`N = 2`
+  is the directed neighbor pairs), `build_clusters` reduces them to symmetry orbits
+  via a canonical key built from the site-image map `(b, τ + W·R)`.
 
-### SALC basis (M7)
-- `build_salc_basis` projects each orbit's representative tensor onto the trivial
-  irrep of its site stabilizer (per-`Lf` projector `ε_g·wignerD_real(Lf, R_g)`),
-  deterministic axis-pivoted gauge, transport to members. `SALCKey` (canonical
-  column address) + `SALCBasis` (sorted keys + fingerprint). `evaluate(salc, e)`.
-- Validated by the ground-truth tests with non-collinear spins, **all `Lf`**:
-  space-group invariance `Φ(g·e)=Φ(e)` and time-reversal evenness. The projector
-  represents each op on the `Lf` multiplet by its proper part, so symmetry-
-  forbidden odd-`Lf` channels are dropped and allowed ones kept.
+### SALC basis (M7) — arbitrary body order
+- `build_salc_basis` projects each orbit's representative onto the trivial irrep of
+  its site stabilizer. At `N ≥ 3` a stabilizer op can permute equivalent sites, mixing
+  coupling paths and (for unequal `l`) `l`-orderings, so the projection runs over the
+  **combined (ordering × path × `Mf`) space**: each op acts by rotating every site axis
+  (`wignerD_real(l_i, R)`) and relabeling axes by `invperm(perm)`, with the action
+  matrix read off by contraction against the orthonormal coupled tensors. Deterministic
+  axis-pivoted gauge; per-ordering fold into a multi-term SALC (one `SALCTerm` per
+  ordering). `SALCKey` (canonical, injective column address — `block` runs across split
+  ordering orbits) + `SALCBasis` (sorted keys + fingerprint). `evaluate(salc, e)`.
+- Validated by the ground-truth tests with non-collinear spins, **all `Lf`, all body
+  orders**: space-group invariance `Φ(g·e)=Φ(e)`, time-reversal evenness, linear
+  independence; projector eigenvalues exactly 0/1. Improper-op parity is handled
+  automatically (site-axis rotation by full `R` + even `Σl`). Cross-validated against
+  Magesty: per-`(body, ls, Lf)` invariant-subspace dimensions agree through 3-body.
 
 ### fitting + SCE API (M8, M9)
 - `Interaction`, `SCEBasis`, `SCEDataset` (energy design matrix `X_E`, and the
@@ -89,7 +96,6 @@ in `ext/` package extensions; the core loads without them.
   Heisenberg closed form), energy+torque co-fit recovers an in-span model.
 
 ## Not yet implemented (v0 follow-ups)
-- 3-body clusters (the `N`-generic machinery is in place; enumeration capped at 2).
 - Extensions for GLMNet estimators / VASP I/O / Sunny export; `Tables.jl` results;
   basis persistence.
 

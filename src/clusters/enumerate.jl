@@ -14,23 +14,94 @@ end
 
 body_order(m::ClusterMember)::Int = length(m.atoms)
 
+# All ordered `k`-tuples of distinct indices drawn from `1:n` (permutations of
+# `k`-subsets). Small `k` (= body order − 1) only; cheap.
+function _ordered_subsets(n::Int, k::Int)::Vector{Vector{Int}}
+    k == 0 && return [Int[]]
+    out = Vector{Int}[]
+    for sub in _ordered_subsets(n, k - 1)
+        for i = 1:n
+            i in sub && continue
+            push!(out, vcat(sub, i))
+        end
+    end
+    return out
+end
+
 """
     candidate_clusters(crystal, neighbors, nbody) -> Dict{Int,Vector{ClusterMember}}
 
 Enumerate candidate clusters per body order (`1:nbody`), anchored with the first
-site in the home cell. 1-body clusters are the individual atoms; 2-body clusters
-are the directed neighbor pairs of `neighbors`. (Body orders ≥ 3 are deferred.)
+site in the home cell. 1-body clusters are the individual atoms; an `N`-body
+cluster (`N ≥ 2`) is `N` distinct sites that are **pairwise within the cutoff**
+(the clique rule), generated as ordered tuples `[a, …]` anchored at a home-cell
+atom `a` with the remaining sites drawn from `a`'s in-cutoff neighbors. For `N = 2`
+this is exactly the directed neighbor pairs.
 """
 function candidate_clusters(crystal::Crystal, neighbors::NeighborList,
                             nbody::Integer)::Dict{Int,Vector{ClusterMember}}
     nbody >= 1 || throw(ArgumentError("nbody must be ≥ 1"))
-    nbody <= 2 ||
-        throw(ArgumentError("only 1- and 2-body clusters are implemented (got nbody=$nbody)"))
-    out = Dict{Int,Vector{ClusterMember}}()
+    nat = num_atoms(crystal)
     z = SVector{3,Int}(0, 0, 0)
-    out[1] = [ClusterMember([a], [z]) for a = 1:num_atoms(crystal)]
-    if nbody >= 2
-        out[2] = [ClusterMember([p.i, p.j], [z, p.shift]) for p in neighbors.pairs]
+    out = Dict{Int,Vector{ClusterMember}}()
+    out[1] = [ClusterMember([a], [z]) for a = 1:nat]
+    nbody == 1 && return out
+
+    # Per-home-atom in-cutoff neighbor sites (the directed neighbor list already has
+    # `i` in the home cell), and a cartesian-position helper for the pairwise check.
+    A = crystal.lattice.vectors
+    cart = cartesian_positions(crystal)
+    neigh = [Tuple{Int,SVector{3,Int}}[] for _ = 1:nat]
+    for p in neighbors.pairs
+        push!(neigh[p.i], (p.j, p.shift))
+    end
+    cut2 = neighbors.cutoff^2 + 1e-9
+    sitepos(b::Int, R::SVector{3,Int}) =
+        SVector{3,Float64}(cart[1, b], cart[2, b], cart[3, b]) +
+        A * SVector{3,Float64}(R[1], R[2], R[3])
+
+    for N = 2:nbody
+        members = ClusterMember[]
+        for a = 1:nat
+            sites = neigh[a]
+            ns = length(sites)
+            ns >= N - 1 || continue
+            anchor = (a, z)
+            for combo in _ordered_subsets(ns, N - 1)
+                full = Tuple{Int,SVector{3,Int}}[anchor]
+                for k in combo
+                    push!(full, sites[k])
+                end
+                # distinct sites (an atom in two distinct images is allowed; an
+                # exact (atom, shift) repeat is not)
+                _all_distinct(full) || continue
+                # pairwise within cutoff (anchor↔chosen holds by construction; this
+                # checks every pair including chosen↔chosen)
+                ok = true
+                for x = 1:N
+                    px = sitepos(full[x]...)
+                    for y = (x + 1):N
+                        if sum(abs2, sitepos(full[y]...) - px) > cut2
+                            ok = false
+                            break
+                        end
+                    end
+                    ok || break
+                end
+                ok || continue
+                push!(members, ClusterMember([s[1] for s in full],
+                                             SVector{3,Int}[s[2] for s in full]))
+            end
+        end
+        out[N] = members
     end
     return out
+end
+
+@inline function _all_distinct(sites::Vector{Tuple{Int,SVector{3,Int}}})::Bool
+    n = length(sites)
+    @inbounds for x = 1:n, y = (x + 1):n
+        sites[x] == sites[y] && return false
+    end
+    return true
 end

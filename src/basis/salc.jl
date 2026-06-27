@@ -20,25 +20,40 @@ Base.:(==)(a::SALCKey, b::SALCKey) = _keytuple(a) == _keytuple(b)
 Base.hash(k::SALCKey, h::UInt) = hash(_keytuple(k), h)
 
 """
+    SALCTerm
+
+One `l`-ordering contributing to a (member of a) SALC: per-site angular momenta
+`ls` and the transported real coefficient tensor `folded` (rank `N`, `Mf` axis
+already contracted against the SALC coefficient). A SALC built from an `l`-multiset
+with unequal `l`'s on symmetry-equivalent sites carries one term per ordering; the
+common case (1/2-body, or equal `l`'s) is a single term.
+"""
+struct SALCTerm
+    ls::Vector{Int}
+    folded::Array{Float64}
+end
+
+"""
     SALCMember
 
 One concrete cluster instance contributing to a SALC's orbit sum: `atoms` and
 per-site lattice `shifts` (in the representative's site order), with this member's
-transported real coefficient tensor `folded` (rank `N`, `Mf` axis already
-contracted against the SALC coefficient).
+list of transported [`SALCTerm`](@ref)s (one per `l`-ordering).
 """
 struct SALCMember
     atoms::Vector{Int}
     shifts::Vector{SVector{3,Int}}
-    folded::Array{Float64}
+    terms::Vector{SALCTerm}
 end
 
 """
     SALC
 
 One symmetry-adapted, time-reversal-even scalar basis function over a cluster
-orbit. The function is the orbit sum `Φ(e) = (4π)^(N/2) Σ_members Σ_μ
-folded[μ] ∏ᵢ Zₗᵢ,μᵢ(e_{site})`. See [`build_salc_basis`](@ref).
+orbit. The function is the orbit sum `Φ(e) = (4π)^(N/2) Σ_members Σ_terms Σ_μ
+folded[μ] ∏ᵢ Z_{lsᵢ,μᵢ}(e_{site})`, where each member contributes one or more
+`l`-ordering terms. `SALC.ls` is the sorted `l`-multiset label (the per-term `ls`
+are its orderings). See [`build_salc_basis`](@ref).
 """
 struct SALC
     key::SALCKey
@@ -75,20 +90,22 @@ function evaluate(salc::SALC, e::AbstractMatrix{<:Real})::Float64
     scale = (4π)^(N / 2)
     total = 0.0
     @inbounds for m in salc.members
-        acc = 0.0
-        for idx in CartesianIndices(m.folded)
-            w = m.folded[idx]
-            w == 0.0 && continue
-            for i = 1:N
-                μ = idx[i] - salc.ls[i] - 1
-                u = SVector{3,Float64}(e[1, m.atoms[i]], e[2, m.atoms[i]], e[3, m.atoms[i]])
-                # μ is in range by the tensor bounds and u is a unit column by the
-                # config contract, so the unchecked variant is safe here.
-                w *= Harmonics.Zlm_unsafe(salc.ls[i], μ, u)
+        atoms = m.atoms
+        for t in m.terms
+            ls = t.ls
+            for idx in CartesianIndices(t.folded)
+                w = t.folded[idx]
+                w == 0.0 && continue
+                for i = 1:N
+                    μ = idx[i] - ls[i] - 1
+                    u = SVector{3,Float64}(e[1, atoms[i]], e[2, atoms[i]], e[3, atoms[i]])
+                    # μ is in range by the tensor bounds and u is a unit column by the
+                    # config contract, so the unchecked variant is safe here.
+                    w *= Harmonics.Zlm_unsafe(ls[i], μ, u)
+                end
+                total += w
             end
-            acc += w
         end
-        total += acc
     end
     return scale * total
 end
@@ -113,31 +130,33 @@ function accumulate_grad!(G::AbstractMatrix{Float64}, salc::SALC,
                           e::AbstractMatrix{<:Real}, weight::Real)
     weight == 0.0 && return G
     N = salc.body
-    ls = salc.ls
     scale = weight * (4π)^(N / 2)
     @inbounds for m in salc.members
         atoms = m.atoms
-        for idx in CartesianIndices(m.folded)
-            w = scale * m.folded[idx]
-            w == 0.0 && continue
-            for i = 1:N
-                # leave-one-out product of the other sites' harmonics
-                p = 1.0
-                for k = 1:N
-                    k == i && continue
-                    μk = idx[k] - ls[k] - 1
-                    uk = SVector{3,Float64}(e[1, atoms[k]], e[2, atoms[k]], e[3, atoms[k]])
-                    p *= Harmonics.Zlm_unsafe(ls[k], μk, uk)
+        for t in m.terms
+            ls = t.ls
+            for idx in CartesianIndices(t.folded)
+                w = scale * t.folded[idx]
+                w == 0.0 && continue
+                for i = 1:N
+                    # leave-one-out product of the other sites' harmonics
+                    p = 1.0
+                    for k = 1:N
+                        k == i && continue
+                        μk = idx[k] - ls[k] - 1
+                        uk = SVector{3,Float64}(e[1, atoms[k]], e[2, atoms[k]], e[3, atoms[k]])
+                        p *= Harmonics.Zlm_unsafe(ls[k], μk, uk)
+                    end
+                    p == 0.0 && continue
+                    μi = idx[i] - ls[i] - 1
+                    ui = SVector{3,Float64}(e[1, atoms[i]], e[2, atoms[i]], e[3, atoms[i]])
+                    gi = Harmonics.grad_Zlm_unsafe(ls[i], μi, ui)
+                    c = w * p
+                    a = atoms[i]
+                    G[1, a] += c * gi[1]
+                    G[2, a] += c * gi[2]
+                    G[3, a] += c * gi[3]
                 end
-                p == 0.0 && continue
-                μi = idx[i] - ls[i] - 1
-                ui = SVector{3,Float64}(e[1, atoms[i]], e[2, atoms[i]], e[3, atoms[i]])
-                gi = Harmonics.grad_Zlm_unsafe(ls[i], μi, ui)
-                c = w * p
-                a = atoms[i]
-                G[1, a] += c * gi[1]
-                G[2, a] += c * gi[2]
-                G[3, a] += c * gi[3]
             end
         end
     end

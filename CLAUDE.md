@@ -17,8 +17,10 @@ architecture and `docs/design-notes.md` for the rationale.
 Both SCE observables are fitted: the **energy** `E` and the per-atom **torque**
 `τ_a = e_a × ∂E/∂e_a` (the analytic derivative of the same energy surface). An
 energy+torque co-fit minimizes `L = (1−w)·MSE_E + w·MSE_T` for a `torque_weight`
-`w ∈ [0,1]`. Cluster enumeration is still capped at 2-body (the machinery is
-`N`-generic).
+`w ∈ [0,1]`. Cluster enumeration is **arbitrary body order** (`nbody = K`):
+pairwise-within-cutoff cliques, with the SALC projection generalized to the combined
+(ordering × coupling-path × `Mf`) space so that permutation-equivalent sites — which
+at `N ≥ 3` mix coupling paths and, for unequal `l`, `l`-orderings — are handled.
 
 Bit-for-bit agreement with Magesty is **not** a goal — refining methods so results
 differ slightly is allowed and is the point of the exercise. Validation is
@@ -38,9 +40,11 @@ Easy to break silently — confirm before touching the algorithm.
   factor `(4π)^(−1/2)`; the design matrix carries `(4π)^(N/2)` so an N-body term
   cancels to O(1).
 - **Time reversal**: even-`Σl_s` channel only (odd-`Σl` `ls`-assignments are not
-  enumerated). The per-`Lf` SALC projector represents each operation by its
-  **proper part** on the `Lf` multiplet (`wignerD_real(Lf, is_proper ? R : −R)`),
-  so symmetry-forbidden odd-`Lf` channels are dropped and allowed ones kept.
+  enumerated). The SALC projector rotates each **site** axis by `wignerD_real(l_i, R)`
+  (full `R`, improper included) and reads the `Lf` action off by contraction against
+  the orthonormal coupled tensors; the per-site `(−1)^{l_i}` parity with even `Σl`
+  makes the improper handling automatic (no explicit proper-part case), so
+  symmetry-forbidden odd-`Lf` channels are dropped and allowed ones kept.
 - **Lattice / reciprocal**: `Lattice.vectors` columns are `aᵢ`; `reciprocal =
   inv(vectors)` rows are `bᵢ` with `aᵢ·bⱼ = δᵢⱼ` (no 2π). Interplanar spacing
   `dᵢ = 1/‖row_i(reciprocal)‖`. Fractional coords are wrapped to `[0,1)` on
@@ -63,13 +67,20 @@ Easy to break silently — confirm before touching the algorithm.
   (`test/unit/test_torque.jl`): the torque must be the exact derivative of the energy
   surface. Change one kernel, re-check the other.
 - **SALC construction ↔ the ground-truth invariance test** (`test/unit/test_salc.jl`,
-  `test/oracle/runtests.jl`): every SALC must satisfy `Φ(g·e) = Φ(e)` (non-collinear
-  spins, all `Lf`) and `Φ(−e) = Φ(e)`. The projector's proper-part convention and
-  the member transport must stay consistent — the invariance test is the gate.
+  `test/unit/test_nbody.jl`, `test/oracle/runtests.jl`): every SALC must satisfy
+  `Φ(g·e) = Φ(e)` (non-collinear spins, all `Lf`, **all body orders**) and
+  `Φ(−e) = Φ(e)`. The combined-space projection action (`_project_and_fold`) and the
+  member transport (`_transport_term`) must use the *same* rotation direction and
+  axis-relabel convention (`invperm(perm)`); the eigenvalue-exactly-0/1 idempotency
+  assertion and the invariance test are the gates. At `N ≥ 3` also confirm SALCs are
+  linearly independent (design-matrix rank = #SALC).
 - **Design-matrix columns are identified by `SALCKey`** (`SALCBasis.keys`, sorted),
-  not by construction order. `SCEModel` re-pairs `jphi` to a basis **by key** on
-  any reload (it is positionally paired only within a session). The integer
-  `fingerprint = hash(sorted keys)` guards against cross-basis confusion.
+  not by construction order. The key must stay **injective**: `block` runs across all
+  canonical `l`-orderings that share one sorted `ls` label (a proper-subgroup site
+  stabilizer splits a degenerate multiset into several ordering orbits — see
+  `test/unit/test_nbody.jl`). `SCEModel` re-pairs `jphi` to a basis **by key** on any
+  reload (positionally paired only within a session); `fingerprint = hash(sorted keys)`
+  guards against cross-basis confusion.
 - `solve_coefficients(est, X, y)` receives a **column-centered** `X` (⇒ the solver
   adds no intercept; `j0` is recovered analytically in `fit`). Every estimator —
   in-tree or in an extension — must honor this.
@@ -100,5 +111,6 @@ committing.
 - `SPEC.md` — realized architecture, types, public API.
 - `docs/design-notes.md` — why the rebuild diverges from Magesty (the refinements).
 - `CHANGELOG.md` — what landed in the v0 slice.
-- `examples/heisenberg_chain.jl` — runnable end-to-end (recovers `J`).
+- `examples/heisenberg_chain.jl` — runnable end-to-end (recovers `J`);
+  `examples/kagome_threebody.jl` — 3-body / multi-term SALCs, energy+torque co-fit.
 - `references/` — supporting literature (notes tracked, PDFs local-only).

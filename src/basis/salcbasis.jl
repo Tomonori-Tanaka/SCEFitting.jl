@@ -1,112 +1,186 @@
-# SALC construction: project each cluster orbit's representative tensor onto the
-# trivial irrep of its site stabilizer (orbit–stabilizer theorem), gauge-fix a
-# deterministic orthonormal basis, then transport to all orbit members. v0 covers
-# 1- and 2-body clusters with per-site l ≤ 2, lₛ ≥ 1, Σl even (so every surviving
-# channel has l₁ = l₂ and the l₁≠l₂ site-swap subtlety never arises).
+# SALC construction (arbitrary body order). For each cluster orbit, project the
+# representative's coupled coefficient tensor onto the trivial irrep of its site
+# stabilizer (orbit–stabilizer theorem), gauge-fix a deterministic orthonormal
+# basis, then transport to all orbit members.
+#
+# At N ≥ 3 a stabilizer operation can permute symmetry-equivalent sites. That
+# permutation (a) mixes coupling paths sharing the same Lf and (b) — when the
+# permuted sites carry unequal l — mixes l-orderings. The projection therefore
+# runs over the COMBINED space of (ordering o, coupling path p, Mf), with each
+# operation acting by rotating every site axis (wignerD_real(o_i, R)) and then
+# permuting the site axes by π; the action matrix is read off by contracting
+# against the package's own orthonormal coupled tensors (no 6j/9j). A surviving
+# invariant can span several orderings, so a SALC carries one `SALCTerm` per
+# ordering (`basis/salc.jl`). For 1/2-body and equal-l channels this reduces to a
+# single term and a single path, matching the earlier construction.
+#
+# The absolute drop thresholds below (1e-10/1e-12) and the idempotency guard (1e-6)
+# are sized for the validated regime (per-site l ≤ 2, small body order), where the
+# CG/recoupling products stay O(1e-3)–O(1). The ground-truth invariance test and the
+# exact-0/1 eigenvalue assertion are the in-band gates; at much higher l these
+# thresholds would want to scale with the coupled-tensor magnitude.
 
-# Per-site l-assignments to enumerate for an orbit of the given species.
-function _enumerate_ls(N::Int, species::Vector{Int}, lmax::Vector{Int})
-    if N == 1
-        s = species[1]
-        return [[l] for l = 1:lmax[s] if iseven(l)]
-    elseif N == 2
-        s1, s2 = species[1], species[2]
-        out = Vector{Int}[]
-        for l1 = 1:lmax[s1], l2 = 1:lmax[s2]
-            # A homonuclear pair's two site axes are interchangeable (unordered
-            # multiset); a heteronuclear pair's are not, so enumerate both orders.
-            (s1 == s2 && l1 > l2) && continue
-            iseven(l1 + l2) || continue     # time-reversal even
-            push!(out, [l1, l2])
+# Per-site l-tuples to enumerate for an orbit, one canonical representative per
+# orbit of the site-permutation group `perms` (Σl even = time-reversal even).
+function _enumerate_ls(N::Int, species::Vector{Int}, lmax::Vector{Int},
+                       perms::Vector{Vector{Int}})
+    ranges = ntuple(i -> 1:lmax[species[i]], N)
+    seen = Set{Vector{Int}}()
+    out = Vector{Int}[]
+    for tt in Iterators.product(ranges...)
+        t = collect(Int, tt)
+        iseven(sum(t)) || continue
+        t in seen && continue
+        orbit = unique([t[p] for p in perms])
+        for o in orbit
+            push!(seen, o)
         end
-        return out
-    else
-        throw(ArgumentError("only 1- and 2-body clusters are implemented"))
-    end
-end
-
-# Stabilizer of a 1-body representative: ops fixing the atom. (no swap)
-function _stabilizer1(crystal::Crystal, sg::SpaceGroup, rep::ClusterMember)
-    a = rep.atoms[1]
-    return [(g, false) for g = 1:n_ops(sg) if sg.map_sym[a, g] == a]
-end
-
-# Stabilizer of a 2-body representative: ops mapping the (anchored) pair to itself,
-# possibly swapping the two sites. Returns (op_index, swap::Bool).
-function _stabilizer2(crystal::Crystal, sg::SpaceGroup, rep::ClusterMember, ls::Vector{Int})
-    s1 = (rep.atoms[1], rep.shifts[1])
-    s2 = (rep.atoms[2], rep.shifts[2])
-    out = Tuple{Int,Bool}[]
-    for g = 1:n_ops(sg)
-        img1 = _site_image(crystal, sg, g, rep.atoms[1], rep.shifts[1])
-        img2 = _site_image(crystal, sg, g, rep.atoms[2], rep.shifts[2])
-        for Δ in (img1[2], img2[2])
-            t1 = (img1[1], img1[2] - Δ)
-            t2 = (img2[1], img2[2] - Δ)
-            if t1 == s1 && t2 == s2
-                push!(out, (g, false))
-                break
-            elseif ls[1] == ls[2] && t1 == s2 && t2 == s1
-                push!(out, (g, true))
-                break
-            end
-        end
+        push!(out, minimum(orbit))   # lex-min canonical of the permutation orbit
     end
     return out
 end
 
-# Op connecting the representative to an orbit member (rep ↦ member), with its swap
-# flag, so the member's transported tensor can be built.
-function _connect(crystal::Crystal, sg::SpaceGroup, rep::ClusterMember,
-                  member::ClusterMember, ls::Vector{Int})
-    N = length(rep.atoms)
-    if N == 1
-        a = rep.atoms[1]
-        for g = 1:n_ops(sg)
-            sg.map_sym[a, g] == member.atoms[1] && return (g, false)
-        end
-    else
-        m1 = (member.atoms[1], member.shifts[1])
-        m2 = (member.atoms[2], member.shifts[2])
-        for g = 1:n_ops(sg)
-            img1 = _site_image(crystal, sg, g, rep.atoms[1], rep.shifts[1])
-            img2 = _site_image(crystal, sg, g, rep.atoms[2], rep.shifts[2])
-            for Δ in (img1[2], img2[2])
-                t1 = (img1[1], img1[2] - Δ)
-                t2 = (img2[1], img2[2] - Δ)
-                if t1 == m1 && t2 == m2
-                    return (g, false)
-                elseif ls[1] == ls[2] && t1 == m2 && t2 == m1
-                    return (g, true)
+# Site permutation aligning `src` (= g·rep images) to `dst` up to a common lattice
+# translation: `perm[i] = j` iff `g·(rep siteᵢ)` lands on `dst[j]`. `nothing` if no
+# alignment exists.
+function _align(src::Vector{Tuple{Int,SVector{3,Int}}},
+                dst::Vector{Tuple{Int,SVector{3,Int}}})
+    N = length(src)
+    @inbounds for j = 1:N
+        src[1][1] == dst[j][1] || continue
+        t = src[1][2] - dst[j][2]               # translation aligning src[1] → dst[j]
+        perm = zeros(Int, N)
+        used = falses(N)
+        ok = true
+        for i = 1:N
+            atom = src[i][1]
+            shift = src[i][2] - t
+            found = 0
+            for k = 1:N
+                used[k] && continue
+                if dst[k][1] == atom && dst[k][2] == shift
+                    found = k
+                    break
                 end
             end
+            found == 0 && (ok = false; break)
+            perm[i] = found
+            used[found] = true
         end
+        ok && return perm
+    end
+    return nothing
+end
+
+_sites(m::ClusterMember) = Tuple{Int,SVector{3,Int}}[(m.atoms[i], m.shifts[i]) for i in eachindex(m.atoms)]
+
+_op_images(crystal::Crystal, sg::SpaceGroup, g::Int, rep::ClusterMember) =
+    Tuple{Int,SVector{3,Int}}[_site_image(crystal, sg, g, rep.atoms[i], rep.shifts[i])
+                             for i in eachindex(rep.atoms)]
+
+# Site stabilizer: ops mapping the (unordered) representative to itself, each with
+# its induced site permutation.
+function _stabilizer(crystal::Crystal, sg::SpaceGroup, rep::ClusterMember)
+    dst = _sites(rep)
+    out = Tuple{Int,Vector{Int}}[]
+    for g = 1:n_ops(sg)
+        perm = _align(_op_images(crystal, sg, g, rep), dst)
+        perm === nothing || push!(out, (g, perm))
+    end
+    return out
+end
+
+# Op + induced permutation connecting the representative to an orbit member
+# (`g·rep` aligns to `member`). Members share the orbit, so this always exists.
+function _connect(crystal::Crystal, sg::SpaceGroup, rep::ClusterMember, member::ClusterMember)
+    dst = _sites(member)
+    for g = 1:n_ops(sg)
+        perm = _align(_op_images(crystal, sg, g, rep), dst)
+        perm === nothing || return (g, perm)
     end
     error("no symmetry operation connects the representative to a member")
 end
 
-# Projector onto the stabilizer-invariant subspace of the (2Lf+1)-dim coefficient
-# space, returning an orthonormal basis (columns) of the eigenvalue-1 subspace.
-function _project_invariants(sg::SpaceGroup, stab::Vector{Tuple{Int,Bool}}, Lf::Int)
-    d = 2Lf + 1
-    P = zeros(Float64, d, d)
-    for (g, swap) in stab
-        ε = swap ? (iseven(Lf) ? 1.0 : -1.0) : 1.0   # CG exchange (−1)^Lf for swaps
-        op = sg.ops[g]
-        # Represent the op on the Lf multiplet by its PROPER part: a product of N
-        # site harmonics has total parity (−1)^{Σl} = +1 (even-Σl sector), whereas
-        # wignerD_real(Lf, R) of an improper R carries the genuine harmonic parity
-        # (−1)^Lf. Using det(R0)=+1 keeps the projector consistent with the per-site
-        # transport (whose product parity is +1) — they disagree only for odd Lf.
-        R0 = op.is_proper ? op.rotation_cart : -op.rotation_cart
-        P .+= ε .* AngularMomentum.wignerD_real(Lf, R0)
+# The Mf-th multiplet slice of a coupled tensor (rank N+1 → rank N).
+_mfslice(T::AbstractArray, Mf::Int) = Array(selectdim(T, ndims(T), Mf))
+
+_frob(A::AbstractArray, B::AbstractArray) = sum(A .* B)
+
+# Project the combined (ordering, path, Mf) space onto stabilizer invariants for a
+# fixed final `Lf`, gauge-fix, and fold each invariant into per-ordering tensors.
+# Returns a list of blocks; each block is `Vector{(ls, folded)}` (the rep terms).
+function _project_and_fold(crystal::Crystal, sg::SpaceGroup, stab::Vector{Tuple{Int,Vector{Int}}},
+                           orderings::Vector{Vector{Int}}, Lf::Int)
+    N = length(orderings[1])
+    # coupled tensors of this Lf, per ordering
+    tens = [Array{Float64}[] for _ in orderings]
+    for (oi, o) in enumerate(orderings)
+        for cb in coupled_bases(o)
+            cb.Lf == Lf && push!(tens[oi], cb.tensor)
+        end
+    end
+    cols = Tuple{Int,Int,Int}[]            # (ordering index, path index, Mf index)
+    for oi in eachindex(orderings), p in eachindex(tens[oi]), Mf = 1:(2Lf + 1)
+        push!(cols, (oi, p, Mf))
+    end
+    D = length(cols)
+    D == 0 && return Vector{Tuple{Vector{Int},Array{Float64}}}[]
+    colidx = Dict(cols[k] => k for k = 1:D)
+
+    Dcache = Dict{Tuple{Int,Int},Matrix{Float64}}()
+    wig(l, g) = get!(Dcache, (l, g)) do
+        AngularMomentum.wignerD_real(l, sg.ops[g].rotation_cart)
+    end
+
+    P = zeros(Float64, D, D)
+    for (g, perm) in stab
+        for k = 1:D
+            (oi, p, Mf) = cols[k]
+            o = orderings[oi]
+            v = _mfslice(tens[oi][p], Mf)
+            for i = 1:N
+                v = AngularMomentum.nmode_mul(v, wig(o[i], g), i)
+            end
+            # U_g sends rep axis i → position π(i)=perm[i], i.e. permutedims by π⁻¹.
+            q = invperm(perm)
+            v = permutedims(v, q)
+            oprime = o[q]
+            oi2 = findfirst(==(oprime), orderings)
+            oi2 === nothing && error("ordering set not closed under the stabilizer")
+            for p2 in eachindex(tens[oi2]), Mf2 = 1:(2Lf + 1)
+                c = _frob(_mfslice(tens[oi2][p2], Mf2), v)
+                abs(c) < 1e-12 && continue
+                P[colidx[(oi2, p2, Mf2)], k] += c
+            end
+        end
     end
     P ./= length(stab)
     P .= (P .+ P') ./ 2
     F = eigen(Symmetric(P))
     all(λ -> abs(λ) < 1e-6 || abs(λ - 1) < 1e-6, F.values) ||
         error("SALC projector is not idempotent (eigenvalues $(F.values)); convention bug")
-    return F.vectors[:, findall(>(0.5), F.values)]   # eigenvalue-1 subspace
+    V1 = F.vectors[:, findall(>(0.5), F.values)]
+    W = _canonical_basis(V1)
+
+    blocks = Vector{Tuple{Vector{Int},Array{Float64}}}[]
+    for b = 1:size(W, 2)
+        c = view(W, :, b)
+        terms = Tuple{Vector{Int},Array{Float64}}[]
+        for (oi, o) in enumerate(orderings)
+            Fo = zeros(Float64, ntuple(i -> 2o[i] + 1, N)...)
+            for p in eachindex(tens[oi]), Mf = 1:(2Lf + 1)
+                coef = c[colidx[(oi, p, Mf)]]
+                coef == 0.0 && continue
+                Fo .+= coef .* _mfslice(tens[oi][p], Mf)
+            end
+            @inbounds for idx in eachindex(Fo)
+                abs(Fo[idx]) < 1e-10 && (Fo[idx] = 0.0)
+            end
+            norm(Fo) > 1e-10 && push!(terms, (collect(o), Fo))
+        end
+        push!(blocks, terms)
+    end
+    return blocks
 end
 
 # Deterministic, BLAS-independent gauge: axis-pivoted modified Gram–Schmidt on the
@@ -143,52 +217,43 @@ function _sign_canon!(v)
     end
 end
 
-# Fold the Mf axis of a coupled tensor against a coefficient vector → rank-N tensor.
-function _fold_mf(tensor::AbstractArray, c::AbstractVector)
-    N = ndims(tensor) - 1
-    sz = ntuple(i -> size(tensor, i), N)
-    out = zeros(Float64, sz...)
-    for idx in CartesianIndices(sz)
-        s = 0.0
-        for q in eachindex(c)
-            s += c[q] * tensor[Tuple(idx)..., q]
-        end
-        out[idx] = s
+# Transport a rep term `(o, F)` to a member connected by `(g, perm)`: rotate each
+# site axis by `wignerD_real(o_i, R_g)`, then relabel rep site i → member site
+# perm[i]. Returns the member-ordered `(ls, folded)`.
+function _transport_term(o::Vector{Int}, F::Array{Float64}, sg::SpaceGroup, g::Int,
+                         perm::Vector{Int})
+    N = length(o)
+    R = sg.ops[g].rotation_cart
+    T = F
+    for i = 1:N
+        T = AngularMomentum.nmode_mul(T, AngularMomentum.wignerD_real(o[i], R), i)
     end
-    return out
-end
-
-# Transport the representative folded tensor to a member: rotate each site axis by
-# the connecting op, then reorder axes for a swap.
-function _transport(folded_rep::Array{Float64}, ls::Vector{Int}, Rcart, swap::Bool)
-    T = folded_rep
-    for i in eachindex(ls)
-        T = AngularMomentum.nmode_mul(T, AngularMomentum.wignerD_real(ls[i], Rcart), i)
+    q = invperm(perm)                       # member axis j ← rep axis q[j]
+    G = Array{Float64}(permutedims(T, q))
+    @inbounds for idx in eachindex(G)
+        abs(G[idx]) < 1e-10 && (G[idx] = 0.0)
     end
-    if swap && length(ls) == 2
-        T = permutedims(T, (2, 1))
-    end
-    return Array{Float64}(T)
+    return o[q], G                          # member ls = o[invperm(perm)]
 end
 
 """
     build_salc_basis(crystal, spacegroup, clusters; lmax_by_species, isotropy = false) -> SALCBasis
 
-Construct the symmetry-adapted (and time-reversal-even) SCE basis for every
-cluster orbit. For each `(orbit, ls, Lf)` the stabilizer-invariant coefficient
-subspace is found, gauge-fixed, and transported to all orbit members.
+Construct the symmetry-adapted (and time-reversal-even) SCE basis for every cluster
+orbit and body order. For each `(orbit, l-multiset, Lf)` the stabilizer-invariant
+coefficient subspace (over orderings × coupling paths) is found, gauge-fixed, and
+transported to all orbit members.
 
 # Keyword arguments
 - `lmax_by_species::AbstractVector{<:Integer}`: per-species maximum `l`.
 - `isotropy::Bool = false`: keep only the scalar `Lf == 0` channel if `true`.
 
 # Status
-Both isotropic (`Lf == 0`, Heisenberg/biquadratic) and anisotropic (`Lf > 0`)
-channels are validated by the ground-truth tests: space-group invariance
-`Φ(g·e) = Φ(e)` (with non-collinear spins, all `Lf`) and time-reversal evenness.
-The projector represents each operation on the `Lf` multiplet by its proper part
-so that symmetry-forbidden odd-`Lf` channels (e.g. on a centrosymmetric bond) are
-correctly dropped and allowed ones kept.
+Arbitrary body order. Isotropic (`Lf == 0`) and anisotropic (`Lf > 0`) channels —
+including those that mix coupling paths (`N ≥ 3`) or `l`-orderings on
+symmetry-equivalent sites (e.g. `l=(1,1,2)`, `Lf>0` on an equilateral triangle) —
+are validated by the ground-truth invariance test `Φ(g·e)=Φ(e)` (non-collinear
+spins, all `Lf`) and time-reversal evenness `Φ(−e)=Φ(e)`.
 """
 function build_salc_basis(crystal::Crystal, spacegroup::SpaceGroup, clusters::ClusterSet;
                           lmax_by_species::AbstractVector{<:Integer},
@@ -198,30 +263,39 @@ function build_salc_basis(crystal::Crystal, spacegroup::SpaceGroup, clusters::Cl
     for N in sort(collect(keys(clusters.by_body)))
         for (orbit_id, O) in enumerate(clusters.by_body[N])
             rep = O.representative
-            for ls in _enumerate_ls(N, O.species, lmax)
-                stab = N == 1 ? _stabilizer1(crystal, spacegroup, rep) :
-                       _stabilizer2(crystal, spacegroup, rep, ls)
-                conns = [_connect(crystal, spacegroup, rep, m, ls) for m in O.members]
-                for cb in coupled_bases(ls; isotropy = isotropy)
-                    V1 = _project_invariants(spacegroup, stab, cb.Lf)
-                    size(V1, 2) == 0 && continue
-                    W = _canonical_basis(V1)
-                    for block = 1:size(W, 2)
-                        folded_rep = _fold_mf(cb.tensor, W[:, block])
+            stab = _stabilizer(crystal, spacegroup, rep)
+            perms = unique([perm for (_, perm) in stab])
+            conns = [_connect(crystal, spacegroup, rep, m) for m in O.members]
+            # `block` runs across ALL canonical l-tuples sharing one sorted label so
+            # the key stays injective: when the site permutations are a proper subgroup
+            # of Sₙ they split a degenerate multiset's arrangements into several orbits
+            # (e.g. (1,1,2) and (2,1,1) on a mirror-only triangle put l=2 on
+            # inequivalent sites), all sharing `ls = sort(t)` but giving distinct SALCs.
+            blockcount = Dict{Tuple{Vector{Int},Int},Int}()
+            for t in _enumerate_ls(N, O.species, lmax, perms)
+                orderings = unique([t[p] for p in perms])
+                Lfset = sort(unique(cb.Lf for cb in coupled_bases(t; isotropy = isotropy)))
+                lab = sort(collect(t))
+                for Lf in Lfset
+                    blocks = _project_and_fold(crystal, spacegroup, stab, orderings, Lf)
+                    for terms_rep in blocks
+                        isempty(terms_rep) && continue
                         members = SALCMember[]
                         anynz = false
-                        for (m, (g, swap)) in zip(O.members, conns)
-                            fm = _transport(folded_rep, ls,
-                                            spacegroup.ops[g].rotation_cart, swap)
-                            @inbounds for i in eachindex(fm)
-                                abs(fm[i]) < 1e-10 && (fm[i] = 0.0)
+                        for (m, (g, perm)) in zip(O.members, conns)
+                            mterms = SALCTerm[]
+                            for (o, F) in terms_rep
+                                mls, G = _transport_term(o, F, spacegroup, g, perm)
+                                norm(G) > 1e-10 && (anynz = true)
+                                push!(mterms, SALCTerm(mls, G))
                             end
-                            norm(fm) > 1e-10 && (anynz = true)
-                            push!(members, SALCMember(m.atoms, m.shifts, fm))
+                            push!(members, SALCMember(m.atoms, m.shifts, mterms))
                         end
                         anynz || continue
-                        key = SALCKey(N, orbit_id, collect(ls), cb.Lf, block)
-                        push!(salcs, SALC(key, N, collect(ls), cb.Lf, members))
+                        block = get(blockcount, (lab, Lf), 0) + 1
+                        blockcount[(lab, Lf)] = block
+                        key = SALCKey(N, orbit_id, lab, Lf, block)
+                        push!(salcs, SALC(key, N, lab, Lf, members))
                     end
                 end
             end

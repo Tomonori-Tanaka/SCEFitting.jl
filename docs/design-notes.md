@@ -38,24 +38,61 @@ case. Validated by the functional identity on fresh points, orthogonality,
 
 Magesty averages over the whole space group acting on explicit supercell atoms.
 The rebuild (`basis/salcbasis.jl`) uses the orbit–stabilizer theorem: project the
-representative cluster's coefficient tensor onto the trivial irrep of its **site
-stabilizer** (small `(2Lf+1)×(2Lf+1)` matrices), gauge-fix, then transport to the
-orbit members. The invariant count is identical, but the projectors are tiny and
-the cluster model stays primitive-cell + integer `R`.
+representative cluster's coefficient onto the trivial irrep of its **site
+stabilizer**, gauge-fix, then transport to the orbit members. The invariant count
+is identical, but the projectors are small and the cluster model stays
+primitive-cell + integer `R`.
 
-The subtle point — found by an adversarial review — is parity. The per-`Lf`
-projector represents an operation on the final multiplet by `wignerD_real(Lf, R)`,
-whose value for an *improper* `R` carries the genuine harmonic parity `(−1)^Lf`.
-But the physical object is a product of `N` site harmonics with total parity
-`(−1)^{Σl} = +1` in the time-reversal-even (even-`Σl`) sector. These agree for even
-`Lf` and disagree for odd `Lf`, which broke invariance for anisotropic channels on
-centrosymmetric cells. The fix: represent each op by its **proper part**,
-`wignerD_real(Lf, is_proper ? R : −R)` (matching `det = +1`); this correctly drops
-symmetry-forbidden odd-`Lf` channels (e.g. a Dzyaloshinskii–Moriya-like term on a
-bond with an inversion center) and keeps the genuinely allowed ones. The
-ground-truth gate is the invariance test `Φ(g·e) = Φ(e)` with *non-collinear*
-spins for all `Lf` — note that collinear test spins make every odd-`Lf` invariant
-vanish and silently hide such bugs.
+For **arbitrary body order** the projection runs over the combined
+`(ordering o, coupling path p, Mf)` space (the next section explains why). The
+key construction choice: each stabilizer operation acts by rotating every **site**
+axis by `wignerD_real(l_i, R)` (full `R`) and relabeling axes by the induced
+permutation, and the action matrix is read off by **contracting against the
+package's own orthonormal coupled tensors** — no 6j/9j recoupling, in the same
+spirit as building `wignerD_real` itself. Because the orthonormal coupled tensors
+make the action's matrix exact, `P = mean_g M_g` is a true projector and the
+eigenvalues come out exactly `0`/`1` (an in-band idempotency assertion guards this).
+
+A subtlety found earlier (an adversarial review) is **parity**: an *improper* `R`
+carries the harmonic parity `(−1)^l` per site, while the time-reversal-even sector
+has total product parity `(−1)^{Σl} = +1`. A first version that represented an op on
+the final multiplet directly by `wignerD_real(Lf, R)` disagreed for odd `Lf` and
+broke invariance on centrosymmetric cells (it needed an explicit proper-part fix).
+The site-axis construction above **handles this automatically**: rotating each site
+axis by the full `R` carries the genuine `(−1)^{l_i}` per site, and even `Σl` makes
+the net improper action correct — so symmetry-forbidden odd-`Lf` channels (e.g. a
+Dzyaloshinskii–Moriya-like term on a bond with an inversion center) drop out with no
+special case. The ground-truth gate is the invariance test `Φ(g·e) = Φ(e)` with
+*non-collinear* spins for all `Lf` and all body orders (collinear test spins make
+every odd-`Lf` invariant vanish and would silently hide such bugs), plus a
+linear-independence check (design-matrix rank = #SALC).
+
+## 3b. Combined-space projection and multi-term SALCs (`N ≥ 3`)
+
+At `N ≥ 3` a stabilizer operation can **permute symmetry-equivalent sites**. That
+permutation does two things a per-multiplet projector cannot express:
+
+1. It mixes **coupling paths** — different intermediate `L` sequences that share the
+   same final `Lf` — so the invariant lives in a span of paths, folded into one
+   tensor (this already bites equal-`l` channels like `(2,2,2)`).
+2. When the permuted sites carry **unequal `l`** (e.g. `(1,1,2)` on an equilateral
+   triangle), it mixes **`l`-orderings**: the invariant is a combination of
+   `(1,1,2)`, `(1,2,1)`, `(2,1,1)` that no single ordering contains.
+
+So a SALC is a sum over orderings, each with its own per-site `ls` — a
+**multi-term** object (`SALCTerm`); `evaluate` and the torque gradient loop over
+terms. When the site permutations are a *proper* subgroup of `Sₙ`, a degenerate
+multiset can split into more than one ordering orbit (e.g. a mirror-only triangle
+puts `l = 2` on the apex vs. on a base site — two distinct SALCs that share the
+sorted label `[1,1,2]`); `SALCKey` keeps `block` running across them so it stays
+injective (the by-key column contract, §4).
+
+This was **cross-validated against Magesty**: for a kagome `P6/mmm` cell the number
+of independent invariants per `(body, ls, Lf)` channel — a convention-free integer —
+matches exactly through 3-body (all 42 channels, including the multi-term and
+multi-path ones), and Magesty's own SALCs independently pass the invariance test. Two
+from-scratch constructions agreeing on every invariant-subspace dimension is strong
+mutual evidence that both are correct.
 
 ## 4. Canonical `SALCKey` column addressing (vs. implicit construction order)
 

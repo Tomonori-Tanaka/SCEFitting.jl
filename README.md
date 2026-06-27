@@ -56,7 +56,8 @@ r2_energy(f)                      # ≈ 1.0
 2 * sqrt(3) * coef(f)[1]          # ≈ J  (recovered coupling)
 ```
 
-A standalone, runnable version is in [`examples/heisenberg_chain.jl`](examples/heisenberg_chain.jl).
+Standalone runnable versions are in [`examples/heisenberg_chain.jl`](examples/heisenberg_chain.jl)
+and [`examples/kagome_threebody.jl`](examples/kagome_threebody.jl) (3-body / multi-term SALCs).
 
 ## Design highlights
 
@@ -80,13 +81,14 @@ refinements over Magesty.jl, and [`SPEC.md`](SPEC.md) for the realized architect
 
 ## Status
 
-Implemented and validated (v0): geometry → symmetry (pluggable backend) → cluster
-orbits → SALC basis (isotropic and anisotropic channels) → **energy and torque**
-design matrices → `OLS`/`Ridge` fit (energy-only or energy+torque co-fit) →
-`predict_energy` / `predict_torque`.
+Implemented and validated (v0): geometry → symmetry (pluggable backend) →
+**arbitrary-body-order** cluster orbits → SALC basis (isotropic and anisotropic
+channels, including the `N ≥ 3` coupling-path / `l`-ordering mixing) → **energy and
+torque** design matrices → `OLS`/`Ridge` fit (energy-only or energy+torque co-fit) →
+`predict_energy` / `predict_torque`. Cross-validated against Magesty.jl through
+3-body (invariant-subspace dimensions agree exactly).
 
-Not yet implemented (follow-ups): 3-body clusters (the machinery is `N`-generic;
-enumeration is capped at 2-body), extensions for GLMNet estimators / VASP I/O /
+Not yet implemented (follow-ups): extensions for GLMNet estimators / VASP I/O /
 Sunny export, `Tables.jl` results, and basis persistence.
 
 ## References
