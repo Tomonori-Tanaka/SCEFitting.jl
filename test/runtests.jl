@@ -14,6 +14,8 @@ const TEST_MODE = get(ENV, "TEST_MODE", "default")
         include("unit/test_fit.jl")
         include("unit/test_torque.jl")
         include("unit/test_nbody.jl")
+        include("unit/test_persist.jl")
+        include("unit/test_input.jl")
     end
     if TEST_MODE in ("default", "all", "aqua")
         include("aqua.jl")

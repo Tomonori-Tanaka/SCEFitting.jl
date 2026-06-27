@@ -6,6 +6,33 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — persistence + TOML input files
+
+- **Persistence** (`sce/persist.jl`): `MagestyRebuild.save(path, x)` and
+  `MagestyRebuild.load(SCEBasis | SCEModel, path)` serialize a self-contained,
+  human-readable **TOML** document — the crystal, the space-group ops, the
+  interaction, and the *full* SALC basis (every member / term / folded tensor); a
+  model adds `j0` and per-`SALCKey` coefficients. Reload rebuilds the basis verbatim
+  (no re-projection) and re-pairs coefficients to the basis **by key**, not by
+  position (a `SCEModel` saved by one build reloads correctly into a structurally
+  identical basis). The `struct ⇄ Dict` schema (`_to_doc` / `_from_doc`) is
+  format-agnostic and unit-tested without any serializer; TOML is the stdlib (no
+  dependency) and round-trips `Float64` exactly.
+- **TOML input** (`sce/input.jl`): `read_input(path)` and the new
+  `SCEBasis(path::AbstractString; backend, tol)` constructor build a basis from a
+  human-authored `input.toml` (`[structure]` inline crystal, `[interaction]`,
+  optional `[symmetry]`); keyword arguments override the file's backend/tol.
+  Training data and the estimator are kept out of the file (loaded/chosen in Julia),
+  mirroring the basis/data separation. `read_input` is exported.
+- Considered JSON vs TOML deliberately: stdlib TOML round-trips `Float64` exactly and
+  expresses the full nested SALC document, so the persistence artifact and the input
+  file share one zero-dependency format. The schema layer stays format-agnostic, so a
+  JSON (or other) backend remains a thin future addition.
+- Validated (`test/unit/test_persist.jl`, `test/unit/test_input.jl`): basis / model /
+  fit round-trips (predictions bit-identical, coefficients re-paired by key under a
+  scrambled on-disk order, multi-op space-group ops, empty basis), input parsing +
+  defaults + keyword overrides + error paths.
+
 ### Added — arbitrary body order (N-body clusters)
 
 - **Cluster enumeration** (`clusters/enumerate.jl`): `candidate_clusters` generalized

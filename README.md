@@ -59,6 +59,47 @@ r2_energy(f)                      # ≈ 1.0
 Standalone runnable versions are in [`examples/heisenberg_chain.jl`](examples/heisenberg_chain.jl)
 and [`examples/kagome_threebody.jl`](examples/kagome_threebody.jl) (3-body / multi-term SALCs).
 
+### Persistence and input files
+
+Save a fitted model (or just a basis) to a self-contained, human-readable **TOML**
+document and reload it later. Coefficients re-pair to the basis by `SALCKey`, so a
+reloaded model predicts identically:
+
+```julia
+MagestyRebuild.save("model.toml", SCEModel(f))     # or save("basis.toml", basis)
+model = MagestyRebuild.load(SCEModel, "model.toml")
+predict_energy(model, configs)
+```
+
+A basis can also be built from a human-authored `input.toml` (inline crystal +
+interaction + optional symmetry) instead of constructing `Crystal` / `Interaction`
+in Julia. Training data and the estimator stay in Julia:
+
+```toml
+# input.toml
+[structure]
+lattice = [[8.0, 0.0, 0.0], [0.0, 8.0, 0.0], [0.0, 0.0, 10.0]]  # each entry = one lattice vector
+positions = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.25], [0.0, 0.0, 0.5], [0.0, 0.0, 0.75]]
+species = [1, 1, 1, 1]
+species_labels = ["Fe"]
+
+[interaction]
+nbody = 2
+pair_cutoff = 2.6
+lmax = [1]
+isotropy = true
+
+[symmetry]
+backend = "spglib"   # or "none"
+tol = 1.0e-5
+```
+
+```julia
+basis = SCEBasis("input.toml")     # reads [symmetry] backend/tol from the file
+```
+
+See [`examples/persist_and_input.jl`](examples/persist_and_input.jl) for the full loop.
+
 ## Design highlights
 
 - **Pluggable seams** via multiple dispatch + Julia package extensions: symmetry
@@ -88,8 +129,11 @@ torque** design matrices → `OLS`/`Ridge` fit (energy-only or energy+torque co-
 `predict_energy` / `predict_torque`. Cross-validated against Magesty.jl through
 3-body (invariant-subspace dimensions agree exactly).
 
+Basis/model **persistence** and a human-authored **`input.toml`** are implemented
+(self-contained, human-readable TOML; coefficients re-pair by `SALCKey`).
+
 Not yet implemented (follow-ups): extensions for GLMNet estimators / VASP I/O /
-Sunny export, `Tables.jl` results, and basis persistence.
+Sunny export, and `Tables.jl` results.
 
 ## References
 

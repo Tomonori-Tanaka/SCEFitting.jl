@@ -80,7 +80,18 @@ Easy to break silently — confirm before touching the algorithm.
   stabilizer splits a degenerate multiset into several ordering orbits — see
   `test/unit/test_nbody.jl`). `SCEModel` re-pairs `jphi` to a basis **by key** on any
   reload (positionally paired only within a session); `fingerprint = hash(sorted keys)`
-  guards against cross-basis confusion.
+  guards against cross-basis confusion. This reload is realized by persistence
+  (`MagestyRebuild.load(SCEModel, …)` rebuilds `jphi` in basis-key order from the
+  per-`SALCKey` coefficients).
+- **Persistence schema ↔ the serialized structs** (`sce/persist.jl`): `_to_doc` /
+  `_from_doc` mirror the fields of `Crystal` / `Lattice` / `SpaceGroup` / `Interaction`
+  / `SALCKey` / `SALCTerm` / `SALCMember` / `SALC` / `SCEBasis` / `SCEModel`. Add or
+  rename a field on any of these and both halves (and `test/unit/test_persist.jl`'s
+  round-trip) must follow; the space group is rebuilt via `_assemble_spacegroup` from
+  the stored fractional ops, and the `UInt64` fingerprint is stored as a string and
+  **recomputed** on load (never trusted — `hash` is Julia-version dependent). The TOML
+  input reader (`sce/input.jl`) mirrors only the *setup* structs (crystal + interaction
+  + symmetry), not the SALCs.
 - `solve_coefficients(est, X, y)` receives a **column-centered** `X` (⇒ the solver
   adds no intercept; `j0` is recovered analytically in `fit`). Every estimator —
   in-tree or in an extension — must honor this.

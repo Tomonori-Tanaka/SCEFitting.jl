@@ -1,0 +1,279 @@
+"""
+Persistence (basis / model serialization).
+
+The on-disk format is a **self-contained, human-readable** document: the crystal,
+the symmetry operations, the interaction spec, and the *full* SALC basis (every
+member, term, and folded coefficient tensor) — so a reload reconstructs the basis
+verbatim, without re-running the (expensive) symmetry projection and without
+depending on the construction code's gauge convention staying fixed. A model
+document adds the reference energy `j0` and the SALC coefficients `jϕ`, each tagged
+by its [`SALCKey`](@ref) so they re-pair to the basis **by key**, not by position.
+
+The document is a plain `Dict{String,Any}` tree (`_to_doc` / `*_from_doc`), kept
+deliberately format-agnostic so it can be unit-tested without any serializer and
+re-backed by another format later. It is serialized as **TOML** (Julia's standard
+library — no external dependency; Float64 round-trips exactly) by [`save`](@ref) /
+[`load`](@ref).
+"""
+
+const _SCHEMA_BASIS = "magesty-rebuild/sce-basis"
+const _SCHEMA_MODEL = "magesty-rebuild/sce-model"
+const PERSIST_SCHEMA_VERSION = 1
+
+# Normalize -0.0 → +0.0 so two builds of the same object serialize byte-identically
+# (eigensolvers on different BLAS can flip a sign of zero); -0.0 == 0.0 anyway.
+_jnum(x::Real)::Float64 = (y = Float64(x); y == 0.0 ? 0.0 : y)
+
+# ----------------------------------------------------------------------------
+# struct → Dict
+# ----------------------------------------------------------------------------
+
+_key_doc(k::SALCKey) = Dict{String,Any}(
+    "body" => k.body, "orbit_id" => k.orbit_id,
+    "ls" => collect(Int, k.ls), "Lf" => k.Lf, "block" => k.block)
+
+_term_doc(t::SALCTerm) = Dict{String,Any}(
+    "ls" => collect(Int, t.ls),
+    "shape" => collect(Int, size(t.folded)),
+    "folded" => Float64[_jnum(v) for v in vec(t.folded)])   # column-major flat
+
+_member_doc(m::SALCMember) = Dict{String,Any}(
+    "atoms" => collect(Int, m.atoms),
+    "shifts" => [collect(Int, s) for s in m.shifts],
+    "terms" => [_term_doc(t) for t in m.terms])
+
+_salc_doc(s::SALC) = Dict{String,Any}(
+    "key" => _key_doc(s.key),
+    "members" => [_member_doc(m) for m in s.members])
+
+function _crystal_doc(c::Crystal)
+    A = c.lattice.vectors
+    cols = [[_jnum(A[1, j]), _jnum(A[2, j]), _jnum(A[3, j])] for j = 1:3]   # one per lattice vector
+    pos = [[_jnum(c.frac_positions[1, a]), _jnum(c.frac_positions[2, a]),
+            _jnum(c.frac_positions[3, a])] for a = 1:num_atoms(c)]          # one per atom
+    return Dict{String,Any}(
+        "lattice_vectors" => cols,
+        "pbc" => [c.lattice.pbc[1], c.lattice.pbc[2], c.lattice.pbc[3]],
+        "frac_positions" => pos,
+        "species" => collect(Int, c.species),
+        "species_labels" => collect(String, c.species_labels))
+end
+
+function _symmetry_doc(sg::SpaceGroup)
+    # Store only the fractional ops (+ symbol/number/tol); the Cartesian rotations,
+    # properness flags, and the atom permutation table are re-derived deterministically
+    # by `_assemble_spacegroup` on load.
+    rots = [[[_jnum(op.rotation_frac[i, j]) for j = 1:3] for i = 1:3] for op in sg.ops]
+    trans = [[_jnum(op.translation_frac[k]) for k = 1:3] for op in sg.ops]
+    return Dict{String,Any}(
+        "symbol" => sg.symbol, "number" => sg.number, "tol" => _jnum(sg.tol),
+        "rotations_frac" => rots, "translations_frac" => trans)
+end
+
+_interaction_doc(it::Interaction) = Dict{String,Any}(
+    "nbody" => it.nbody, "pair_cutoff" => _jnum(it.pair_cutoff),
+    "lmax" => collect(Int, it.lmax), "isotropy" => it.isotropy)
+
+function _basis_doc(b::SCEBasis)
+    return Dict{String,Any}(
+        "crystal" => _crystal_doc(b.crystal),
+        "symmetry" => _symmetry_doc(b.spacegroup),
+        "interaction" => _interaction_doc(b.interaction),
+        "fingerprint" => string(b.salcs.fingerprint),   # UInt64 as a string (JSON numbers lose >2^53)
+        "salcs" => [_salc_doc(s) for s in b.salcs.salcs])
+end
+
+"""
+    _to_doc(x) -> Dict{String,Any}
+
+Build the (backend-agnostic) serialization document for an [`SCEBasis`](@ref),
+[`SCEModel`](@ref), or [`SCEFit`](@ref). The inverse is `_basis_from_doc` /
+`_model_from_doc`.
+"""
+function _to_doc(b::SCEBasis)
+    d = Dict{String,Any}("schema" => _SCHEMA_BASIS, "schema_version" => PERSIST_SCHEMA_VERSION)
+    merge!(d, _basis_doc(b))
+    return d
+end
+
+function _to_doc(m::SCEModel)
+    d = Dict{String,Any}("schema" => _SCHEMA_MODEL, "schema_version" => PERSIST_SCHEMA_VERSION)
+    merge!(d, _basis_doc(m.basis))
+    d["j0"] = _jnum(m.j0)
+    d["couplings"] = [Dict{String,Any}("key" => _key_doc(m.keys[k]), "jphi" => _jnum(m.jphi[k]))
+                      for k in eachindex(m.jphi)]
+    return d
+end
+
+_to_doc(f::SCEFit) = _to_doc(SCEModel(f))
+
+# ----------------------------------------------------------------------------
+# Dict → struct   (accessors work on both Dict{String,Any} and a parsed JSON object)
+# ----------------------------------------------------------------------------
+
+_intvec(x)::Vector{Int} = Int[Int(v) for v in x]
+_floatvec(x)::Vector{Float64} = Float64[Float64(v) for v in x]
+
+function _mat3(rows)::SMatrix{3,3,Float64,9}
+    M = MMatrix{3,3,Float64}(undef)
+    @inbounds for i = 1:3, j = 1:3
+        M[i, j] = Float64(rows[i][j])
+    end
+    return SMatrix(M)
+end
+
+_key_from(d) = SALCKey(Int(d["body"]), Int(d["orbit_id"]),
+                       _intvec(d["ls"]), Int(d["Lf"]), Int(d["block"]))
+
+function _term_from(d)::SALCTerm
+    ls = _intvec(d["ls"])
+    shape = _intvec(d["shape"])
+    flat = _floatvec(d["folded"])
+    n = prod(shape; init = 1)
+    length(flat) == n ||
+        throw(ArgumentError("SALC term: $(length(flat)) coefficients for shape $shape (expected $n)"))
+    folded = copy(reshape(flat, Tuple(shape)))   # owned dense Array{Float64,N}
+    return SALCTerm(ls, folded)
+end
+
+function _member_from(d)::SALCMember
+    atoms = _intvec(d["atoms"])
+    shifts = [SVector{3,Int}(Int(s[1]), Int(s[2]), Int(s[3])) for s in d["shifts"]]
+    terms = SALCTerm[_term_from(t) for t in d["terms"]]
+    return SALCMember(atoms, shifts, terms)
+end
+
+function _salc_from(d)::SALC
+    key = _key_from(d["key"])
+    members = SALCMember[_member_from(m) for m in d["members"]]
+    # body / ls / Lf are fully determined by the key (the sorted-multiset label is key.ls).
+    return SALC(key, key.body, copy(key.ls), key.Lf, members)
+end
+
+function _crystal_from(d)::Crystal
+    cols = d["lattice_vectors"]
+    A = MMatrix{3,3,Float64}(undef)
+    @inbounds for j = 1:3, i = 1:3
+        A[i, j] = Float64(cols[j][i])
+    end
+    pbc = (Bool(d["pbc"][1]), Bool(d["pbc"][2]), Bool(d["pbc"][3]))
+    lat = Lattice(SMatrix(A); pbc = pbc)
+    poslist = d["frac_positions"]
+    nat = length(poslist)
+    fr = Matrix{Float64}(undef, 3, nat)
+    @inbounds for a = 1:nat, i = 1:3
+        fr[i, a] = Float64(poslist[a][i])
+    end
+    labels = String[String(s) for s in d["species_labels"]]
+    return Crystal(lat, fr, _intvec(d["species"]), labels)
+end
+
+function _symmetry_from(crystal::Crystal, d)::SpaceGroup
+    rots = d["rotations_frac"]
+    trans = d["translations_frac"]
+    length(rots) == length(trans) ||
+        throw(ArgumentError("symmetry: $(length(rots)) rotations but $(length(trans)) translations"))
+    rotations = SMatrix{3,3,Float64,9}[_mat3(r) for r in rots]
+    translations = SVector{3,Float64}[SVector{3,Float64}(Float64(t[1]), Float64(t[2]), Float64(t[3]))
+                                      for t in trans]
+    return _assemble_spacegroup(crystal, rotations, translations,
+                                String(d["symbol"]), Int(d["number"]); tol = Float64(d["tol"]))
+end
+
+_interaction_from(d)::Interaction = Interaction(Int(d["nbody"]), Float64(d["pair_cutoff"]),
+                                                _intvec(d["lmax"]), Bool(d["isotropy"]))
+
+function _check_schema(d, allowed::Tuple)
+    s = get(d, "schema", nothing)
+    s in allowed ||
+        throw(ArgumentError("unexpected schema $(repr(s)); expected one of $(allowed)"))
+    v = get(d, "schema_version", nothing)
+    (v isa Integer && Int(v) == PERSIST_SCHEMA_VERSION) ||
+        throw(ArgumentError("unsupported schema_version $(repr(v)); this build reads $PERSIST_SCHEMA_VERSION"))
+    return nothing
+end
+
+"""
+    _basis_from_doc(d) -> SCEBasis
+
+Reconstruct an [`SCEBasis`](@ref) from a serialization document (a basis or a model
+document — the basis part is read either way). The SALCs are rebuilt verbatim from
+their stored tensors (no re-projection); the space group is re-derived from the
+stored fractional ops. The structural `fingerprint` is recomputed locally (the
+stored one is provenance only — `hash` is Julia-version dependent).
+"""
+function _basis_from_doc(d)::SCEBasis
+    _check_schema(d, (_SCHEMA_BASIS, _SCHEMA_MODEL))
+    crystal = _crystal_from(d["crystal"])
+    sg = _symmetry_from(crystal, d["symmetry"])
+    interaction = _interaction_from(d["interaction"])
+    salcs = SALC[_salc_from(s) for s in d["salcs"]]
+    keyvec = SALCKey[s.key for s in salcs]
+    if !issorted(keyvec)
+        p = sortperm(keyvec)
+        salcs = salcs[p]
+        keyvec = keyvec[p]
+    end
+    allunique(keyvec) ||
+        throw(ArgumentError("loaded SALC keys are not injective (duplicate design-matrix columns)"))
+    sb = SALCBasis(salcs, keyvec, hash(keyvec))
+    return SCEBasis(crystal, sg, sb, interaction)
+end
+
+"""
+    _model_from_doc(d) -> SCEModel
+
+Reconstruct an [`SCEModel`](@ref) from a model document, re-pairing each stored
+coefficient to the rebuilt basis **by [`SALCKey`](@ref)** (not by position). Errors
+if any basis column lacks a coefficient or the counts disagree.
+"""
+function _model_from_doc(d)::SCEModel
+    _check_schema(d, (_SCHEMA_MODEL,))
+    basis = _basis_from_doc(d)
+    j0 = Float64(d["j0"])
+    coup = Dict{SALCKey,Float64}()
+    for c in d["couplings"]
+        k = _key_from(c["key"])
+        haskey(coup, k) && throw(ArgumentError("duplicate coefficient for SALC key $k"))
+        coup[k] = Float64(c["jphi"])
+    end
+    keys = basis.salcs.keys
+    length(coup) == length(keys) ||
+        throw(ArgumentError("model has $(length(coup)) coefficients for $(length(keys)) basis SALCs"))
+    jphi = Vector{Float64}(undef, length(keys))
+    @inbounds for (i, k) in enumerate(keys)
+        haskey(coup, k) || throw(ArgumentError("no coefficient for SALC key $k in the file"))
+        jphi[i] = coup[k]
+    end
+    return SCEModel(basis, j0, jphi, copy(keys))
+end
+
+# ----------------------------------------------------------------------------
+# save / load entry points
+# ----------------------------------------------------------------------------
+
+"""
+    save(path_or_io, x)
+
+Serialize an [`SCEBasis`](@ref), [`SCEModel`](@ref), or [`SCEFit`](@ref) (a fit is
+saved as its model) to `path_or_io` as a self-contained, human-readable TOML
+document. Call as `MagestyRebuild.save("model.toml", model)`.
+
+    load(SCEBasis, path_or_io) -> SCEBasis
+    load(SCEModel, path_or_io) -> SCEModel
+
+Inverse of [`save`](@ref). A basis can be loaded from a model document too (the
+coefficients are ignored); a model load re-pairs coefficients to the basis **by
+key** (not by position).
+"""
+function save(io::IO, x::Union{SCEBasis,SCEModel,SCEFit})
+    TOML.print(io, _to_doc(x))
+    return nothing
+end
+save(path::AbstractString, x::Union{SCEBasis,SCEModel,SCEFit}) =
+    (open(io -> save(io, x), path, "w"); nothing)
+
+load(::Type{SCEBasis}, io::IO)::SCEBasis = _basis_from_doc(TOML.parse(io))
+load(::Type{SCEModel}, io::IO)::SCEModel = _model_from_doc(TOML.parse(io))
+load(::Type{SCEBasis}, path::AbstractString)::SCEBasis = _basis_from_doc(TOML.parsefile(path))
+load(::Type{SCEModel}, path::AbstractString)::SCEModel = _model_from_doc(TOML.parsefile(path))

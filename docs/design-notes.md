@@ -138,7 +138,41 @@ The co-fit follows Magesty: minimize `L = (1−w)·MSE_E + w·MSE_T` by whitenin
 block (`√((1−w)/n_E)`, `√(w/n_T)`), with `j0` profiled out of the energy block
 analytically — the torque block carries no intercept, so it never sees `j0`.
 
-## 7. Oracle methodology
+## 7. Persistence and input files (TOML, not XML/JSON)
+
+Magesty persists the basis/model as **XML** (EzXML) and takes run setup from an
+**`input.toml`**. The rebuild keeps the two-artifact split but unifies on one
+zero-dependency format:
+
+- **Input** (`sce/input.jl`): a human-authored `input.toml` — `[structure]` (inline
+  crystal: `lattice` as a list of the three lattice vectors, fractional `positions`,
+  per-atom `species`, `species_labels`), `[interaction]` (`nbody`, `pair_cutoff`,
+  per-species `lmax`, `isotropy`), and optional `[symmetry]` (`backend`, `tol`).
+  `SCEBasis("input.toml")` builds the basis; keyword arguments override the file's
+  backend/tol. Like Magesty, training data and the estimator are kept **out** of this
+  file (loaded / chosen in Julia) — `input.toml` specifies only what defines the basis.
+- **Persistence** (`sce/persist.jl`): a **self-contained** TOML document — the crystal,
+  the space-group ops, the interaction, and the *full* SALC basis (every member, term,
+  and folded tensor), plus (for a model) `j0` and per-`SALCKey` coefficients. Reload
+  reconstructs the basis **verbatim** (no re-projection), so a saved model keeps working
+  even if the construction code's gauge later changes — the file is the ground truth.
+  Coefficients re-pair to the basis **by key** (§4), not by position; a scrambled
+  on-disk coefficient order still reloads correctly.
+
+Why TOML for both (the format was deliberated): the persistence artifact is a deep
+nested numeric structure, which first suggested JSON. But Julia's **stdlib** `TOML`
+round-trips `Float64` *exactly* (verified, including `-0.0` and `nextfloat(1.0)`) and
+expresses the full nested SALC document, so a single zero-dependency format serves
+both the human-written input and the machine-written dump — the most Julia-native
+outcome. The `struct ⇄ Dict` schema layer (`_to_doc` / `_from_doc`) is kept
+**format-agnostic** and is unit-tested with no serializer at all, so a JSON (or other)
+backend would be a thin future addition rather than a rewrite. Two robustness details:
+the `UInt64` structural fingerprint is stored as a *string* (TOML/JSON numbers lose
+precision past `2^53`) and is **recomputed** on load rather than trusted (`hash` is
+Julia-version dependent); and `-0.0` is normalized to `+0.0` on write so two builds of
+the same object serialize byte-identically.
+
+## 8. Oracle methodology
 
 `test/oracle/` is a separate environment that `dev`s a pinned `Magesty.jl`; the
 core suite never depends on Magesty. The oracle compares only **convention-fixed

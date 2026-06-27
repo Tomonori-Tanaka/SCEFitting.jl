@@ -14,8 +14,9 @@ geometry → symmetry → clusters → basis (SALC) → design matrix → fit �
 
 Single top-level `module MagestyRebuild`, small files included in dependency
 order; the two self-contained numeric kernels (`Harmonics`, `AngularMomentum`)
-are nested submodules. Heavy / optional dependencies (Spglib, GLMNet, EzXML) live
-in `ext/` package extensions; the core loads without them.
+are nested submodules. Heavy / optional dependencies (Spglib, GLMNet) live in
+`ext/` package extensions; the core loads without them. Persistence and input
+files use the stdlib `TOML` (no external dependency).
 
 ## Extension seams (contracts)
 
@@ -95,9 +96,28 @@ in `ext/` package extensions; the core loads without them.
   exact derivative of the energy surface (on-sphere finite differences, equivariance,
   Heisenberg closed form), energy+torque co-fit recovers an in-span model.
 
+### persistence + TOML input (M10)
+- **Persistence** (`sce/persist.jl`): `MagestyRebuild.save(path, x)` and
+  `MagestyRebuild.load(SCEBasis | SCEModel, path)` serialize a self-contained,
+  human-readable **TOML** document — the crystal, the space-group ops, the interaction,
+  and the *full* SALC basis (every member / term / folded tensor); a model adds `j0`
+  and per-`SALCKey` coefficients. Reload reconstructs the basis verbatim (no
+  re-projection) and re-pairs coefficients to the basis **by key**, not by position.
+  The `struct ⇄ Dict` schema (`_to_doc` / `*_from_doc`) is format-agnostic and tested
+  without any serializer; TOML is stdlib (no dep) and round-trips `Float64` exactly.
+  `save` / `load` are **unexported** (call qualified) to avoid clashing with
+  `FileIO`/`JLD2`.
+- **TOML input** (`sce/input.jl`): `read_input(path) -> (; crystal, interaction, backend, tol)`
+  and `SCEBasis(path::AbstractString; backend, tol)` build a basis from a human-authored
+  `input.toml` (`[structure]` inline crystal, `[interaction]`, optional `[symmetry]`);
+  keyword arguments override the file's backend/tol. Training data and the estimator
+  stay in Julia (mirrors the basis/data separation).
+- Validated: basis / model / fit round-trips (predictions bit-identical, coefficients
+  re-paired by key under scrambled order, multi-op space-group ops, empty basis), input
+  parsing + defaults + keyword overrides + error paths.
+
 ## Not yet implemented (v0 follow-ups)
-- Extensions for GLMNet estimators / VASP I/O / Sunny export; `Tables.jl` results;
-  basis persistence.
+- Extensions for GLMNet estimators / VASP I/O / Sunny export; `Tables.jl` results.
 
 ## Oracle environment (`test/oracle/`)
 
