@@ -78,7 +78,30 @@ unloaded backend hits a friendly "load the backend" error on the abstract
 supertype rather than a bare `MethodError`. This also removes Magesty's habit of
 force-loading Spglib at `using` time.
 
-## 6. Oracle methodology
+## 6. Torque as the energy surface's exact derivative
+
+The torque `τ_a = e_a × ∂E/∂e_a` is the SCE's second observable. Rather than
+treat the torque design matrix as an independently-derived object (a place a sign
+or normalization can silently drift out of step with the energy kernel), the
+rebuild builds the per-site gradient `accumulate_grad!` from the *same*
+`μ = idx − ls − 1` mapping, `ls`, `folded`, and `(4π)^(N/2)` scale as the energy
+kernel `evaluate` — only the innermost `Zₗᵢμᵢ` of each product is swapped for
+`∇Zₗᵢμᵢ` (product rule, summed over the cluster's sites). The consequence is that
+`predict_torque` is *by construction* the analytic gradient of the surface
+`predict_energy` evaluates, and the gate is exactly that: an on-sphere
+finite-difference check `predict_torque ≈ e × ∇E_FD`, plus the Heisenberg closed
+form `τ_a = J e_a × Σ_{nn} e_j`. This is convention-independent ground truth — it
+would catch a self-consistent wrong convention that every gauge-invariant
+comparison misses. (Magesty's reverse-mode, cluster-major gradient accumulator is
+an optimization the v0 deliberately forgoes: the simple `O(N²)`-per-multi-index
+leave-one-out product is clearer and fast enough for 2-body, and shares its inner
+loop with `evaluate` so the two cannot diverge.)
+
+The co-fit follows Magesty: minimize `L = (1−w)·MSE_E + w·MSE_T` by whitening each
+block (`√((1−w)/n_E)`, `√(w/n_T)`), with `j0` profiled out of the energy block
+analytically — the torque block carries no intercept, so it never sees `j0`.
+
+## 7. Oracle methodology
 
 `test/oracle/` is a separate environment that `dev`s a pinned `Magesty.jl`; the
 core suite never depends on Magesty. The oracle compares only **convention-fixed

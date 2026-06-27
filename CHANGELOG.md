@@ -6,6 +6,21 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — torque observable (energy + torque co-fit)
+
+- **Gradient kernel** (`basis/salc.jl`): `accumulate_grad!` sums `jϕ·∂Φ/∂e_a` per
+  site (product rule over cluster members), sharing the energy kernel's `μ`-mapping
+  and `(4π)^(N/2)` scale.
+- **Torque design matrix** `X_T` and per-config torque targets via the four-argument
+  `SCEDataset(basis, configs, energies, torques)`; entry `(4π)^(N/2)·(e_a × ∂Φ/∂e_a)`,
+  rows flattened config/atom/`xyz`.
+- **Energy+torque co-fit**: `fit(SCEFit, dataset, est; torque_weight = w)` minimizes
+  `(1−w)·MSE_E + w·MSE_T` by per-block whitening; `j0` stays analytic from the
+  energy block.
+- **Prediction & metrics**: `predict_torque`, `r2_torque`, `rmse_torque`,
+  `has_torque`. `predict_torque = e × ∇(predict_energy)` by construction (validated
+  by on-sphere finite differences and the Heisenberg closed form).
+
 ### Added — v0 vertical slice (energy fitting end-to-end)
 
 - **Geometry**: `Lattice`, `Crystal`, and a generalized cutoff `NeighborList`
@@ -30,7 +45,6 @@ release, so everything lives under *Unreleased*.
 
 ### Notes
 
-- Energy fitting only; the torque design matrix `X_T` is a planned follow-up.
 - Cluster enumeration is capped at 2-body (the angular-momentum machinery is
   `N`-generic).
 - Bit-for-bit agreement with Magesty.jl is explicitly not a goal — see

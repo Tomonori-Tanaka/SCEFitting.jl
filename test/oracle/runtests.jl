@@ -219,5 +219,23 @@ end
         # recover J from the SALC coefficient: Φ = 2√3·Σ_{undirected} e_i·e_j
         J_recovered = 2 * sqrt(3.0) * MagestyRebuild.coef(f)[1]
         @test isapprox(J_recovered, J_true; rtol = 1e-8)
+
+        # torque from the fitted model vs the Heisenberg closed form. With
+        # E = J·0.5·Σ_members e_i·e_j, ∂E/∂e_a = J·0.5·Σ_members(δ_{a,i} e_j + δ_{a,j} e_i)
+        # and τ_a = e_a × ∂E/∂e_a — convention-independent ground truth.
+        function analytic_torque(c, J)
+            nat = size(c, 2)
+            G = zeros(3, nat)
+            for mem in heis.members
+                i, j = mem.atoms[1], mem.atoms[2]
+                G[:, i] .+= (J * 0.5) .* c[:, j]
+                G[:, j] .+= (J * 0.5) .* c[:, i]
+            end
+            return reduce(hcat, cross(SVector{3}(c[:, a]), SVector{3}(G[:, a])) for a = 1:nat)
+        end
+        for c in configs[1:5]
+            @test isapprox(MagestyRebuild.predict_torque(f, c), analytic_torque(c, J_true);
+                           atol = 1e-9)
+        end
     end
 end

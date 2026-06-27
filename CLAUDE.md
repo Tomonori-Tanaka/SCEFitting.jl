@@ -14,8 +14,11 @@ as a *pinned numerical oracle* in `test/oracle/`. Priority: numerical correctnes
 and reproducibility over stylistic concerns. See `SPEC.md` for the realized
 architecture and `docs/design-notes.md` for the rationale.
 
-**v0 is energy-only.** Per-atom torque co-fitting `τ_a = e_a × ∇_{e_a}E` (the SCE's
-other observable) is a planned follow-up, not yet implemented.
+Both SCE observables are fitted: the **energy** `E` and the per-atom **torque**
+`τ_a = e_a × ∂E/∂e_a` (the analytic derivative of the same energy surface). An
+energy+torque co-fit minimizes `L = (1−w)·MSE_E + w·MSE_T` for a `torque_weight`
+`w ∈ [0,1]`. Cluster enumeration is still capped at 2-body (the machinery is
+`N`-generic).
 
 Bit-for-bit agreement with Magesty is **not** a goal — refining methods so results
 differ slightly is allowed and is the point of the exercise. Validation is
@@ -43,12 +46,22 @@ Easy to break silently — confirm before touching the algorithm.
   `dᵢ = 1/‖row_i(reciprocal)‖`. Fractional coords are wrapped to `[0,1)` on
   periodic axes (neighbor-list precondition).
 - **Energy units**: `Jφ` carry the DFT input unit (eV); `j0` is separate.
+- **Torque**: `τ_a = e_a × ∂E/∂e_a`, design-matrix entry `(4π)^(N/2)·(e_a × ∂Φ/∂e_a)`
+  (same scale and `μ`-mapping as the energy kernel). The torque design matrix `X_T`
+  has no `j0` column. Its rows are flattened config-major, then atom-major, then
+  `xyz`. The co-fit whitens the (centered) energy block by `√((1−w)/n_E)` and the
+  torque block by `√(w/n_T)`; `j0` stays an energy-only quantity.
 
 ## Coupled ("linked") code sites — change one, check all
 
 - `basis/Harmonics.jl` (`Zlm`, `grad_Zlm`) ↔ the on-sphere central-difference and
   closed-form agreement tests (`test/unit/test_harmonics.jl`). Normalization / sign
   drift silently biases `X`.
+- **Energy kernel `evaluate` ↔ gradient kernel `accumulate_grad!`** (`basis/salc.jl`):
+  identical `μ = idx[i] − ls[i] − 1` mapping, `ls`, `folded`, and `(4π)^(N/2)` scale.
+  The gate is the finite-difference self-consistency `predict_torque ≈ e × ∇E_FD`
+  (`test/unit/test_torque.jl`): the torque must be the exact derivative of the energy
+  surface. Change one kernel, re-check the other.
 - **SALC construction ↔ the ground-truth invariance test** (`test/unit/test_salc.jl`,
   `test/oracle/runtests.jl`): every SALC must satisfy `Φ(g·e) = Φ(e)` (non-collinear
   spins, all `Lf`) and `Φ(−e) = Φ(e)`. The projector's proper-part convention and

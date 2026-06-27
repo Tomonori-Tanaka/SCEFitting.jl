@@ -5,10 +5,10 @@ A clean, extensible, Julia-native rebuild of **Magesty.jl** — fitting
 
 > **Status: work in progress (v0 vertical slice).** The numerical core (tesseral
 > spherical harmonics, Clebsch–Gordan coupling, symmetry-adapted basis, design
-> matrix, regression) is reimplemented from scratch and validated against
+> matrices, regression) is reimplemented from scratch and validated against
 > Magesty.jl as a pinned numerical oracle. This is an architectural exploration;
-> for production use see Magesty.jl. **Energy fitting only so far** — see
-> [Status](#status) for what is and isn't implemented.
+> for production use see Magesty.jl. Both SCE observables — **energy** and per-atom
+> **torque** — are fitted; see [Status](#status) for what is and isn't implemented.
 
 ## What it does
 
@@ -22,6 +22,11 @@ E({e_a}) = j0 + Σ_φ J_φ Φ_φ({e_a})
 where the spins `e_a` are unit vectors and the `Φ_φ` are symmetry-adapted,
 time-reversal-even scalar invariants built from real tesseral spherical harmonics
 over clusters of spins. Fitting recovers the cluster coefficients `J_φ`.
+
+The same coefficients also fix the per-atom **torque** `τ_a = e_a × ∂E/∂e_a`, the
+SCE's other DFT observable. Passing per-configuration torques to `SCEDataset` and a
+`torque_weight ∈ (0, 1]` to `fit` runs an energy+torque co-fit that minimizes
+`(1 − w)·MSE_energy + w·MSE_torque`.
 
 ## Usage
 
@@ -76,13 +81,13 @@ refinements over Magesty.jl, and [`SPEC.md`](SPEC.md) for the realized architect
 ## Status
 
 Implemented and validated (v0): geometry → symmetry (pluggable backend) → cluster
-orbits → SALC basis (isotropic and anisotropic channels) → **energy** design
-matrix → `OLS`/`Ridge` fit → `predict_energy`.
+orbits → SALC basis (isotropic and anisotropic channels) → **energy and torque**
+design matrices → `OLS`/`Ridge` fit (energy-only or energy+torque co-fit) →
+`predict_energy` / `predict_torque`.
 
-Not yet implemented (follow-ups): the **torque** design matrix `X_T` (the SCE's
-other observable), 3-body clusters (the machinery is `N`-generic; enumeration is
-capped at 2-body), extensions for GLMNet estimators / VASP I/O / Sunny export,
-`Tables.jl` results, and basis persistence.
+Not yet implemented (follow-ups): 3-body clusters (the machinery is `N`-generic;
+enumeration is capped at 2-body), extensions for GLMNet estimators / VASP I/O /
+Sunny export, `Tables.jl` results, and basis persistence.
 
 ## References
 

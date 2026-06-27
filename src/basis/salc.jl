@@ -92,3 +92,54 @@ function evaluate(salc::SALC, e::AbstractMatrix{<:Real})::Float64
     end
     return scale * total
 end
+
+"""
+    accumulate_grad!(G, salc, e, weight) -> G
+
+Accumulate `weight · ∇Φ(e)` into `G` (a `3 × n_atoms` buffer), where `∇Φ` is the
+per-site direction gradient of the SALC orbit sum: column `a` of `G` receives
+`weight · ∂Φ/∂e_a`. Summing this over a model's SALCs (with `weight = jϕ`) yields
+`Σ_ϕ jϕ ∇Φ_ϕ`, whose cross product with the spins gives the torque
+`τ_a = e_a × ∂E/∂e_a`.
+
+The gradient distributes over the product rule: for each cluster member, each
+folded-tensor multi-index `μ`, and each site `i` of the member,
+`∂/∂e_{aᵢ} ∏ₖ Zₗₖμₖ = (∏_{k≠i} Zₗₖμₖ) ∇Zₗᵢμᵢ`, landing on column `aᵢ`. A site that
+appears more than once in a member contributes once per occurrence (the chain
+rule), so repeated sites are handled correctly. `∇Zₗₘ` is the tangent-projected
+gradient; the radial part it drops would cancel in `e × ∇Φ` anyway.
+"""
+function accumulate_grad!(G::AbstractMatrix{Float64}, salc::SALC,
+                          e::AbstractMatrix{<:Real}, weight::Real)
+    weight == 0.0 && return G
+    N = salc.body
+    ls = salc.ls
+    scale = weight * (4π)^(N / 2)
+    @inbounds for m in salc.members
+        atoms = m.atoms
+        for idx in CartesianIndices(m.folded)
+            w = scale * m.folded[idx]
+            w == 0.0 && continue
+            for i = 1:N
+                # leave-one-out product of the other sites' harmonics
+                p = 1.0
+                for k = 1:N
+                    k == i && continue
+                    μk = idx[k] - ls[k] - 1
+                    uk = SVector{3,Float64}(e[1, atoms[k]], e[2, atoms[k]], e[3, atoms[k]])
+                    p *= Harmonics.Zlm_unsafe(ls[k], μk, uk)
+                end
+                p == 0.0 && continue
+                μi = idx[i] - ls[i] - 1
+                ui = SVector{3,Float64}(e[1, atoms[i]], e[2, atoms[i]], e[3, atoms[i]])
+                gi = Harmonics.grad_Zlm_unsafe(ls[i], μi, ui)
+                c = w * p
+                a = atoms[i]
+                G[1, a] += c * gi[1]
+                G[2, a] += c * gi[2]
+                G[3, a] += c * gi[3]
+            end
+        end
+    end
+    return G
+end

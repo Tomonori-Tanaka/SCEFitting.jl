@@ -42,28 +42,111 @@ nsalc(b::SCEBasis) = length(b.salcs)
 
 """
     SCEDataset(basis, configs, energies)
+    SCEDataset(basis, configs, energies, torques)
 
 Pair an [`SCEBasis`](@ref) with training data: spin configurations `configs`
 (each `3 × n_atoms`, unit columns) and their `energies`. Materializes the energy
 design matrix `X_E[config, salc] = evaluate(salc, config)`.
+
+The four-argument form additionally takes per-configuration torques (each
+`3 × n_atoms`, the DFT torque `τ_a = e_a × ∂E/∂e_a` on every atom) and builds the
+torque design matrix `X_T` for an energy+torque co-fit (see [`fit`](@ref)). Its
+rows are flattened config-major, then atom-major, then `xyz`:
+`row = 3·n_atoms·(config−1) + 3·(atom−1) + component`. Torque-free datasets leave
+`X_T`/`y_T` empty.
 """
 struct SCEDataset
     basis::SCEBasis
     configs::Vector{Matrix{Float64}}
     X_E::Matrix{Float64}
     y_E::Vector{Float64}
+    X_T::Matrix{Float64}
+    y_T::Vector{Float64}
 end
 
+"""
+    has_torque(dataset) -> Bool
+
+Whether `dataset` carries torque training data (so an energy+torque co-fit is
+possible).
+"""
+has_torque(d::SCEDataset) = !isempty(d.y_T)
+
 function SCEDataset(basis::SCEBasis, configs::AbstractVector, energies::AbstractVector)::SCEDataset
-    salcs = basis.salcs.salcs
     cfgs = [Matrix{Float64}(c) for c in configs]
+    X = _design_energy(basis, cfgs)
+    empty_T = Matrix{Float64}(undef, 0, size(X, 2))
+    return SCEDataset(basis, cfgs, X, collect(Float64, energies), empty_T, Float64[])
+end
+
+function SCEDataset(basis::SCEBasis, configs::AbstractVector, energies::AbstractVector,
+                   torques::AbstractVector)::SCEDataset
+    cfgs = [Matrix{Float64}(c) for c in configs]
+    length(torques) == length(cfgs) ||
+        throw(ArgumentError("got $(length(torques)) torque blocks for $(length(cfgs)) configs"))
+    X_E = _design_energy(basis, cfgs)
+    X_T = _design_torque(basis, cfgs)
+    y_T = _flatten_torques(torques, cfgs)
+    return SCEDataset(basis, cfgs, X_E, collect(Float64, energies), X_T, y_T)
+end
+
+# Energy design matrix: X_E[config, salc] = Φ_salc(config).
+function _design_energy(basis::SCEBasis, cfgs::Vector{Matrix{Float64}})::Matrix{Float64}
+    salcs = basis.salcs.salcs
     n = length(cfgs)
     m = length(salcs)
     X = Matrix{Float64}(undef, n, m)
     @inbounds for j = 1:m, i = 1:n   # column-major: stride-1 writes down each column
         X[i, j] = evaluate(salcs[j], cfgs[i])
     end
-    return SCEDataset(basis, cfgs, X, collect(Float64, energies))
+    return X
+end
+
+# Torque design matrix: for each SALC column, each config, each atom, the three
+# components of τ_a = e_a × ∂Φ/∂e_a stacked config-major / atom-major / xyz.
+function _design_torque(basis::SCEBasis, cfgs::Vector{Matrix{Float64}})::Matrix{Float64}
+    salcs = basis.salcs.salcs
+    n = length(cfgs)
+    m = length(salcs)
+    nat = isempty(cfgs) ? 0 : size(cfgs[1], 2)
+    block = 3 * nat
+    X = Matrix{Float64}(undef, n * block, m)
+    G = Matrix{Float64}(undef, 3, nat)
+    @inbounds for j = 1:m            # column per SALC (column-major writes)
+        for ci = 1:n
+            c = cfgs[ci]
+            fill!(G, 0.0)
+            accumulate_grad!(G, salcs[j], c, 1.0)
+            row_off = block * (ci - 1)
+            for a = 1:nat
+                ea = SVector{3,Float64}(c[1, a], c[2, a], c[3, a])
+                ga = SVector{3,Float64}(G[1, a], G[2, a], G[3, a])
+                t = cross(ea, ga)
+                rb = row_off + 3 * (a - 1)
+                X[rb + 1, j] = t[1]
+                X[rb + 2, j] = t[2]
+                X[rb + 3, j] = t[3]
+            end
+        end
+    end
+    return X
+end
+
+# Flatten per-config torque targets in the same row order as `_design_torque`.
+function _flatten_torques(torques::AbstractVector, cfgs::Vector{Matrix{Float64}})::Vector{Float64}
+    nat = isempty(cfgs) ? 0 : size(cfgs[1], 2)
+    block = 3 * nat
+    y = Vector{Float64}(undef, length(cfgs) * block)
+    @inbounds for ci in eachindex(torques)
+        τ = torques[ci]
+        size(τ) == (3, nat) ||
+            throw(ArgumentError("torque block $ci must be 3 × $nat (got $(size(τ)))"))
+        rb = block * (ci - 1)
+        for a = 1:nat, d = 1:3
+            y[rb + 3 * (a - 1) + d] = τ[d, a]
+        end
+    end
+    return y
 end
 
 """
@@ -87,7 +170,8 @@ end
 """
     SCEFit
 
-A fitted SCE model: the dataset, fitted `j0`/`jphi`, the estimator, and residuals.
+A fitted SCE model: the dataset, fitted `j0`/`jphi`, the estimator, the
+`torque_weight` used, and the (energy) residuals.
 """
 struct SCEFit
     dataset::SCEDataset
@@ -95,27 +179,56 @@ struct SCEFit
     jphi::Vector{Float64}
     estimator::AbstractEstimator
     residuals::Vector{Float64}
+    torque_weight::Float64
 end
 
 """
-    fit(SCEFit, dataset, estimator) -> SCEFit
+    fit(SCEFit, dataset, estimator; torque_weight = 0.0) -> SCEFit
 
-Fit the SCE coefficients. The energy design matrix is column-centered (so `j0` is
-recovered analytically as the mean residual, independent of the estimator), then
-the centered problem is handed to `solve_coefficients`.
+Fit the SCE coefficients. The energy design matrix is column-centered, so the
+reference energy `j0` is recovered analytically as `mean(y_E − X_E·jϕ)`
+(independent of the estimator), and the centered problem is handed to
+`solve_coefficients`.
+
+With `torque_weight = w ∈ (0, 1]` and a torque-carrying `dataset` (see
+[`SCEDataset`](@ref)), the fit minimizes the per-sample-normalized objective
+
+    L = (1 − w)·MSE_energy + w·MSE_torque
+
+by whitening: the centered energy block is row-scaled by `√((1−w)/n_E)` and the
+torque block by `√(w/n_T)`, then stacked. `j0` does not enter the torque block, so
+it is still recovered from the energy data alone. `w = 0` (the default) is a
+pure-energy fit; requesting `w > 0` without torque data is an error.
 """
-function fit(::Type{SCEFit}, dataset::SCEDataset, estimator::AbstractEstimator)::SCEFit
-    X = dataset.X_E
-    y = dataset.y_E
-    isempty(y) && throw(ArgumentError("dataset has no observations"))
-    xbar = vec(mean(X; dims = 1))
-    ybar = mean(y)
-    Xc = X .- xbar'
-    yc = y .- ybar
-    jphi = solve_coefficients(estimator, Xc, yc)
+function fit(::Type{SCEFit}, dataset::SCEDataset, estimator::AbstractEstimator;
+             torque_weight::Real = 0.0)::SCEFit
+    X_E = dataset.X_E
+    y_E = dataset.y_E
+    isempty(y_E) && throw(ArgumentError("dataset has no observations"))
+    w = Float64(torque_weight)
+    (0.0 <= w <= 1.0) || throw(ArgumentError("torque_weight must be in [0, 1]; got $w"))
+    if w > 0 && !has_torque(dataset)
+        throw(ArgumentError("torque_weight = $w but the dataset has no torque data; " *
+                            "build it with SCEDataset(basis, configs, energies, torques)"))
+    end
+
+    xbar = vec(mean(X_E; dims = 1))
+    ybar = mean(y_E)
+    if w > 0
+        n_E = length(y_E)
+        n_T = length(dataset.y_T)
+        se = sqrt((1 - w) / n_E)
+        sm = sqrt(w / n_T)
+        X = vcat((X_E .- xbar') .* se, dataset.X_T .* sm)
+        y = vcat((y_E .- ybar) .* se, dataset.y_T .* sm)
+    else
+        X = X_E .- xbar'
+        y = y_E .- ybar
+    end
+    jphi = solve_coefficients(estimator, X, y)
     j0 = ybar - dot(xbar, jphi)
-    residuals = y .- (j0 .+ X * jphi)
-    return SCEFit(dataset, j0, jphi, estimator, residuals)
+    residuals = y_E .- (j0 .+ X_E * jphi)
+    return SCEFit(dataset, j0, jphi, estimator, residuals, w)
 end
 
 """
@@ -144,6 +257,37 @@ predict_energy(model::SCEModel, configs::AbstractVector)::Vector{Float64} =
 predict_energy(f::SCEFit, data) = predict_energy(SCEModel(f), data)
 
 """
+    predict_torque(model, config) -> Matrix{Float64}
+
+Predict the per-atom torque `τ_a = e_a × ∂E/∂e_a` of a spin configuration
+(`3 × n_atoms`), returned as a `3 × n_atoms` matrix. A vector of configurations
+returns a vector of such matrices. The torque is the analytic derivative of the
+same energy surface [`predict_energy`](@ref) evaluates, so the two are consistent
+by construction (`τ = e × ∇E`).
+"""
+function predict_torque(model::SCEModel, config::AbstractMatrix{<:Real})::Matrix{Float64}
+    salcs = model.basis.salcs.salcs
+    nat = size(config, 2)
+    G = zeros(Float64, 3, nat)
+    @inbounds for k in eachindex(model.jphi)
+        accumulate_grad!(G, salcs[k], config, model.jphi[k])
+    end
+    T = Matrix{Float64}(undef, 3, nat)
+    @inbounds for a = 1:nat
+        ea = SVector{3,Float64}(config[1, a], config[2, a], config[3, a])
+        ga = SVector{3,Float64}(G[1, a], G[2, a], G[3, a])
+        t = cross(ea, ga)
+        T[1, a] = t[1]
+        T[2, a] = t[2]
+        T[3, a] = t[3]
+    end
+    return T
+end
+predict_torque(model::SCEModel, configs::AbstractVector)::Vector{Matrix{Float64}} =
+    [predict_torque(model, c) for c in configs]
+predict_torque(f::SCEFit, data) = predict_torque(SCEModel(f), data)
+
+"""
     coef(f) / intercept(f) / nobs(f) -> coefficients / j0 / number of observations
 """
 coef(f::SCEFit) = f.jphi
@@ -162,3 +306,24 @@ function r2_energy(f::SCEFit)::Float64
     return ss_tot == 0 ? 1.0 : 1 - ss_res / ss_tot
 end
 rmse_energy(f::SCEFit)::Float64 = sqrt(mean(abs2, f.residuals))
+
+"""
+    r2_torque(f) / rmse_torque(f) -> in-sample torque R² / RMSE
+
+Computed over the flattened per-atom torque components. Requires a
+torque-carrying dataset. The torque prediction `τ = X_T·jϕ` has no intercept
+(`j0` does not enter it), so the R² baseline is the uncentered total sum of
+squares `Σ τ²` (the error of the zero predictor), not the mean-centered one.
+"""
+function r2_torque(f::SCEFit)::Float64
+    has_torque(f.dataset) || throw(ArgumentError("dataset has no torque data"))
+    y = f.dataset.y_T
+    res = y .- f.dataset.X_T * f.jphi
+    ss_res = sum(abs2, res)
+    ss_tot = sum(abs2, y)            # no-intercept model ⇒ uncentered baseline
+    return ss_tot == 0 ? 1.0 : 1 - ss_res / ss_tot
+end
+function rmse_torque(f::SCEFit)::Float64
+    has_torque(f.dataset) || throw(ArgumentError("dataset has no torque data"))
+    return sqrt(mean(abs2, f.dataset.y_T .- f.dataset.X_T * f.jphi))
+end

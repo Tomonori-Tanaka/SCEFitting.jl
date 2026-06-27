@@ -9,7 +9,7 @@ Work in progress (v0 vertical slice). See `SPEC.md` for the realized architectur
 """
 module MagestyRebuild
 
-using LinearAlgebra: norm, det, I, eigen, Symmetric, dot
+using LinearAlgebra: norm, det, I, eigen, Symmetric, dot, cross
 using StaticArrays
 using Statistics: mean
 
@@ -45,8 +45,9 @@ export SymOp, SpaceGroup, AbstractSymmetryBackend, NoSymmetry, SpglibBackend,
     analyze_symmetry, n_ops
 export ClusterMember, ClusterOrbit, ClusterSet, build_clusters
 export SALCKey, SALC, SALCBasis, build_salc_basis, evaluate
-export Interaction, SCEBasis, SCEDataset, SCEModel, SCEFit, fit, predict_energy, nsalc
+export Interaction, SCEBasis, SCEDataset, SCEModel, SCEFit, fit, nsalc
+export predict_energy, predict_torque, has_torque
 export AbstractEstimator, OLS, Ridge, solve_coefficients
-export coef, intercept, nobs, r2_energy, rmse_energy
+export coef, intercept, nobs, r2_energy, rmse_energy, r2_torque, rmse_torque
 
 end # module MagestyRebuild
