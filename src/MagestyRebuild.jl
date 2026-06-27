@@ -11,6 +11,7 @@ module MagestyRebuild
 
 using LinearAlgebra: norm, det, I, eigen, Symmetric, dot
 using StaticArrays
+using Statistics: mean
 
 # --- geometry ---
 include("geometry/lattice.jl")
@@ -34,11 +35,18 @@ include("clusters/orbits.jl")
 include("basis/salc.jl")
 include("basis/salcbasis.jl")
 
+# --- fitting + high-level SCE API ---
+include("fitting/estimators.jl")
+include("sce/model.jl")
+
 export Lattice, Crystal, num_atoms
 export NeighborPair, NeighborList, build_neighbor_list
 export SymOp, SpaceGroup, AbstractSymmetryBackend, NoSymmetry, SpglibBackend,
     analyze_symmetry
 export ClusterMember, ClusterOrbit, ClusterSet, build_clusters
 export SALCKey, SALC, SALCBasis, build_salc_basis
+export Interaction, SCEBasis, SCEDataset, SCEModel, SCEFit, fit, predict_energy
+export AbstractEstimator, OLS, Ridge, solve_coefficients
+export coef, intercept, nobs, r2_energy, rmse_energy
 
 end # module MagestyRebuild

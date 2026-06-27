@@ -188,4 +188,36 @@ end
             @test isapprox(evaluate(heis, e), ref; atol = 1e-9, rtol = 1e-8)
         end
     end
+
+    @testset "Heisenberg chain end-to-end: recover J (M8/M9)" begin
+        Lattice = MagestyRebuild.Lattice
+        Crystal = MagestyRebuild.Crystal
+        SpglibBackend = MagestyRebuild.SpglibBackend
+
+        lat = Lattice(Matrix(Diagonal([8.0, 8.0, 10.0])))
+        frac = [zeros(2, 4); [0.0 0.25 0.5 0.75]]
+        chain = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
+        interaction = MagestyRebuild.Interaction(; nbody = 2, pair_cutoff = 2.6,
+                                                 lmax = [1], isotropy = true)
+        basis = MagestyRebuild.SCEBasis(chain, interaction; backend = SpglibBackend())
+        @test length(basis.salcs) == 1          # only the nearest-neighbor Heisenberg SALC
+        heis = basis.salcs.salcs[1]
+
+        rng = MersenneTwister(3)
+        cfg() = (M = Matrix{Float64}(undef, 3, 4);
+                 for a = 1:4; v = randn(rng, 3); M[:, a] = v / norm(v); end; M)
+        J_true = 0.0137
+        configs = [cfg() for _ = 1:30]
+        # physical Heisenberg energies E = J Σ_{undirected nn} e_i·e_j
+        E = [J_true * 0.5 * sum(dot(c[:, m.atoms[1]], c[:, m.atoms[2]]) for m in heis.members)
+             for c in configs]
+
+        ds = MagestyRebuild.SCEDataset(basis, configs, E)
+        f = MagestyRebuild.fit(MagestyRebuild.SCEFit, ds, MagestyRebuild.OLS())
+        @test MagestyRebuild.r2_energy(f) ≈ 1.0 atol = 1e-10
+        @test isapprox(MagestyRebuild.predict_energy(f, configs), E; atol = 1e-10)
+        # recover J from the SALC coefficient: Φ = 2√3·Σ_{undirected} e_i·e_j
+        J_recovered = 2 * sqrt(3.0) * MagestyRebuild.coef(f)[1]
+        @test isapprox(J_recovered, J_true; rtol = 1e-8)
+    end
 end

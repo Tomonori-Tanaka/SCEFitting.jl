@@ -11,6 +11,7 @@ const TEST_MODE = get(ENV, "TEST_MODE", "default")
         include("unit/test_symmetry.jl")
         include("unit/test_clusters.jl")
         include("unit/test_salc.jl")
+        include("unit/test_fit.jl")
     end
     if TEST_MODE in ("default", "all", "aqua")
         include("aqua.jl")
