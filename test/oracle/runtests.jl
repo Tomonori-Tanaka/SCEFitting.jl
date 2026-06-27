@@ -157,14 +157,14 @@ end
         sg = analyze(SpglibBackend(), chain)
         nl = MagestyRebuild.build_neighbor_list(chain, 2.6)   # nearest neighbors only
         cs = MagestyRebuild.build_clusters(chain, nl, sg; nbody = 2)
-        # v0 validated path: isotropic (Lf=0) scalar invariants (Heisenberg/biquadratic).
-        basis = MagestyRebuild.build_salc_basis(chain, sg, cs;
-                                                lmax_by_species = [2], isotropy = true)
+        # full basis including anisotropic (Lf>0) channels
+        basis = MagestyRebuild.build_salc_basis(chain, sg, cs; lmax_by_species = [2])
+        @test any(s -> s.Lf > 0, basis.salcs)   # anisotropic channels present
 
         rng = MersenneTwister(5)
-        randcfg() = reduce(hcat, [(v = randn(rng, 3); v / norm(v)) for _ = 1:4])
+        randcfg() = reduce(hcat, [SVector{3,Float64}((v = randn(rng, 3); v / norm(v))) for _ = 1:4])
 
-        # invariance under the real space group
+        # invariance under the real space group (all Lf, non-collinear spins)
         for _ = 1:5
             e = randcfg()
             for g = 1:length(sg.ops)

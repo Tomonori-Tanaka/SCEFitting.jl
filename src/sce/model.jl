@@ -60,7 +60,7 @@ function SCEDataset(basis::SCEBasis, configs::AbstractVector, energies::Abstract
     n = length(cfgs)
     m = length(salcs)
     X = Matrix{Float64}(undef, n, m)
-    @inbounds for i = 1:n, j = 1:m
+    @inbounds for j = 1:m, i = 1:n   # column-major: stride-1 writes down each column
         X[i, j] = evaluate(salcs[j], cfgs[i])
     end
     return SCEDataset(basis, cfgs, X, collect(Float64, energies))
@@ -70,7 +70,12 @@ end
     SCEModel
 
 A lightweight predictor: the basis plus the fitted reference energy `j0` and SALC
-coefficients `jphi` (addressed by `keys`).
+coefficients `jphi`. `keys` records each coefficient's [`SALCKey`](@ref).
+
+`SCEModel` is a session-scoped object: `jphi[k]` pairs with `basis.salcs.salcs[k]`
+positionally (they are built together by `SCEModel(::SCEFit)`), and `keys` is
+diagnostic metadata. A future persistence/reload workflow should re-pair `jphi` to
+a freshly built basis **by key**, not by position.
 """
 struct SCEModel
     basis::SCEBasis

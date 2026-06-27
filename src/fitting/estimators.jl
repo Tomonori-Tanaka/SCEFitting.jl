@@ -50,7 +50,7 @@ function solve_coefficients(est::AbstractEstimator, X::AbstractMatrix, y::Abstra
 end
 
 function solve_coefficients(::OLS, X::AbstractMatrix, y::AbstractVector)::Vector{Float64}
-    return Symmetric(X' * X) \ (X' * y)
+    return X \ y   # QR-based least squares (more robust than the normal equations)
 end
 
 function solve_coefficients(est::Ridge, X::AbstractMatrix, y::AbstractVector)::Vector{Float64}

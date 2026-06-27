@@ -82,7 +82,9 @@ function evaluate(salc::SALC, e::AbstractMatrix{<:Real})::Float64
             for i = 1:N
                 μ = idx[i] - salc.ls[i] - 1
                 u = SVector{3,Float64}(e[1, m.atoms[i]], e[2, m.atoms[i]], e[3, m.atoms[i]])
-                w *= Harmonics.Zlm(salc.ls[i], μ, u)
+                # μ is in range by the tensor bounds and u is a unit column by the
+                # config contract, so the unchecked variant is safe here.
+                w *= Harmonics.Zlm_unsafe(salc.ls[i], μ, u)
             end
             acc += w
         end

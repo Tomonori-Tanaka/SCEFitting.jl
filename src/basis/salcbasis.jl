@@ -13,7 +13,9 @@ function _enumerate_ls(N::Int, species::Vector{Int}, lmax::Vector{Int})
         s1, s2 = species[1], species[2]
         out = Vector{Int}[]
         for l1 = 1:lmax[s1], l2 = 1:lmax[s2]
-            l1 <= l2 || continue            # unordered (sorted) multiset
+            # A homonuclear pair's two site axes are interchangeable (unordered
+            # multiset); a heteronuclear pair's are not, so enumerate both orders.
+            (s1 == s2 && l1 > l2) && continue
             iseven(l1 + l2) || continue     # time-reversal even
             push!(out, [l1, l2])
         end
@@ -90,15 +92,21 @@ function _project_invariants(sg::SpaceGroup, stab::Vector{Tuple{Int,Bool}}, Lf::
     P = zeros(Float64, d, d)
     for (g, swap) in stab
         ε = swap ? (iseven(Lf) ? 1.0 : -1.0) : 1.0   # CG exchange (−1)^Lf for swaps
-        P .+= ε .* AngularMomentum.wignerD_real(Lf, sg.ops[g].rotation_cart)
+        op = sg.ops[g]
+        # Represent the op on the Lf multiplet by its PROPER part: a product of N
+        # site harmonics has total parity (−1)^{Σl} = +1 (even-Σl sector), whereas
+        # wignerD_real(Lf, R) of an improper R carries the genuine harmonic parity
+        # (−1)^Lf. Using det(R0)=+1 keeps the projector consistent with the per-site
+        # transport (whose product parity is +1) — they disagree only for odd Lf.
+        R0 = op.is_proper ? op.rotation_cart : -op.rotation_cart
+        P .+= ε .* AngularMomentum.wignerD_real(Lf, R0)
     end
     P ./= length(stab)
     P .= (P .+ P') ./ 2
     F = eigen(Symmetric(P))
     all(λ -> abs(λ) < 1e-6 || abs(λ - 1) < 1e-6, F.values) ||
         error("SALC projector is not idempotent (eigenvalues $(F.values)); convention bug")
-    cols = findall(λ -> abs(λ - 1) < 1e-8, F.values)
-    return F.vectors[:, cols]
+    return F.vectors[:, findall(>(0.5), F.values)]   # eigenvalue-1 subspace
 end
 
 # Deterministic, BLAS-independent gauge: axis-pivoted modified Gram–Schmidt on the
@@ -175,12 +183,12 @@ subspace is found, gauge-fixed, and transported to all orbit members.
 - `isotropy::Bool = false`: keep only the scalar `Lf == 0` channel if `true`.
 
 # Status
-The isotropic (`Lf == 0`) scalar channel — Heisenberg and biquadratic invariants —
-is validated (space-group invariance + time-reversal evenness, the ground-truth
-tests). Anisotropic (`Lf > 0`) channels are constructed but have a known
-member-transport site-axis-alignment issue on cells whose pair stabilizers contain
-a site swap (the invariance test flags it); use `isotropy = true` for the
-validated v0 path until that is resolved.
+Both isotropic (`Lf == 0`, Heisenberg/biquadratic) and anisotropic (`Lf > 0`)
+channels are validated by the ground-truth tests: space-group invariance
+`Φ(g·e) = Φ(e)` (with non-collinear spins, all `Lf`) and time-reversal evenness.
+The projector represents each operation on the `Lf` multiplet by its proper part
+so that symmetry-forbidden odd-`Lf` channels (e.g. on a centrosymmetric bond) are
+correctly dropped and allowed ones kept.
 """
 function build_salc_basis(crystal::Crystal, spacegroup::SpaceGroup, clusters::ClusterSet;
                           lmax_by_species::AbstractVector{<:Integer},

@@ -39,13 +39,13 @@ include("basis/salcbasis.jl")
 include("fitting/estimators.jl")
 include("sce/model.jl")
 
-export Lattice, Crystal, num_atoms
+export Lattice, Crystal, num_atoms, cartesian_positions, interplanar_spacing
 export NeighborPair, NeighborList, build_neighbor_list
 export SymOp, SpaceGroup, AbstractSymmetryBackend, NoSymmetry, SpglibBackend,
-    analyze_symmetry
+    analyze_symmetry, n_ops
 export ClusterMember, ClusterOrbit, ClusterSet, build_clusters
-export SALCKey, SALC, SALCBasis, build_salc_basis
-export Interaction, SCEBasis, SCEDataset, SCEModel, SCEFit, fit, predict_energy
+export SALCKey, SALC, SALCBasis, build_salc_basis, evaluate
+export Interaction, SCEBasis, SCEDataset, SCEModel, SCEFit, fit, predict_energy, nsalc
 export AbstractEstimator, OLS, Ridge, solve_coefficients
 export coef, intercept, nobs, r2_energy, rmse_energy
 

@@ -17,7 +17,16 @@ function act_on_config(sg, g, e)
     return out
 end
 
-rand_config(rng, nat) = reduce(hcat, (v = randn(rng, 3); SVector{3,Float64}(v / norm(v)) for _ = 1:nat))
+# Distinct random unit spin per column (a single shared spin would make every
+# odd-Lf invariant vanish and silently mask anisotropic bugs).
+function rand_config(rng, nat)
+    M = Matrix{Float64}(undef, 3, nat)
+    for a = 1:nat
+        v = randn(rng, 3)
+        M[:, a] = v / norm(v)
+    end
+    return M
+end
 
 @testset "SALC" begin
     lat = Lattice(Matrix(3.0 * I(3)))
@@ -35,6 +44,7 @@ rand_config(rng, nat) = reduce(hcat, (v = randn(rng, 3); SVector{3,Float64}(v / 
         @test issorted(basis.keys)
         @test allunique(basis.keys)
         @test basis.fingerprint == hash(basis.keys)
+        @test any(s -> s.Lf > 0, basis.salcs)   # anisotropic channels present & tested
     end
 
     @testset "every SALC is space-group invariant: Φ(g·e) = Φ(e)" begin
