@@ -6,6 +6,17 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — tabular coefficient output (Tables.jl)
+
+- **`coeftable(f)` / `coeftable(model)` → `SCECoefficients`** (`sce/coeftable.jl`): a
+  Tables.jl source — one row per SALC (`body`, `orbit_id`, `ls` as a comma string,
+  `Lf`, `block`, `J`) — so the fitted coefficients drop into `DataFrame` /
+  `CSV.write` / `Arrow.write`. The library owns the internal-storage → labeled-row
+  mapping (the `J` column pairs with the basis keys positionally); the caller brings
+  the table/IO package. `j0` is the intercept (`intercept(c)`), not a row. Tables.jl
+  is a lightweight core dependency, the same seam that would later open tabular
+  training-data ingestion.
+
 ### Added — persistence + TOML input files
 
 - **Persistence** (`sce/persist.jl`): `MagestyRebuild.save(path, x)` and

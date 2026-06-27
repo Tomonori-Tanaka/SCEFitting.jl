@@ -13,6 +13,7 @@ using LinearAlgebra: norm, det, I, eigen, Symmetric, dot, cross
 using StaticArrays
 using Statistics: mean
 import TOML
+import Tables
 
 # --- geometry ---
 include("geometry/lattice.jl")
@@ -40,6 +41,9 @@ include("basis/salcbasis.jl")
 include("fitting/estimators.jl")
 include("sce/model.jl")
 
+# --- tabular results (Tables.jl source) ---
+include("sce/coeftable.jl")
+
 # --- persistence (format-agnostic schema, serialized as TOML) + TOML input files ---
 include("sce/persist.jl")
 include("sce/input.jl")
@@ -54,5 +58,6 @@ export Interaction, SCEBasis, SCEDataset, SCEModel, SCEFit, fit, nsalc, read_inp
 export predict_energy, predict_torque, has_torque
 export AbstractEstimator, OLS, Ridge, solve_coefficients
 export coef, intercept, nobs, r2_energy, rmse_energy, r2_torque, rmse_torque
+export coeftable, SCECoefficients
 
 end # module MagestyRebuild

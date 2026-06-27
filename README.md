@@ -100,6 +100,17 @@ basis = SCEBasis("input.toml")     # reads [symmetry] backend/tol from the file
 
 See [`examples/persist_and_input.jl`](examples/persist_and_input.jl) for the full loop.
 
+### Inspecting fitted coefficients
+
+`coeftable(f)` returns a Tables.jl source (one row per SALC: `body`, `orbit_id`, `ls`,
+`Lf`, `block`, `J`), so the coefficients drop into any table / IO package:
+
+```julia
+using DataFrames
+df = DataFrame(coeftable(f))       # or CSV.write("J.csv", coeftable(f))
+intercept(f)                       # the reference energy j0 (not a row)
+```
+
 ## Design highlights
 
 - **Pluggable seams** via multiple dispatch + Julia package extensions: symmetry
@@ -130,10 +141,11 @@ torque** design matrices → `OLS`/`Ridge` fit (energy-only or energy+torque co-
 3-body (invariant-subspace dimensions agree exactly).
 
 Basis/model **persistence** and a human-authored **`input.toml`** are implemented
-(self-contained, human-readable TOML; coefficients re-pair by `SALCKey`).
+(self-contained, human-readable TOML; coefficients re-pair by `SALCKey`), as is
+**tabular coefficient output** (`coeftable` is a Tables.jl source).
 
 Not yet implemented (follow-ups): extensions for GLMNet estimators / VASP I/O /
-Sunny export, and `Tables.jl` results.
+Sunny export.
 
 ## References
 

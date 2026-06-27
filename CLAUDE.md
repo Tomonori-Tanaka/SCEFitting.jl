@@ -92,6 +92,11 @@ Easy to break silently — confirm before touching the algorithm.
   **recomputed** on load (never trusted — `hash` is Julia-version dependent). The TOML
   input reader (`sce/input.jl`) mirrors only the *setup* structs (crystal + interaction
   + symmetry), not the SALCs.
+- **`coeftable` columns ↔ `SALCKey` fields** (`sce/coeftable.jl`): each result row is
+  read straight off a `SALCKey` (`body` / `orbit_id` / `ls`→comma string / `Lf` /
+  `block`) plus `jphi`; the `J` column pairs with `basis.salcs.keys` **positionally**
+  (same order as the design matrix). Add or rename a `SALCKey` field → update the row
+  builder, the `Tables.Schema`, and `test/unit/test_coeftable.jl`.
 - `solve_coefficients(est, X, y)` receives a **column-centered** `X` (⇒ the solver
   adds no intercept; `j0` is recovered analytically in `fit`). Every estimator —
   in-tree or in an extension — must honor this.

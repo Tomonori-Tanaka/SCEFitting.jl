@@ -172,7 +172,23 @@ precision past `2^53`) and is **recomputed** on load rather than trusted (`hash`
 Julia-version dependent); and `-0.0` is normalized to `+0.0` on write so two builds of
 the same object serialize byte-identically.
 
-## 8. Oracle methodology
+## 8. Result access as a Tables.jl source
+
+Turning the fitted coefficients into a labeled table is the **library's** job, not the
+caller's: only the package knows how to map internal storage (a `SALCKey` plus the
+position of its coefficient in the `jphi` vector) to meaningful rows
+(`body`, `orbit_id`, `ls`, `Lf`, `block`, `J`) — forcing a user to reach into
+`f.dataset.basis.salcs.keys` would leak that. So `coeftable(fit | model)` returns an
+`SCECoefficients` that implements the **Tables.jl** interface: it is a *data source*
+that drops into whatever *sink* the caller chooses (`DataFrame`, `CSV.write`,
+`Arrow.write`). The package depends only on the lightweight Tables.jl contract, never on
+a table or IO package — the responsibility split (library owns the result semantics;
+caller owns formatting/IO/plotting) falls exactly on the Tables.jl seam. The intercept
+`j0` is exposed separately (`intercept`), not as a row, because it is not a per-cluster
+quantity. The same contract is the natural entry point for the reverse direction
+(ingesting tabular training data) if that lands later.
+
+## 9. Oracle methodology
 
 `test/oracle/` is a separate environment that `dev`s a pinned `Magesty.jl`; the
 core suite never depends on Magesty. The oracle compares only **convention-fixed

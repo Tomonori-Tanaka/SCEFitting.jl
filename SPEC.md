@@ -112,12 +112,18 @@ files use the stdlib `TOML` (no external dependency).
   `input.toml` (`[structure]` inline crystal, `[interaction]`, optional `[symmetry]`);
   keyword arguments override the file's backend/tol. Training data and the estimator
   stay in Julia (mirrors the basis/data separation).
+- **Tabular results** (`sce/coeftable.jl`): `coeftable(fit | model) -> SCECoefficients`
+  is a **Tables.jl** source — one row per SALC (`body`, `orbit_id`, `ls` as a comma
+  string, `Lf`, `block`, `J`) — so it drops into `DataFrame` / `CSV.write` /
+  `Arrow.write`. The library owns the internal-storage → labeled-row mapping; the caller
+  brings the table/IO package. `j0` is the intercept (`intercept(c)`), not a row.
+  Tables.jl is a lightweight core dep.
 - Validated: basis / model / fit round-trips (predictions bit-identical, coefficients
   re-paired by key under scrambled order, multi-op space-group ops, empty basis), input
   parsing + defaults + keyword overrides + error paths.
 
 ## Not yet implemented (v0 follow-ups)
-- Extensions for GLMNet estimators / VASP I/O / Sunny export; `Tables.jl` results.
+- Extensions for GLMNet estimators / VASP I/O / Sunny export.
 
 ## Oracle environment (`test/oracle/`)
 

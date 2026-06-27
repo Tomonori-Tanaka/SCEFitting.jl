@@ -1,0 +1,93 @@
+using Test
+using MagestyRebuild
+using Tables
+using LinearAlgebra
+using Random
+
+@testset "coeftable (Tables.jl source)" begin
+    rng = MersenneTwister(5)
+    lat = Lattice(Matrix(3.0 * I(3)))
+    crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+    basis = SCEBasis(crystal, Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false))
+    m = nsalc(basis)
+    configs = [(E = randn(rng, 3, 2); E ./ sqrt.(sum(abs2, E; dims = 1))) for _ = 1:40]
+    f = fit(SCEFit, SCEDataset(basis, configs, randn(rng, 40)), OLS())
+    c = coeftable(f)
+
+    @testset "Tables.jl interface + schema" begin
+        @test c isa SCECoefficients
+        @test Tables.istable(typeof(c))
+        @test Tables.rowaccess(typeof(c))
+        sch = Tables.schema(c)
+        @test sch.names == (:body, :orbit_id, :ls, :Lf, :block, :J)
+        @test sch.types == (Int, Int, String, Int, Int, Float64)
+        @test length(c) == m
+    end
+
+    @testset "columns carry the right data and types" begin
+        ct = Tables.columntable(c)
+        @test keys(ct) == (:body, :orbit_id, :ls, :Lf, :block, :J)
+        @test collect(ct.J) == f.jphi                         # J column == fitted coefficients, in order
+        @test eltype(ct.body) == Int
+        @test eltype(ct.Lf) == Int
+        @test eltype(ct.ls) == String
+        # columns agree with the basis keys, positionally
+        ks = basis.salcs.keys
+        @test collect(ct.body) == [k.body for k in ks]
+        @test collect(ct.orbit_id) == [k.orbit_id for k in ks]
+        @test collect(ct.Lf) == [k.Lf for k in ks]
+        @test collect(ct.block) == [k.block for k in ks]
+    end
+
+    @testset "ls is the sorted multiset as a comma string" begin
+        ks = basis.salcs.keys
+        @test all(c[i].ls == join(ks[i].ls, ",") for i = 1:m)
+        # this 2-body lmax=[2] basis has both single-l (body 1) and multi-l (body 2) labels
+        ls_vals = [c[i].ls for i = 1:m]
+        @test "2" in ls_vals          # a body-1 l=2 term
+        @test "1,1" in ls_vals        # a 2-body (1,1) term, comma-joined
+    end
+
+    @testset "rows, indexing, iteration, accessors" begin
+        @test eltype(c) == NamedTuple{(:body, :orbit_id, :ls, :Lf, :block, :J),
+                                      Tuple{Int,Int,String,Int,Int,Float64}}
+        @test c[1] == (body = basis.salcs.keys[1].body, orbit_id = basis.salcs.keys[1].orbit_id,
+                       ls = join(basis.salcs.keys[1].ls, ","), Lf = basis.salcs.keys[1].Lf,
+                       block = basis.salcs.keys[1].block, J = f.jphi[1])
+        @test length(collect(c)) == m
+        @test Tables.rowtable(c) == collect(c)
+        @test coef(c) == f.jphi
+        @test intercept(c) === f.j0
+        # fit and its model give the same table
+        cm = coeftable(SCEModel(f))
+        @test Tables.columntable(cm) == Tables.columntable(c)
+    end
+
+    @testset "empty model" begin
+        eb = SCEBasis(crystal, Interaction(; nbody = 1, pair_cutoff = 0.1, lmax = [0]))
+        ce = coeftable(SCEModel(eb, 0.5, Float64[], eb.salcs.keys))
+        @test length(ce) == 0
+        @test Tables.istable(typeof(ce))
+        ct = Tables.columntable(ce)
+        @test keys(ct) == (:body, :orbit_id, :ls, :Lf, :block, :J)
+        @test isempty(ct.J)
+        @test intercept(ce) === 0.5
+    end
+
+    @testset "display" begin
+        @test m > 20                                  # this basis exercises the row cap
+        s = sprint(show, MIME("text/plain"), c)
+        @test occursin("$m terms", s)
+        @test occursin("body", s) && occursin("ls", s)   # header
+        @test occursin("⋮ ($(m - 20) more)", s)          # truncation count
+        one = repr(c)
+        @test occursin("$m terms", one) && occursin("j0=", one)
+        # a short table prints no truncation marker
+        short = coeftable(SCEModel(basis, 0.0, zeros(m)[1:1], basis.salcs.keys[1:1]))
+        @test !occursin("more", sprint(show, MIME("text/plain"), short))
+    end
+
+    @testset "errors" begin
+        @test_throws ArgumentError SCECoefficients(basis.salcs.keys, Float64[], 0.0)  # length mismatch
+    end
+end

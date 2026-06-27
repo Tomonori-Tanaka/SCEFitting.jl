@@ -49,6 +49,9 @@ f = fit(SCEFit, SCEDataset(basis, configs, E), OLS())
 model = SCEModel(f)
 println("fitted J = ", round(2 * sqrt(3) * coef(f)[1]; digits = 6), "  (true ", J_true, ")")
 
+# the coefficients as a Tables.jl source — DataFrame(coeftable(f)) / CSV.write(...) also work
+println("\n", coeftable(f))
+
 # --- 3. save → reload → predict identically --------------------------------------
 model_path = joinpath(dir, "model.toml")
 MagestyRebuild.save(model_path, model)
