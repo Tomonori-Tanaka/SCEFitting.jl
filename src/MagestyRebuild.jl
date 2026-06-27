@@ -19,6 +19,7 @@ include("geometry/neighborlist.jl")
 
 # --- basis: numeric kernels (self-contained submodules) ---
 include("basis/Harmonics.jl")
+include("basis/AngularMomentum.jl")
 
 export Lattice, Crystal, num_atoms
 export NeighborPair, NeighborList, build_neighbor_list

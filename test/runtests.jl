@@ -6,6 +6,7 @@ const TEST_MODE = get(ENV, "TEST_MODE", "default")
     if TEST_MODE in ("default", "all", "unit")
         include("unit/test_geometry.jl")
         include("unit/test_harmonics.jl")
+        include("unit/test_angmom.jl")
     end
     if TEST_MODE in ("default", "all", "aqua")
         include("aqua.jl")
