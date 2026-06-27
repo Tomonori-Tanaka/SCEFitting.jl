@@ -9,7 +9,7 @@ Work in progress (v0 vertical slice). See `SPEC.md` for the realized architectur
 """
 module MagestyRebuild
 
-using LinearAlgebra: norm, det, I
+using LinearAlgebra: norm, det, I, eigen, Symmetric, dot
 using StaticArrays
 
 # --- geometry ---
@@ -30,10 +30,15 @@ include("basis/coupledbasis.jl")
 include("clusters/enumerate.jl")
 include("clusters/orbits.jl")
 
+# --- SALC basis: symmetry-adapted, time-reversal-even invariants ---
+include("basis/salc.jl")
+include("basis/salcbasis.jl")
+
 export Lattice, Crystal, num_atoms
 export NeighborPair, NeighborList, build_neighbor_list
 export SymOp, SpaceGroup, AbstractSymmetryBackend, NoSymmetry, SpglibBackend,
     analyze_symmetry
 export ClusterMember, ClusterOrbit, ClusterSet, build_clusters
+export SALCKey, SALC, SALCBasis, build_salc_basis
 
 end # module MagestyRebuild

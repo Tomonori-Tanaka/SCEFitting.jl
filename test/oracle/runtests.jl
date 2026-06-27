@@ -142,4 +142,50 @@ end
         @test length(csb.by_body[1]) == 1
         @test length(csb.by_body[2]) == 1
     end
+
+    @testset "SALC basis on a real chain (M7)" begin
+        Lattice = MagestyRebuild.Lattice
+        Crystal = MagestyRebuild.Crystal
+        SpglibBackend = MagestyRebuild.SpglibBackend
+        analyze = MagestyRebuild.analyze_symmetry
+        evaluate = MagestyRebuild.evaluate
+
+        # 4-atom chain along z (so neighboring spins differ)
+        lat = Lattice(Matrix(Diagonal([8.0, 8.0, 10.0])))
+        frac = [0.0 0.0 0.0 0.0; 0.0 0.0 0.0 0.0; 0.0 0.25 0.5 0.75]
+        chain = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
+        sg = analyze(SpglibBackend(), chain)
+        nl = MagestyRebuild.build_neighbor_list(chain, 2.6)   # nearest neighbors only
+        cs = MagestyRebuild.build_clusters(chain, nl, sg; nbody = 2)
+        # v0 validated path: isotropic (Lf=0) scalar invariants (Heisenberg/biquadratic).
+        basis = MagestyRebuild.build_salc_basis(chain, sg, cs;
+                                                lmax_by_species = [2], isotropy = true)
+
+        rng = MersenneTwister(5)
+        randcfg() = reduce(hcat, [(v = randn(rng, 3); v / norm(v)) for _ = 1:4])
+
+        # invariance under the real space group
+        for _ = 1:5
+            e = randcfg()
+            for g = 1:length(sg.ops)
+                R = Matrix(sg.ops[g].rotation_cart)
+                ge = similar(e)
+                for a = 1:4
+                    b = findfirst(==(a), @view sg.map_sym[:, g])
+                    ge[:, a] = R * e[:, b]
+                end
+                for s in basis.salcs
+                    @test isapprox(evaluate(s, ge), evaluate(s, e); atol = 1e-8, rtol = 1e-7)
+                end
+            end
+        end
+
+        # the isotropic (1,1)/Lf=0 SALC is the Heisenberg invariant: Φ = √3 Σ_members e_i·e_j
+        heis = only(filter(s -> s.ls == [1, 1] && s.Lf == 0, basis.salcs))
+        for _ = 1:10
+            e = randcfg()
+            ref = sqrt(3.0) * sum(dot(e[:, m.atoms[1]], e[:, m.atoms[2]]) for m in heis.members)
+            @test isapprox(evaluate(heis, e), ref; atol = 1e-9, rtol = 1e-8)
+        end
+    end
 end
