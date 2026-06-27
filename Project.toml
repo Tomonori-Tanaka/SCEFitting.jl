@@ -8,12 +8,19 @@ LegendrePolynomials = "3db4a2ba-fc88-11e8-3e01-49c72059a882"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
+[weakdeps]
+Spglib = "f761d5c5-86db-4880-b97f-9680a7cccfb5"
+
+[extensions]
+MagestyRebuildSpglibExt = "Spglib"
+
 [compat]
 Aqua = "0.8"
 JET = "0.11"
 LegendrePolynomials = "0.4"
 LinearAlgebra = "1"
 Random = "1"
+Spglib = "1.2"
 StaticArrays = "1.9"
 Test = "1"
 julia = "1.12"

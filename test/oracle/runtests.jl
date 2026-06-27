@@ -14,6 +14,7 @@ using LinearAlgebra
 import MagestyRebuild
 import Magesty
 import WignerSymbols
+import Spglib   # triggers MagestyRebuildSpglibExt
 
 const MRH = MagestyRebuild.Harmonics
 const MRA = MagestyRebuild.AngularMomentum
@@ -82,6 +83,36 @@ end
                 ks = findall(==(Lseq), paths_by_L[Lf])
                 @test length(ks) == 1
                 @test isapprox(T, bases_by_L[Lf][ks[1]]; atol = 1e-10)
+            end
+        end
+    end
+
+    @testset "SpglibBackend space groups (M5)" begin
+        Lattice = MagestyRebuild.Lattice
+        Crystal = MagestyRebuild.Crystal
+        SpglibBackend = MagestyRebuild.SpglibBackend
+        analyze = MagestyRebuild.analyze_symmetry
+
+        a = 3.0
+        sc = Crystal(Lattice(Matrix(a * I(3))), reshape([0.0, 0.0, 0.0], 3, 1), [1], ["X"])
+        bcc = Crystal(Lattice(Matrix(a * I(3))), [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["X"])
+        fcc = Crystal(Lattice(Matrix(4.0 * I(3))),
+                      [0.0 0.5 0.5 0.0; 0.0 0.5 0.0 0.5; 0.0 0.0 0.5 0.5],
+                      [1, 1, 1, 1], ["X"])
+
+        sg_sc = analyze(SpglibBackend(), sc)
+        @test sg_sc.number == 221 && length(sg_sc.ops) == 48          # Pm-3m
+        @test analyze(SpglibBackend(), bcc).number == 229             # Im-3m
+        @test analyze(SpglibBackend(), fcc).number == 225             # Fm-3m
+
+        for sg in (analyze(SpglibBackend(), bcc), analyze(SpglibBackend(), fcc))
+            nat = size(sg.map_sym, 1)
+            @test any(o -> sg.ops[o].is_translation && all(sg.map_sym[:, o] .== 1:nat),
+                      1:length(sg.ops))                                # identity present
+            for o = 1:length(sg.ops)
+                @test sort(sg.map_sym[:, o]) == collect(1:nat)         # each op permutes atoms
+                @test isapprox(sg.ops[o].rotation_cart * sg.ops[o].rotation_cart',
+                               Matrix(I, 3, 3); atol = 1e-9)           # orthogonal
             end
         end
     end
