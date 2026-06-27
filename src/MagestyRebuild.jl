@@ -48,6 +48,10 @@ include("sce/coeftable.jl")
 include("sce/persist.jl")
 include("sce/input.jl")
 
+# --- DFT data sources + VASP I/O ---
+include("io/dftsource.jl")
+include("io/vasp.jl")
+
 export Lattice, Crystal, num_atoms, cartesian_positions, interplanar_spacing
 export NeighborPair, NeighborList, build_neighbor_list
 export SymOp, SpaceGroup, AbstractSymmetryBackend, NoSymmetry, SpglibBackend,
@@ -59,5 +63,9 @@ export predict_energy, predict_torque, has_torque
 export AbstractEstimator, OLS, Ridge, solve_coefficients
 export coef, intercept, nobs, r2_energy, rmse_energy, r2_torque, rmse_torque
 export coeftable, SCECoefficients
+# DFT data I/O: only the code-agnostic boundary is exported; per-code adapters are
+# namespaced submodules (e.g. `MagestyRebuild.VASP.read_poscar`), so adding a code
+# touches neither the core nor this export list.
+export AbstractDFTSource, AbstractTrainingDatum, SpinDatum, read_configs
 
 end # module MagestyRebuild

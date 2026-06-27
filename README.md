@@ -111,6 +111,26 @@ df = DataFrame(coeftable(f))       # or CSV.write("J.csv", coeftable(f))
 intercept(f)                       # the reference energy j0 (not a row)
 ```
 
+### Reading DFT data (VASP)
+
+DFT-code I/O is isolated at the training-data boundary: each code is a namespaced
+submodule that produces code-agnostic `SpinDatum`s, and the SCE pipeline only ever sees
+`SpinDatum` / `SCEDataset` — once you have the data, the originating code is irrelevant.
+
+```julia
+using MagestyRebuild.VASP: read_poscar, Oszicar
+
+crystal = read_poscar("POSCAR")                          # → Crystal
+basis   = SCEBasis(crystal, interaction)
+
+# constrained-noncollinear OSZICARs → energy + spin directions + torque target (τ = −m×B)
+src     = Oszicar(["run1/OSZICAR", "run2/OSZICAR"])      # an AbstractDFTSource
+dataset = SCEDataset(basis, src)                         # read_configs(src) under the hood
+fit(SCEFit, dataset, OLS(); torque_weight = 0.5)
+```
+
+Adding another DFT code is one sibling submodule — the core and its exports do not change.
+
 ## Design highlights
 
 - **Pluggable seams** via multiple dispatch + Julia package extensions: symmetry
@@ -140,12 +160,11 @@ torque** design matrices → `OLS`/`Ridge` fit (energy-only or energy+torque co-
 `predict_energy` / `predict_torque`. Cross-validated against Magesty.jl through
 3-body (invariant-subspace dimensions agree exactly).
 
-Basis/model **persistence** and a human-authored **`input.toml`** are implemented
-(self-contained, human-readable TOML; coefficients re-pair by `SALCKey`), as is
-**tabular coefficient output** (`coeftable` is a Tables.jl source).
+Basis/model **persistence**, a human-authored **`input.toml`**, **tabular coefficient
+output** (`coeftable`), and **VASP I/O** (POSCAR + constrained-noncollinear OSZICAR
+through a code-agnostic DFT-source seam) are implemented.
 
-Not yet implemented (follow-ups): extensions for GLMNet estimators / VASP I/O /
-Sunny export.
+Not yet implemented (follow-ups): extensions for GLMNet estimators / Sunny export.
 
 ## References
 

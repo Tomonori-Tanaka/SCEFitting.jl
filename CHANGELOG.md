@@ -6,6 +6,29 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — VASP I/O and a code-agnostic DFT-source seam
+
+- **DFT-source boundary** (`io/dftsource.jl`): `AbstractDFTSource` +
+  `read_configs(src) -> Vector{SpinDatum}`, the `SpinDatum` training datum (energy,
+  `3×n` unit spin directions, moment magnitudes, constraining field, and the derived
+  torque target `τ_a = −m_a × B_a`, eV), and `SCEDataset(basis, src | data; use_torque)`.
+  This is the *only* thing the SCE pipeline consumes — the originating DFT code is
+  irrelevant once you hold a `SpinDatum`/`SCEDataset`.
+- **VASP adapter** (`io/vasp.jl`, `module MagestyRebuild.VASP`): `read_poscar` /
+  `write_poscar` (POSCAR/CONTCAR ↔ `Crystal`; scaling incl. negative-volume,
+  Direct/Cartesian, Selective dynamics, VASP4/5) and `Oszicar`, an `AbstractDFTSource`
+  over constrained-noncollinear OSZICARs (energy `F=`/`E0`, `MW_int`/`M_int` moments,
+  `lambda*MW_perp` field, SAXIS `Rz(α)·Ry(β)` rotation). Code-specific I/O is a
+  **namespaced submodule** kept out of the core: the core and its export list do not grow
+  as DFT codes are added; only the code-agnostic boundary is exported.
+- A torque-carrying `SCEDataset` rejects all-zero torque targets (no constraining field
+  found) so unconstrained data cannot be silently fit as "torque = 0".
+- Validated (`test/unit/test_vaspio.jl`): POSCAR (Direct/Cartesian/VASP4/negative-volume/
+  selective-dynamics/round-trip), OSZICAR (energy kinds, `mint`, SAXIS, multi-step,
+  missing field, errors), the torque formula, and source → `SCEDataset`. The from-scratch
+  POSCAR/OSZICAR readers are cross-checked **bit-for-bit against Magesty.jl**'s parsers in
+  the oracle (synthetic files, since real VASP outputs are not vendored).
+
 ### Added — tabular coefficient output (Tables.jl)
 
 - **`coeftable(f)` / `coeftable(model)` → `SCECoefficients`** (`sce/coeftable.jl`): a

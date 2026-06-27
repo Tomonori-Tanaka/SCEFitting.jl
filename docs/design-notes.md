@@ -188,7 +188,26 @@ caller owns formatting/IO/plotting) falls exactly on the Tables.jl seam. The int
 quantity. The same contract is the natural entry point for the reverse direction
 (ingesting tabular training data) if that lands later.
 
-## 9. Oracle methodology
+## 9. DFT-code-agnostic data boundary
+
+The SCE pipeline must not care which DFT code produced its training data. So the
+code-specific I/O is confined to a single boundary: the only objects the fitting
+machinery consumes are `SpinDatum` (energy + spin directions + moment magnitudes +
+constraining field + the derived torque target) and the `SCEDataset` built from them.
+Each DFT code is an `AbstractDFTSource` *adapter* implementing
+`read_configs(src) -> Vector{SpinDatum}`; the adapters are **namespaced submodules**
+(`MagestyRebuild.VASP`, …) kept out of the core, and nothing code-specific reaches the
+core or its export list. Adding a code is one sibling submodule — the public surface does
+not grow as codes multiply, and "once you hold the training data, its origin is
+irrelevant" is enforced by the type structure, not merely by convention. (The same seam
+is where a future third-party I/O package, or a format extension needing a dependency
+such as `vasprun.xml` → EzXML, would plug in.) The VASP adapter mirrors Magesty's proven
+POSCAR/OSZICAR conventions — including the torque target `τ_a = −m_a × B_a` from the
+constraining field and the `Rz(α)·Ry(β)` SAXIS rotation — and is cross-checked
+bit-for-bit against Magesty's parsers in the oracle, since real VASP outputs are not
+vendored.
+
+## 10. Oracle methodology
 
 `test/oracle/` is a separate environment that `dev`s a pinned `Magesty.jl`; the
 core suite never depends on Magesty. The oracle compares only **convention-fixed
