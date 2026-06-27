@@ -77,15 +77,18 @@ in `ext/` package extensions; the core loads without them.
   forbidden odd-`Lf` channels are dropped and allowed ones kept.
 
 ### fitting + SCE API (M8, M9)
-- `Interaction`, `SCEBasis`, `SCEDataset` (energy design matrix `X_E`),
-  `SCEModel`/`SCEFit`, `fit(SCEFit, dataset, estimator)`, `predict_energy`,
-  `coef`/`intercept`/`nobs`/`r2_energy`/`rmse_energy`. `AbstractEstimator` with
-  `OLS`/`Ridge` (analytic `j0`; centered-`X` `solve_coefficients` contract).
+- `Interaction`, `SCEBasis`, `SCEDataset` (energy design matrix `X_E`, and the
+  torque design matrix `X_T` via the four-argument form), `SCEModel`/`SCEFit`,
+  `fit(SCEFit, dataset, estimator; torque_weight)`, `predict_energy`/`predict_torque`,
+  `coef`/`intercept`/`nobs`/`r2_energy`/`rmse_energy`/`r2_torque`/`rmse_torque`/
+  `has_torque`. `AbstractEstimator` with `OLS`/`Ridge` (analytic `j0`; centered-`X`
+  `solve_coefficients` contract).
 - Validated: OLS recovers an in-span target (R²=1); **a Heisenberg chain fit
-  recovers `J = 2√3·jphi` to rtol 1e-8** (the v0 done-line, oracle).
+  recovers `J = 2√3·jphi` to rtol 1e-8** (the v0 done-line, oracle); torque is the
+  exact derivative of the energy surface (on-sphere finite differences, equivariance,
+  Heisenberg closed form), energy+torque co-fit recovers an in-span model.
 
 ## Not yet implemented (v0 follow-ups)
-- Torque design matrix `X_T` (energy-only fitting for now).
 - 3-body clusters (the `N`-generic machinery is in place; enumeration capped at 2).
 - Extensions for GLMNet estimators / VASP I/O / Sunny export; `Tables.jl` results;
   basis persistence.
