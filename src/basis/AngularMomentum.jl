@@ -20,6 +20,8 @@ using StaticArrays
 using ..Harmonics: Zlm_unsafe
 
 export clebsch_gordan, wignerD_real
+export c2r_matrix, coupling_paths, coeff_tensor_complex, complex_to_real_tensor,
+    build_real_bases
 
 # n! as Float64 (no overflow for the l-range used here); negative → 0.
 @inline function _fact(n::Integer)::Float64
@@ -118,6 +120,171 @@ function wignerD_real(l::Integer, R::AbstractMatrix{<:Real})::Matrix{Float64}
     end
     # Z(R·) = A·Δᵀ  ⇒  Δᵀ = A \ B  (least squares; residual ≈ 0).
     return permutedims(A \ B)
+end
+
+# ---------------------------------------------------------------------------
+# Coupling: complex CG-chained tensors → real (tesseral) coupled bases.
+# ---------------------------------------------------------------------------
+
+"""
+    c2r_matrix(l) -> Matrix{ComplexF64}
+
+Complex→real (tesseral) transform `U` for degree `l`, `Z = U·Y`, indexed by
+`m = -l:l` (`row/col = m+l+1`). Unitary. Consistent with `Harmonics.Zₗₘ`.
+"""
+function c2r_matrix(l::Integer)::Matrix{ComplexF64}
+    l >= 0 || throw(ArgumentError("need l ≥ 0 (got $l)"))
+    U = zeros(ComplexF64, 2l + 1, 2l + 1)
+    idx(m) = m + l + 1
+    U[idx(0), idx(0)] = 1
+    for m = 1:l
+        s = 1 / sqrt(2.0)
+        sgn = iseven(m) ? 1.0 : -1.0
+        U[idx(m), idx(m)] = sgn * s
+        U[idx(m), idx(-m)] = s
+        U[idx(-m), idx(m)] = -im * sgn * s
+        U[idx(-m), idx(-m)] = im * s
+    end
+    return U
+end
+
+"""
+    coupling_paths(ls) -> Vector{Tuple{Vector{Int},Int}}
+
+All admissible left-coupling sequences for `ls = [l1,…,lN]`, as `(Lseq, Lf)` where
+`Lseq = [L₁₂, L₁₂₃, …]` (length `N-2`, empty for `N ≤ 2`) and `Lf` is the final
+total angular momentum.
+"""
+function coupling_paths(ls::AbstractVector{<:Integer})::Vector{Tuple{Vector{Int},Int}}
+    N = length(ls)
+    N >= 1 || throw(ArgumentError("ls must be non-empty"))
+    paths = Tuple{Vector{Int},Int}[]
+    if N == 1
+        push!(paths, (Int[], Int(ls[1])))
+        return paths
+    end
+    if N == 2
+        for Lf = abs(ls[1] - ls[2]):(ls[1]+ls[2])
+            push!(paths, (Int[], Lf))
+        end
+        return paths
+    end
+    function rec(k::Int, Lprev::Int, seq::Vector{Int})
+        if k == N - 1
+            for Lf = abs(Lprev - ls[end]):(Lprev+ls[end])
+                push!(paths, (copy(seq), Lf))
+            end
+            return
+        end
+        for L = abs(Lprev - ls[k+1]):(Lprev+ls[k+1])
+            rec(k + 1, L, vcat(seq, L))
+        end
+    end
+    for L12 = abs(ls[1] - ls[2]):(ls[1]+ls[2])
+        rec(2, L12, [L12])
+    end
+    return paths
+end
+
+"""
+    coeff_tensor_complex(ls, Lseq, Lf) -> Array{Float64, N+1}
+
+Complex-basis coupled coefficient tensor `C[m₁,…,m_N, Mf] = ⟨(l₁m₁)…(l_Nm_N)|Lf Mf⟩`
+along the left-coupling tree. The running intermediate `M`'s are fixed by the CG
+selection rule (`M_{1..k} = Σ_{i≤k} m_i`), so this is a plain product of CGs.
+"""
+function coeff_tensor_complex(ls::AbstractVector{<:Integer}, Lseq::AbstractVector{<:Integer},
+                              Lf::Integer)::Array{Float64}
+    N = length(ls)
+    dims = ntuple(i -> i <= N ? 2ls[i] + 1 : 2Lf + 1, N + 1)
+    C = zeros(Float64, dims...)
+    if N == 1
+        l1 = ls[1]
+        Lf == l1 || return C
+        for (i, m) = enumerate(-l1:l1)
+            C[i, m + Lf + 1] = 1.0
+        end
+        return C
+    end
+    # running coupled momenta P[1]=l1, P[2..N-1]=Lseq, P[N]=Lf
+    P = Vector{Int}(undef, N)
+    P[1] = ls[1]
+    for k = 2:(N-1)
+        P[k] = Lseq[k-1]
+    end
+    P[N] = Lf
+    site_dims = ntuple(i -> 2ls[i] + 1, N)
+    for idx in CartesianIndices(site_dims)
+        runM = idx[1] - ls[1] - 1            # m₁
+        amp = 1.0
+        ok = true
+        for k = 2:N
+            mk = idx[k] - ls[k] - 1
+            Mk = runM + mk
+            amp *= clebsch_gordan(P[k-1], runM, ls[k], mk, P[k], Mk)
+            runM = Mk
+            if amp == 0.0
+                ok = false
+                break
+            end
+        end
+        ok || continue
+        abs(runM) <= Lf || continue
+        C[Tuple(idx)..., runM + Lf + 1] = amp
+    end
+    return C
+end
+
+# Mode-n product: apply matrix `M` on mode `n` of tensor `A`.
+function nmode_mul(A::AbstractArray, M::AbstractMatrix, n::Int)
+    sz = size(A)
+    d = length(sz)
+    perm = (n, setdiff(1:d, (n,))...)
+    invp = invperm(perm)
+    B = permutedims(A, perm)
+    Bmat = reshape(B, sz[n], :)
+    Cmat = M * Bmat
+    C = reshape(Cmat, (size(M, 1), sz[setdiff(1:d, (n,))]...))
+    return permutedims(C, invp)
+end
+
+"""
+    complex_to_real_tensor(Ccx, ls, Lf; tol = 1e-10) -> Array{Float64, N+1}
+
+Transform a complex coupled tensor to the real (tesseral) basis: apply `conj(U_l)`
+on each site axis, `U_Lf` on the final multiplet axis, then a global phase
+`exp(−iπ/2·(Σl − Lf))` that renders the result real. Errors if the imaginary
+residue exceeds `tol`.
+"""
+function complex_to_real_tensor(Ccx::AbstractArray, ls::AbstractVector{<:Integer},
+                                Lf::Integer; tol::Real = 1e-10)::Array{Float64}
+    N = length(ls)
+    C = ComplexF64.(Ccx)
+    for i = 1:N
+        C = nmode_mul(C, conj(c2r_matrix(ls[i])), i)
+    end
+    C = nmode_mul(C, c2r_matrix(Lf), N + 1)
+    C .*= exp(-1im * (π / 2) * (sum(ls) - Lf))
+    maxim = maximum(abs ∘ imag, C)
+    maxim <= tol || error("complex_to_real_tensor: imaginary residue $maxim > $tol")
+    return Array{Float64}(real.(C))
+end
+
+"""
+    build_real_bases(ls; isotropy = false) -> Vector{Tuple{Vector{Int},Int,Array{Float64}}}
+
+All real coupled tensors for `ls`, as `(Lseq, Lf, tensor)`. With `isotropy = true`
+only the scalar `Lf == 0` sector is kept.
+"""
+function build_real_bases(ls::AbstractVector{<:Integer};
+                          isotropy::Bool = false)::Vector{Tuple{Vector{Int},Int,Array{Float64}}}
+    out = Tuple{Vector{Int},Int,Array{Float64}}[]
+    for (Lseq, Lf) in coupling_paths(ls)
+        (isotropy && Lf != 0) && continue
+        Ccx = coeff_tensor_complex(ls, Lseq, Lf)
+        push!(out, (Lseq, Lf, complex_to_real_tensor(Ccx, ls, Lf)))
+    end
+    return out
 end
 
 end # module AngularMomentum

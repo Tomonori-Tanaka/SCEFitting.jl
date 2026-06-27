@@ -71,4 +71,18 @@ end
             end
         end
     end
+
+    @testset "coupled real tensors vs Magesty (M4)" begin
+        MAC = Magesty.AngularMomentumCoupling
+        for ls in ([1], [2], [1, 1], [1, 2], [2, 2], [1, 1, 1])
+            mine = MRA.build_real_bases(ls)
+            bases_by_L, paths_by_L = MAC.build_all_real_bases(ls)
+            @test length(mine) == sum(length(v) for v in values(bases_by_L))
+            for (Lseq, Lf, T) in mine
+                ks = findall(==(Lseq), paths_by_L[Lf])
+                @test length(ks) == 1
+                @test isapprox(T, bases_by_L[Lf][ks[1]]; atol = 1e-10)
+            end
+        end
+    end
 end
