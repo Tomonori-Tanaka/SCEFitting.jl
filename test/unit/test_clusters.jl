@@ -52,9 +52,12 @@ using LinearAlgebra
     end
 
     @testset "first site anchored in the home cell" begin
+        # single atom: its 2-body "bonds" are self-pairs (i == j), kept only under
+        # AllImages — MinimumImage would (correctly) drop them, leaving nothing to test.
         crystal = Crystal(lat, reshape([0.0, 0.0, 0.0], 3, 1), [1], ["Fe"])
-        nl = build_neighbor_list(crystal, 3.1)
-        cand = candidate_clusters(crystal, nl, 2)
+        nl = build_neighbor_list(crystal, 3.1, AllImages())
+        cand = candidate_clusters(crystal, nl, 2; selection = AllImages())
+        @test !isempty(cand[2])
         @test all(m -> m.shifts[1] == SVector{3,Int}(0, 0, 0), cand[2])
     end
 end

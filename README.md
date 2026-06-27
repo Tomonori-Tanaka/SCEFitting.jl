@@ -139,6 +139,10 @@ Adding another DFT code is one sibling submodule — the core and its exports do
   lightweight core loads with no heavy dependencies.
 - **Generalized cutoff neighbor list** — no fixed image grid; correct for
   triclinic cells and cutoffs spanning many lattice translations.
+- **Minimum-image periodic resolvability** — the default `MinimumImage` selection
+  enumerates exactly the Wigner–Seitz-cell pairs a finite supercell can resolve (the
+  corner `(L/2,L/2,L/2)` at `√3·L/2`, not a sphere of radius `L/2`), so no aliased,
+  collinear interactions enter the fit; `pair_cutoff = Inf` takes the whole cell.
 - **Real Wigner-D from the package's own `Zₗₘ`** by an exact least-squares fit —
   convention-consistent by construction, handles improper rotations natively.
 - **Orbit–stabilizer SALC projection** with a deterministic gauge and canonical

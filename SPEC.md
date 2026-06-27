@@ -38,6 +38,13 @@ files use the stdlib `TOML` (no external dependency).
   range `N_d = ceil(cutoff·‖b_d‖)`; `NeighborPair` retains the integer lattice
   `shift` (R) for later reciprocal-space / spin-spiral rows. Validated against an
   independent over-large-shell brute force (cubic multi-shell + sheared triclinic).
+- `build_neighbor_list(crystal, cutoff, selection)` — periodic-image selection
+  (`AbstractImageSelection`): `MinimumImage()` (the SCE-fitting default) keeps only the
+  minimum-image, plain-PBC-resolvable pairs of the Wigner–Seitz cell — with boundary
+  ties (`L/2` faces / edges / `(L/2,L/2,L/2)` corners) and **no `i==j` self-pairs**
+  (same spin ⇒ not an independent pair) — over an adaptive, skew-safe image box;
+  `cutoff` may be `Inf` (whole WS cell). `AllImages()` is the every-image enumeration
+  above (finite cutoff only), the generalized-Bloch / spin-spiral seam.
 
 ### basis — `Harmonics` submodule (M2)
 - `Harmonics.Zlm(l, m, u)` — real tesseral harmonic (Drautz convention, per-site
@@ -64,9 +71,13 @@ files use the stdlib `TOML` (no external dependency).
 
 ### clusters (M6) — arbitrary body order
 - `ClusterMember` (atoms + per-site lattice `shift` R), `ClusterOrbit`, `ClusterSet`;
-  `candidate_clusters` enumerates `N`-body **pairwise-within-cutoff cliques** (`N = 2`
-  is the directed neighbor pairs), `build_clusters` reduces them to symmetry orbits
-  via a canonical key built from the site-image map `(b, τ + W·R)`.
+  `candidate_clusters` enumerates `N`-body **edge-admissible cliques** (`N = 2` is the
+  directed neighbor pairs), `build_clusters` reduces them to symmetry orbits via a
+  canonical key built from the site-image map `(b, τ + W·R)`. An edge is admissible
+  under `MinimumImage` iff it sits at its atom-pair minimum-image distance (and the
+  clique's atoms are distinct, so a cluster never reuses an atom's image — that would
+  alias a lower-body term); under `AllImages` iff within the radial cutoff. The
+  `selection` is threaded from `SCEBasis` so the neighbor list and clusters agree.
 
 ### SALC basis (M7) — arbitrary body order
 - `build_salc_basis` projects each orbit's representative onto the trivial irrep of
@@ -107,9 +118,11 @@ files use the stdlib `TOML` (no external dependency).
   without any serializer; TOML is stdlib (no dep) and round-trips `Float64` exactly.
   `save` / `load` are **unexported** (call qualified) to avoid clashing with
   `FileIO`/`JLD2`.
-- **TOML input** (`sce/input.jl`): `read_input(path) -> (; crystal, interaction, backend, tol)`
-  and `SCEBasis(path::AbstractString; backend, tol)` build a basis from a human-authored
-  `input.toml` (`[structure]` inline crystal, `[interaction]`, optional `[symmetry]`);
+- **TOML input** (`sce/input.jl`): `read_input(path) -> (; crystal, interaction, backend, tol, images)`
+  and `SCEBasis(path::AbstractString; backend, tol, images)` build a basis from a human-authored
+  `input.toml` (`[structure]` inline crystal, `[interaction]` with optional `images`
+  (`"minimum_image"` default / `"all_images"`) and `pair_cutoff = inf` for the full WS
+  cell, optional `[symmetry]`);
   keyword arguments override the file's backend/tol. Training data and the estimator
   stay in Julia (mirrors the basis/data separation).
 - **Tabular results** (`sce/coeftable.jl`): `coeftable(fit | model) -> SCECoefficients`

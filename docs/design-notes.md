@@ -21,6 +21,54 @@ generalized-Bloch `E(q)` training data. Validated against an *independent*
 over-large-shell brute force (the production tight range is never checked against
 itself), including a strongly sheared triclinic cell.
 
+## 1b. Minimum-image resolvability and the Wigner–Seitz cell
+
+A spherical cutoff is the wrong primitive for *what a finite supercell can resolve*.
+Under plain periodic boundary conditions (the usual DFT, excluding the generalized-Bloch
+spin-spiral case), every periodic image of an atom carries the **same spin**. So if atom
+`A` reaches both the minimum image of `B` (at distance `d`) and a farther image of `B`
+(at distance `d' > d`), the two "interactions" are the *same* `e_A · e_B` in every
+training configuration — perfectly collinear design-matrix columns. A supercell can only
+independently resolve the **minimum-image** set: the displacements inside the **Wigner–
+Seitz cell** of the (super)lattice.
+
+The WS cell is a polyhedron, not a ball. For a cubic cell of side `L` it is the cube
+`[−L/2, L/2]³`: its inscribed sphere has radius `L/2` (face centres), but the furthest
+resolvable pair is the body-diagonal corner `(L/2, L/2, L/2)` at `√3·L/2 ≈ 0.866 L`.
+A spherical cutoff therefore cannot express "all resolvable pairs": to reach the corners
+it must exceed `L/2` along the faces, which is exactly where it starts sweeping in the
+aliased (non-resolvable) images. This face-vs-corner mismatch is the classic source of
+`L/2`-plane double-counting errors.
+
+The rebuild makes the selection explicit (`AbstractImageSelection`):
+
+- **`MinimumImage`** (default) keeps, per atom pair, only the minimum-image
+  displacement(s) — the WS representative — with **boundary ties kept as distinct
+  members** (the `L/2` faces are 2-fold, edges 4-fold, corners 8-fold; e.g. a body-centred
+  cubic pair has all eight `(±L/2,±L/2,±L/2)` images at once). `i==j` self-pairs are
+  dropped: in plain PBC both ends share `e_i`, so the term is a constant (`Lf=0`) or a
+  1-body alias (`Lf>0`), never an independent pair; likewise an `N`-body cluster must use
+  distinct atoms, since a reused atom image aliases a lower-body term. The radial cutoff
+  merely trims this set, and `pair_cutoff = Inf` keeps the whole WS cell (Magesty spells
+  this `cutoff = -1`). The minimum-image search box is grown adaptively to a provably
+  sufficient range (`|n_d| ≤ ‖b_d‖·d_min + 1`), so heavily skewed / non-reduced cells
+  cannot silently return a wrong "minimum".
+- **`AllImages`** is the every-image-within-cutoff enumeration, retained as the
+  **generalized-Bloch / spin-spiral seam**: there the spiral makes `e^{iq·R}` distinguish
+  the images, so a single primitive cell plus a `q`-mesh resolves arbitrary range and the
+  `L/2` wall does not apply. This is *why* `NeighborPair` carries `R` — for plain PBC it is
+  redundant (folds to the minimum image), but the spin-spiral path needs it.
+
+Why not just adopt Magesty's minimum-image filter wholesale? It silently *caps* the range
+at the WS cell (drops farther images without comment); the rebuild instead keeps the
+explicit `MinimumImage`/`AllImages` choice and the resolvable boundary visible. The two
+agree exactly below half the smallest perpendicular width (`cutoff < min_d d_i / 2`),
+where each in-cutoff image is already the minimum — so the Heisenberg `J = 2√3·jϕ`
+recovery and the kagome 3-body co-fit are unchanged, and the only deliberate divergence
+from Magesty is the degenerate single-atom-cell self-pair (one orbit there, zero here).
+Full-WS bases under symmetry are checked to have full design-matrix column rank (no
+collinear columns survive).
+
 ## 2. Real Wigner-D from the package's own `Zₗₘ` (vs. Euler angles + complex D + c2r)
 
 Magesty builds the real Wigner-D as `conj(C)·wignerD(l,α,β,γ)·transpose(C)` —

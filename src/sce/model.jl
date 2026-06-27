@@ -3,6 +3,10 @@
 
 SCE interaction specification: maximum body order, the 2-body cutoff (Å),
 per-species maximum `l`, and whether to keep only the isotropic (`Lf = 0`) channel.
+
+`pair_cutoff` may be `Inf`, meaning "every resolvable pair" — the whole
+Wigner–Seitz cell of the (super)cell — under the default [`MinimumImage`](@ref)
+selection (cf. Magesty's `-1` sentinel).
 """
 struct Interaction
     nbody::Int
@@ -10,16 +14,29 @@ struct Interaction
     lmax::Vector{Int}
     isotropy::Bool
 end
-Interaction(; nbody::Integer, pair_cutoff::Real, lmax::AbstractVector{<:Integer},
-            isotropy::Bool = false) =
-    Interaction(Int(nbody), Float64(pair_cutoff), collect(Int, lmax), isotropy)
+function Interaction(; nbody::Integer, pair_cutoff::Real, lmax::AbstractVector{<:Integer},
+                     isotropy::Bool = false)
+    nbody >= 1 || throw(ArgumentError("nbody must be ≥ 1; got $nbody"))
+    (pair_cutoff > 0 && !isnan(pair_cutoff)) ||
+        throw(ArgumentError("pair_cutoff must be positive (or Inf for the full " *
+                            "Wigner–Seitz cell); got $pair_cutoff"))
+    return Interaction(Int(nbody), Float64(pair_cutoff), collect(Int, lmax), isotropy)
+end
 
 """
-    SCEBasis(crystal, interaction; backend = NoSymmetry(), tol = 1e-5)
+    SCEBasis(crystal, interaction; backend = NoSymmetry(), tol = 1e-5,
+             images = MinimumImage())
 
 Build the SCE basis for `crystal`: analyze symmetry, enumerate cluster orbits, and
 construct the symmetry-adapted SALC basis. Pass `backend = SpglibBackend()` (with
 `using Spglib`) for real space-group symmetry.
+
+`images` selects how periodic images are admitted (see [`AbstractImageSelection`](@ref)):
+[`MinimumImage`](@ref) (the default) keeps only the minimum-image, resolvable pairs of
+a plain-PBC supercell; [`AllImages`](@ref) keeps every image within the cutoff (the
+generalized-Bloch / spin-spiral seam, finite cutoff only). The `images` value is also
+applied to the cluster-edge admissibility, so the neighbor list and the clusters stay
+consistent.
 """
 struct SCEBasis
     crystal::Crystal
@@ -29,10 +46,11 @@ struct SCEBasis
 end
 
 function SCEBasis(crystal::Crystal, interaction::Interaction;
-                 backend::AbstractSymmetryBackend = NoSymmetry(), tol::Real = 1e-5)::SCEBasis
+                 backend::AbstractSymmetryBackend = NoSymmetry(), tol::Real = 1e-5,
+                 images::AbstractImageSelection = MinimumImage())::SCEBasis
     sg = analyze_symmetry(backend, crystal; tol = tol)
-    nl = build_neighbor_list(crystal, interaction.pair_cutoff)
-    clusters = build_clusters(crystal, nl, sg; nbody = interaction.nbody)
+    nl = build_neighbor_list(crystal, interaction.pair_cutoff, images)
+    clusters = build_clusters(crystal, nl, sg; nbody = interaction.nbody, selection = images)
     salcs = build_salc_basis(crystal, sg, clusters;
                              lmax_by_species = interaction.lmax, isotropy = interaction.isotropy)
     return SCEBasis(crystal, sg, salcs, interaction)

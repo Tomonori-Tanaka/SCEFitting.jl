@@ -6,6 +6,42 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — minimum-image periodic resolvability (Wigner–Seitz cell)
+
+- **Periodic-image selection** (`geometry/neighborlist.jl`): `AbstractImageSelection`
+  with `MinimumImage` (new default) and `AllImages`. Previously the neighbor list kept
+  every periodic image within a *spherical* cutoff, which over-counts beyond `L/2`: a
+  farther image of an atom carries the **same spin** as its minimum image, so the two
+  interactions are not independently resolvable from a finite supercell (their design
+  columns are collinear). `MinimumImage` keeps only the minimum-image, Wigner–Seitz-cell
+  pairs — the physically resolvable set, which reaches the body-diagonal corner
+  `(L/2,L/2,L/2)` at `√3·L/2`, **not** a sphere of radius `L/2` — with WS-boundary ties
+  (faces 2-fold, edges 4-fold, corners 8-fold) kept as distinct members and `i==j`
+  self-pairs dropped (same spin ⇒ a constant or a 1-body alias, never an independent
+  pair). The image-box search is adaptive (provably sufficient on skewed / non-reduced
+  cells). `AllImages` retains the old every-image behavior as the **generalized-Bloch /
+  spin-spiral seam**, where `e^{iq·R}` resolves what one supercell cannot.
+- **`pair_cutoff = Inf`** (`Interaction`) now means "every resolvable pair" — the whole
+  WS cell — under `MinimumImage` (cf. Magesty's `-1` sentinel); `≤ 0` / `NaN` are
+  rejected. `SCEBasis(...; images = MinimumImage())` and the `input.toml`
+  `[interaction].images` / `pair_cutoff = inf` keys thread the choice through.
+- **N-body min-image consistency** (`clusters/enumerate.jl`): a `MinimumImage` clique
+  requires every edge at its atom-pair minimum-image distance and all atoms distinct, so
+  a cluster is never built from an aliased bond or a reused atom image. The `AllImages`
+  edge cutoff now uses the same relative tolerance as the tie band (was an absolute
+  `+1e-9`).
+- For a cutoff below half the smallest perpendicular cell width, `MinimumImage` and
+  `AllImages` coincide (each in-cutoff image is already the minimum), so the existing
+  physics is unchanged: the Heisenberg `J = 2√3·jϕ` recovery, the kagome 3-body co-fit,
+  and the oracle all use cutoffs in this regime. Bit-for-bit Magesty agreement is not a
+  goal; a single-atom cell's self-pair "bond" (1 orbit under Magesty/`AllImages`) is now
+  0 orbits under the default `MinimumImage` — a deliberate refinement.
+- Validated (`test/unit/test_imageselection.jl`): cutoff `< L/2` equivalence, the cubic
+  8-fold corner and `L/2` 2-fold face ties, alias rejection above `L/2`, `AllImages`
+  rejects `Inf`, hexagonal / skewed-cell search-box sufficiency, no-self-pair and
+  distinct-atom clusters, a full-WS design matrix with full column rank under symmetry,
+  `input.toml` `inf` + `images`, and a `pair_cutoff = Inf` persistence round-trip.
+
 ### Added — VASP I/O and a code-agnostic DFT-source seam
 
 - **DFT-source boundary** (`io/dftsource.jl`): `AbstractDFTSource` +

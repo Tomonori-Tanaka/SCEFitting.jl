@@ -19,9 +19,10 @@ Schema:
 
     [interaction]
     nbody       = 2
-    pair_cutoff = 3.0
+    pair_cutoff = 3.0                                     # Å, or `inf` for the full Wigner–Seitz cell
     lmax        = [2,2]                                    # per species
     isotropy    = false                                   # optional, default false
+    images      = "minimum_image"                          # optional: "minimum_image" (default) or "all_images"
 
     [symmetry]                                            # optional section
     backend = "spglib"                                    # "none" (default) or "spglib"
@@ -90,19 +91,29 @@ function _backend_from_name(name)::AbstractSymmetryBackend
                         "(use \"none\" or \"spglib\")"))
 end
 
+function _image_selection_from_name(name)::AbstractImageSelection
+    n = lowercase(String(name))
+    n == "minimum_image" && return MinimumImage()
+    n == "all_images" && return AllImages()
+    throw(ArgumentError("[interaction].images = $(repr(name)) is not recognized " *
+                        "(use \"minimum_image\" or \"all_images\")"))
+end
+
 """
-    read_input(path) -> (; crystal, interaction, backend, tol)
+    read_input(path) -> (; crystal, interaction, backend, tol, images)
 
 Parse a human-authored TOML input file (schema in the file-level docstring of
 `src/sce/input.jl`) into the in-memory `crystal::Crystal`, `interaction::Interaction`,
-symmetry `backend::AbstractSymmetryBackend`, and `tol::Float64`. Training data and
-the estimator are **not** part of the file (see [`SCEDataset`](@ref) / [`fit`](@ref)).
-See also `SCEBasis(path)`.
+symmetry `backend::AbstractSymmetryBackend`, `tol::Float64`, and the periodic-image
+selection `images::AbstractImageSelection`. Training data and the estimator are
+**not** part of the file (see [`SCEDataset`](@ref) / [`fit`](@ref)). See also
+`SCEBasis(path)`.
 """
 function read_input(path::AbstractString)::@NamedTuple{crystal::Crystal,
                                                        interaction::Interaction,
                                                        backend::AbstractSymmetryBackend,
-                                                       tol::Float64}
+                                                       tol::Float64,
+                                                       images::AbstractImageSelection}
     doc = TOML.parsefile(path)
     haskey(doc, "structure") ||
         throw(ArgumentError("input file is missing the [structure] section"))
@@ -113,25 +124,30 @@ function read_input(path::AbstractString)::@NamedTuple{crystal::Crystal,
     length(interaction.lmax) == length(crystal.species_labels) ||
         throw(ArgumentError("[interaction].lmax has $(length(interaction.lmax)) entries for " *
                             "$(length(crystal.species_labels)) species"))
+    images = haskey(doc["interaction"], "images") ?
+        _image_selection_from_name(doc["interaction"]["images"]) : MinimumImage()
     sym = get(doc, "symmetry", Dict{String,Any}())
     backend = haskey(sym, "backend") ? _backend_from_name(sym["backend"]) : NoSymmetry()
     tol = haskey(sym, "tol") ? Float64(sym["tol"]) : 1e-5
-    return (; crystal, interaction, backend, tol)
+    return (; crystal, interaction, backend, tol, images)
 end
 
 """
-    SCEBasis(path::AbstractString; backend = nothing, tol = nothing) -> SCEBasis
+    SCEBasis(path::AbstractString; backend = nothing, tol = nothing, images = nothing)
+        -> SCEBasis
 
 Build an [`SCEBasis`](@ref) directly from a TOML input file ([`read_input`](@ref)).
-The file's `[symmetry]` backend/tol are used unless overridden by the keyword
-arguments (e.g. `backend = SpglibBackend()` forces Spglib regardless of the file).
-Using the Spglib backend requires `using Spglib`.
+The file's `[symmetry]` backend/tol and `[interaction].images` are used unless
+overridden by the keyword arguments (e.g. `backend = SpglibBackend()` forces Spglib
+regardless of the file). Using the Spglib backend requires `using Spglib`.
 """
 function SCEBasis(path::AbstractString;
                   backend::Union{Nothing,AbstractSymmetryBackend} = nothing,
-                  tol::Union{Nothing,Real} = nothing)::SCEBasis
+                  tol::Union{Nothing,Real} = nothing,
+                  images::Union{Nothing,AbstractImageSelection} = nothing)::SCEBasis
     inp = read_input(path)
     be = backend === nothing ? inp.backend : backend
     tl = tol === nothing ? inp.tol : Float64(tol)
-    return SCEBasis(inp.crystal, inp.interaction; backend = be, tol = tl)
+    im = images === nothing ? inp.images : images
+    return SCEBasis(inp.crystal, inp.interaction; backend = be, tol = tl, images = im)
 end

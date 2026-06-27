@@ -54,6 +54,7 @@ include("io/vasp.jl")
 
 export Lattice, Crystal, num_atoms, cartesian_positions, interplanar_spacing
 export NeighborPair, NeighborList, build_neighbor_list
+export AbstractImageSelection, MinimumImage, AllImages
 export SymOp, SpaceGroup, AbstractSymmetryBackend, NoSymmetry, SpglibBackend,
     analyze_symmetry, n_ops
 export ClusterMember, ClusterOrbit, ClusterSet, build_clusters

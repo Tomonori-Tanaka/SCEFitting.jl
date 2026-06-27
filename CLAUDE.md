@@ -49,6 +49,18 @@ Easy to break silently — confirm before touching the algorithm.
   inv(vectors)` rows are `bᵢ` with `aᵢ·bⱼ = δᵢⱼ` (no 2π). Interplanar spacing
   `dᵢ = 1/‖row_i(reciprocal)‖`. Fractional coords are wrapped to `[0,1)` on
   periodic axes (neighbor-list precondition).
+- **Periodic resolvability (minimum image / Wigner–Seitz)**: a finite supercell under
+  plain PBC can only resolve interactions whose displacement lies in the **Wigner–Seitz
+  cell** of the (super)lattice — a polyhedron reaching the body-diagonal corner
+  `(L/2,L/2,L/2)` at `√3·L/2`, **not** a sphere of radius `L/2`. A farther periodic image
+  of an atom carries the *same spin*, so its interaction is collinear with (an alias of)
+  the minimum-image one and is not independently fittable. The default `MinimumImage`
+  selection enumerates exactly this set (boundary ties kept; `i==j` self-pairs and
+  reused-atom clusters dropped); `pair_cutoff = Inf` is the whole WS cell. `AllImages`
+  (every image, `R`-distinguished) is **only** for the future generalized-Bloch /
+  spin-spiral path where `e^{iq·R}` resolves the images. For `cutoff < min_d dᵢ / 2` the
+  two coincide. Do **not** "fix" a `> L/2` cutoff by folding aliases into a shorter shell
+  (double-counts) — that regime is simply unresolvable from one supercell.
 - **Energy units**: `Jφ` carry the DFT input unit (eV); `j0` is separate.
 - **Torque**: `τ_a = e_a × ∂E/∂e_a`, design-matrix entry `(4π)^(N/2)·(e_a × ∂Φ/∂e_a)`
   (same scale and `μ`-mapping as the energy kernel). The torque design matrix `X_T`
@@ -66,6 +78,16 @@ Easy to break silently — confirm before touching the algorithm.
   The gate is the finite-difference self-consistency `predict_torque ≈ e × ∇E_FD`
   (`test/unit/test_torque.jl`): the torque must be the exact derivative of the energy
   surface. Change one kernel, re-check the other.
+- **Image selection ↔ neighbor list ↔ cluster edges** (`geometry/neighborlist.jl`,
+  `clusters/enumerate.jl`, `sce/model.jl`): `SCEBasis` threads one `images` value to
+  **both** `build_neighbor_list` and `candidate_clusters`/`build_clusters`; they must
+  agree. `MinimumImage` keeps minimum-image pairs (no `i==j`) and admits a clique edge
+  only at its atom-pair minimum-image distance with all atoms distinct; `AllImages` keeps
+  every in-cutoff image and admits edges within the radial cutoff. The tie/cutoff
+  tolerance is relative (`_SAME_DIST_RTOL`) on both sides so a degenerate WS-boundary
+  shell is never split. The minimum-image search box is adaptive — change it and re-check
+  the skewed-cell test. `images` is **not** persisted (the full SALC basis is stored and
+  reloaded verbatim), so only `read_input`/`SCEBasis` carry it.
 - **SALC construction ↔ the ground-truth invariance test** (`test/unit/test_salc.jl`,
   `test/unit/test_nbody.jl`, `test/oracle/runtests.jl`): every SALC must satisfy
   `Φ(g·e) = Φ(e)` (non-collinear spins, all `Lf`, **all body orders**) and

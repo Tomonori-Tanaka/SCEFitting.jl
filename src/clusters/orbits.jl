@@ -62,7 +62,8 @@ function _canonical_key(crystal::Crystal, sg::SpaceGroup, m::ClusterMember)
 end
 
 """
-    build_clusters(crystal, neighbors, spacegroup; nbody = 2) -> ClusterSet
+    build_clusters(crystal, neighbors, spacegroup; nbody = 2, selection = MinimumImage())
+        -> ClusterSet
 
 Enumerate candidate clusters and reduce them to symmetry orbits under
 `spacegroup`. Orbits are ordered deterministically by their canonical key.
@@ -72,13 +73,17 @@ Enumerate candidate clusters and reduce them to symmetry orbits under
 
 # Keyword arguments
 - `nbody::Integer = 2`: maximum body order.
+- `selection::AbstractImageSelection = MinimumImage()`: the image-admissibility rule
+  for the cluster edges; must match the one that built `neighbors` (see
+  [`candidate_clusters`](@ref)).
 
 # Returns
 - `ClusterSet`: orbits grouped by body order.
 """
 function build_clusters(crystal::Crystal, neighbors::NeighborList, spacegroup::SpaceGroup;
-                        nbody::Integer = 2)::ClusterSet
-    cand = candidate_clusters(crystal, neighbors, nbody)
+                        nbody::Integer = 2,
+                        selection::AbstractImageSelection = MinimumImage())::ClusterSet
+    cand = candidate_clusters(crystal, neighbors, nbody; selection = selection)
     by_body = Dict{Int,Vector{ClusterOrbit}}()
     for body in sort(collect(keys(cand)))
         groups = Dict{Any,Vector{ClusterMember}}()

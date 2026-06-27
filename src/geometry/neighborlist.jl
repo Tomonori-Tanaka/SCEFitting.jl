@@ -29,10 +29,137 @@ struct NeighborList
 end
 
 """
+    AbstractImageSelection
+
+How periodic images of an atom pair are admitted into the neighbor list — the
+choice that fixes what a finite supercell can resolve. Concrete subtypes:
+[`MinimumImage`](@ref) (plain periodic boundary conditions) and [`AllImages`](@ref)
+(the generalized-Bloch / spin-spiral seam).
+"""
+abstract type AbstractImageSelection end
+
+"""
+    MinimumImage()
+
+Plain periodic boundary conditions: for each atom pair, keep **only the
+minimum-image displacement(s)** — the representative inside the Wigner–Seitz cell
+of the (super)lattice — with ties on the WS boundary (the `L/2` faces, edges, and
+`(L/2, L/2, L/2)`-type corners) kept as distinct members. This is the only set a
+finite supercell can resolve: a *farther* periodic image of the same atom carries
+the *same spin*, so the interaction with it is not independent from the
+minimum-image one (the design-matrix columns would be collinear). The radial cutoff
+trims the minimum-image set and may be `Inf` to keep the whole WS cell (every
+resolvable pair). This is the default for SCE fitting.
+"""
+struct MinimumImage <: AbstractImageSelection end
+
+"""
+    AllImages()
+
+Keep **every** periodic image within the cutoff, each with its lattice translation
+`R` distinguished (the directed enumeration of [`build_neighbor_list`](@ref)). For
+plain-PBC supercell fitting this over-counts beyond `L/2` (it admits aliases of
+shorter bonds), so it is *not* the fitting default; it is the representation a
+**generalized-Bloch / spin-spiral** extension needs, where the phase `e^{i q·R}`
+resolves images a single supercell cannot. Requires a finite cutoff.
+"""
+struct AllImages <: AbstractImageSelection end
+
+# Relative tolerance for "same distance" decisions (minimum-image ties at the WS
+# boundary and the radial-cutoff edge). Far above Float64 round-off (~1e-16) and far
+# below any physical shell spacing, so a degenerate shell is never split by a ULP.
+const _SAME_DIST_RTOL = 1e-8
+
+"""
+    build_neighbor_list(crystal, cutoff, selection; tol = $(_SAME_DIST_RTOL), search = 2)
+        -> NeighborList
+
+Neighbor list under an [`AbstractImageSelection`](@ref). [`AllImages`](@ref)
+reproduces the two-argument [`build_neighbor_list`](@ref) (every directed image
+within `cutoff`); [`MinimumImage`](@ref) keeps, per atom pair, the minimum-image
+displacement(s) with WS-boundary ties within relative `tol`, trimmed to `cutoff`
+(which may be `Inf`). `search` is the per-periodic-axis image half-range scanned to
+locate the minimum image (with positions wrapped to `[0,1)`, `2` covers the WS cell
+and its boundary ties for non-pathological cells).
+"""
+build_neighbor_list(crystal::Crystal, cutoff::Real, ::AllImages;
+                    tol::Real = _SAME_DIST_RTOL, search::Integer = 2)::NeighborList =
+    (isfinite(cutoff) ||
+         throw(ArgumentError("AllImages needs a finite cutoff; got $cutoff " *
+                             "(use MinimumImage for the full Wigner–Seitz cell)"));
+     build_neighbor_list(crystal, cutoff))
+
+# Minimum distance of a displacement `δ` over the image box `±s` (per axis).
+@inline function _min_image_dist(δ::SVector{3,Float64}, A::SMatrix{3,3,Float64,9},
+                                 s::NTuple{3,Int})::Float64
+    best = Inf
+    @inbounds for n1 = -s[1]:s[1], n2 = -s[2]:s[2], n3 = -s[3]:s[3]
+        d = norm(δ + A * SVector{3,Float64}(n1, n2, n3))
+        d < best && (best = d)
+    end
+    return best
+end
+
+# Per-axis image half-range provably sufficient to contain the minimum image and
+# its ties: the minimum-image vector `g = δ + A·n` with `|g| = best` obeys
+# `|nᵈ| ≤ ‖bᵈ‖·best + |δᵈ_frac| ≤ ‖bᵈ‖·best + 1`. Any upper bound on `best` (a
+# too-small box can only overshoot `best`) merely enlarges the range, so one
+# refinement off the first scan is always enough — guards heavily skewed /
+# non-reduced cells where a fixed `±2` box would miss the true minimum.
+@inline _sufficient_range(brow::SVector{3,Float64}, pbc::SVector{3,Bool}, best::Float64,
+                          s::NTuple{3,Int})::NTuple{3,Int} =
+    ntuple(d -> pbc[d] ? max(s[d], ceil(Int, brow[d] * best) + 1) : 0, 3)
+
+function build_neighbor_list(crystal::Crystal, cutoff::Real, ::MinimumImage;
+                             tol::Real = _SAME_DIST_RTOL, search::Integer = 2)::NeighborList
+    (cutoff > 0 && !isnan(cutoff)) || throw(ArgumentError("`cutoff` must be positive"))
+    rtol = Float64(tol)
+    lat = crystal.lattice
+    A = lat.vectors
+    nat = num_atoms(crystal)
+    cart = cartesian_positions(crystal)
+    brow = SVector{3,Float64}(norm(lat.reciprocal[1, :]), norm(lat.reciprocal[2, :]),
+                              norm(lat.reciprocal[3, :]))
+    s0 = ntuple(d -> lat.pbc[d] ? Int(search) : 0, 3)
+    cut = Float64(cutoff)
+    pairs = NeighborPair[]
+    @inbounds for i = 1:nat
+        ri = SVector{3,Float64}(cart[1, i], cart[2, i], cart[3, i])
+        for j = 1:nat
+            # Plain-PBC self-pairs carry the same spin on both ends (`eᵢ`), so an
+            # `(i, i+R)` term is a single-site function (a constant for `Lf = 0`, a
+            # 1-body alias otherwise), never an independent pair — drop it. (For the
+            # generalized-Bloch `AllImages` seam the spiral makes it independent.)
+            i == j && continue
+            δ = SVector{3,Float64}(cart[1, j], cart[2, j], cart[3, j]) - ri
+            # pass 1: minimum image distance, with the image box grown to a range
+            # that is provably sufficient for this (skewed-cell-safe) pair
+            best = _min_image_dist(δ, A, s0)
+            s = _sufficient_range(brow, lat.pbc, best, s0)
+            s == s0 || (best = _min_image_dist(δ, A, s))
+            # minimum image beyond the radial cutoff ⇒ pair contributes nothing
+            (isfinite(best) && best <= cut * (1 + rtol)) || continue
+            # pass 2: emit every image tied with the minimum (the WS-boundary
+            # multiplicity), each as its own directed member
+            thr = best * (1 + rtol)
+            for n1 = -s[1]:s[1], n2 = -s[2]:s[2], n3 = -s[3]:s[3]
+                offset = A * SVector{3,Float64}(n1, n2, n3)
+                d = norm(δ + offset)
+                d <= thr && push!(pairs, NeighborPair(i, j, SVector{3,Int}(n1, n2, n3),
+                                                      offset, d))
+            end
+        end
+    end
+    return NeighborList(cut, pairs)
+end
+
+"""
     build_neighbor_list(crystal, cutoff) -> NeighborList
 
 Enumerate every directed atom pair `(i, j, shift)` with interatomic distance
-`≤ cutoff` (Å), generalizing a fixed image grid to a cutoff-driven one.
+`≤ cutoff` (Å), generalizing a fixed image grid to a cutoff-driven one. This is the
+[`AllImages`](@ref) enumeration; for plain-PBC SCE fitting use the three-argument
+form with [`MinimumImage`](@ref).
 
 # Notes
 Along each periodic direction `d` the image range is `N_d = ceil(cutoff / spacingᵈ)`

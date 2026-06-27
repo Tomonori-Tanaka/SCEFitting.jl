@@ -125,21 +125,32 @@ end
         analyze = MagestyRebuild.analyze_symmetry
         a = 3.0
 
-        # simple cubic (1 atom): nearest neighbors are the 6 edge atoms, all
-        # symmetry-equivalent → one 1-body orbit and one 2-body orbit.
+        # simple cubic (1 atom): the nearest-neighbor "bond" is the atom with its own
+        # periodic image (i == j). Under AllImages (the generalized-Bloch convention;
+        # also Magesty's count) the 6 symmetry-equivalent edge neighbors form one
+        # 2-body orbit. Under the default MinimumImage it is dropped: in plain PBC both
+        # ends carry the same spin, so it is not independently resolvable from a single
+        # atom — a deliberate refinement over Magesty (see CLAUDE.md).
+        MinimumImage = MagestyRebuild.MinimumImage
+        AllImages = MagestyRebuild.AllImages
         sc = Crystal(Lattice(Matrix(a * I(3))), reshape([0.0, 0.0, 0.0], 3, 1), [1], ["X"])
         sg = analyze(SpglibBackend(), sc)
-        cs = MagestyRebuild.build_clusters(sc, MagestyRebuild.build_neighbor_list(sc, a + 0.1),
-                                           sg; nbody = 2)
-        @test length(cs.by_body[1]) == 1
-        @test length(cs.by_body[2]) == 1
+        nl_all = MagestyRebuild.build_neighbor_list(sc, a + 0.1, AllImages())
+        cs_all = MagestyRebuild.build_clusters(sc, nl_all, sg; nbody = 2, selection = AllImages())
+        @test length(cs_all.by_body[1]) == 1
+        @test length(cs_all.by_body[2]) == 1                  # Magesty-consistent (self-pair NN)
+        nl_min = MagestyRebuild.build_neighbor_list(sc, a + 0.1, MinimumImage())
+        cs_min = MagestyRebuild.build_clusters(sc, nl_min, sg; nbody = 2, selection = MinimumImage())
+        @test length(cs_min.by_body[1]) == 1
+        @test length(cs_min.by_body[2]) == 0                  # refined: self-pair not resolvable
 
-        # bcc conventional cell (2 atoms): the 8 nearest neighbors are equivalent,
-        # and corner/center sites are equivalent under body-centering.
+        # bcc conventional cell (2 atoms): the 8 nearest neighbors are corner↔center
+        # (i ≠ j), so they survive MinimumImage as one resolvable orbit; corner/center
+        # sites are equivalent under body-centering.
         bcc = Crystal(Lattice(Matrix(a * I(3))), [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["X"])
         sgb = analyze(SpglibBackend(), bcc)
-        csb = MagestyRebuild.build_clusters(bcc, MagestyRebuild.build_neighbor_list(bcc, 2.7),
-                                            sgb; nbody = 2)
+        nlb = MagestyRebuild.build_neighbor_list(bcc, 2.7, MinimumImage())
+        csb = MagestyRebuild.build_clusters(bcc, nlb, sgb; nbody = 2, selection = MinimumImage())
         @test length(csb.by_body[1]) == 1
         @test length(csb.by_body[2]) == 1
     end
