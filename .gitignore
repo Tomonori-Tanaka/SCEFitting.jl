@@ -11,6 +11,7 @@ lcov.info
 # repo where you DO want the Manifest tracked.
 /Manifest.toml
 /test/oracle/Manifest.toml
+/examples/Manifest.toml
 
 # Documenter build output
 /docs/build/
