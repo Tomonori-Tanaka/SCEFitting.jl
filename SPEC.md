@@ -71,10 +71,10 @@ in `ext/` package extensions; the core loads without them.
   irrep of its site stabilizer (per-`Lf` projector `ε_g·wignerD_real(Lf, R_g)`),
   deterministic axis-pivoted gauge, transport to members. `SALCKey` (canonical
   column address) + `SALCBasis` (sorted keys + fingerprint). `evaluate(salc, e)`.
-- Validated by the ground-truth tests: space-group invariance `Φ(g·e)=Φ(e)` and
-  time-reversal evenness. **Isotropic (`Lf=0`) channel is the validated v0 path;**
-  anisotropic (`Lf>0`) transport has a known site-alignment issue (flagged by the
-  invariance test).
+- Validated by the ground-truth tests with non-collinear spins, **all `Lf`**:
+  space-group invariance `Φ(g·e)=Φ(e)` and time-reversal evenness. The projector
+  represents each op on the `Lf` multiplet by its proper part, so symmetry-
+  forbidden odd-`Lf` channels are dropped and allowed ones kept.
 
 ### fitting + SCE API (M8, M9)
 - `Interaction`, `SCEBasis`, `SCEDataset` (energy design matrix `X_E`),
@@ -86,7 +86,6 @@ in `ext/` package extensions; the core loads without them.
 
 ## Not yet implemented (v0 follow-ups)
 - Torque design matrix `X_T` (energy-only fitting for now).
-- Anisotropic (`Lf>0`) SALC member-transport fix.
 - 3-body clusters (the `N`-generic machinery is in place; enumeration capped at 2).
 - Extensions for GLMNet estimators / VASP I/O / Sunny export; `Tables.jl` results;
   basis persistence.
