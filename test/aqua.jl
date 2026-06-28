@@ -1,6 +1,6 @@
-using MagestyRebuild
+using SCEFitting
 using Aqua
 
 @testset "Aqua" begin
-    Aqua.test_all(MagestyRebuild)
+    Aqua.test_all(SCEFitting)
 end

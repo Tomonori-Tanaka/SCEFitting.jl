@@ -1,6 +1,6 @@
 using Test
-using MagestyRebuild
-using MagestyRebuild: candidate_clusters, read_input, _assemble_spacegroup, _design_energy
+using SCEFitting
+using SCEFitting: candidate_clusters, read_input, _assemble_spacegroup, _design_energy
 using StaticArrays
 using LinearAlgebra
 using Random
@@ -20,7 +20,7 @@ end
 # an independent oracle for the in-source search.
 function _brute_min_dist(crystal, i, j; box = 4)
     A = crystal.lattice.vectors
-    cart = MagestyRebuild.cartesian_positions(crystal)
+    cart = SCEFitting.cartesian_positions(crystal)
     ri = SVector{3,Float64}(cart[:, i]...)
     rj = SVector{3,Float64}(cart[:, j]...)
     best = Inf
@@ -110,7 +110,7 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
         cl = candidate_clusters(cr, build_neighbor_list(cr, Inf, MinimumImage()), 3;
                                 selection = MinimumImage())
         A = cr.lattice.vectors
-        cart = MagestyRebuild.cartesian_positions(cr)
+        cart = SCEFitting.cartesian_positions(cr)
         sitepos(b, R) = SVector{3,Float64}(cart[:, b]...) + A * SVector{3,Float64}(R...)
         @test !isempty(cl[3])
         for m in cl[3]
@@ -227,8 +227,8 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
         cr = Crystal(lat, [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["Fe"])
         b = SCEBasis(cr, Interaction(; nbody = 2, pair_cutoff = Inf, lmax = [1], isotropy = true))
         path = joinpath(mktempdir(), "wsbasis.toml")
-        MagestyRebuild.save(path, b)
-        b2 = MagestyRebuild.load(SCEBasis, path)
+        SCEFitting.save(path, b)
+        b2 = SCEFitting.load(SCEBasis, path)
         @test b2.interaction.pair_cutoff == Inf
         @test nsalc(b2) == nsalc(b)
     end

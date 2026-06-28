@@ -1,6 +1,6 @@
 using Test
-using MagestyRebuild
-using MagestyRebuild: _l1_pair_matrix, _l2_onsite_matrix, _classify_salc,
+using SCEFitting
+using SCEFitting: _l1_pair_matrix, _l2_onsite_matrix, _classify_salc,
     _sunny_supercell_terms, _reconstruct_energy, _sunny_primitive, _assemble_spacegroup,
     Harmonics
 using StaticArrays

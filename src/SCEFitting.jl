@@ -1,5 +1,5 @@
 """
-    MagestyRebuild
+    SCEFitting
 
 Clean, extensible, Julia-native rebuild of `Magesty.jl`: fit spin-cluster-expansion
 (SCE) models to noncollinear DFT data. The numerical core is reimplemented from
@@ -7,7 +7,7 @@ scratch; `Magesty.jl` serves only as a pinned numerical oracle in `test/oracle/`
 
 Work in progress (v0 vertical slice). See `SPEC.md` for the realized architecture.
 """
-module MagestyRebuild
+module SCEFitting
 
 using LinearAlgebra: norm, det, I, eigen, Symmetric, Diagonal, dot, cross
 using StaticArrays
@@ -82,8 +82,8 @@ export to_sunny
 # samplers) read instead of the SALC-basis internals.
 export MultipoleTerm, multipole_terms, bilinear_terms
 # DFT data I/O: only the code-agnostic boundary is exported; per-code adapters are
-# namespaced submodules (e.g. `MagestyRebuild.VASP.read_poscar`), so adding a code
+# namespaced submodules (e.g. `SCEFitting.VASP.read_poscar`), so adding a code
 # touches neither the core nor this export list.
 export AbstractDFTSource, AbstractTrainingDatum, SpinDatum, read_configs
 
-end # module MagestyRebuild
+end # module SCEFitting

@@ -1,7 +1,7 @@
 # Kagome three-body
 
 ```@meta
-CurrentModule = MagestyRebuild
+CurrentModule = SCEFitting
 ```
 
 Beyond pairs, the new physics is that a space-group operation can *permute* the sites of a
@@ -14,7 +14,7 @@ recovers a synthetic 3-body model from energies and torques.
 ## The kagome basis
 
 ```@example kagome
-using MagestyRebuild
+using SCEFitting
 import Spglib
 using LinearAlgebra, Random
 

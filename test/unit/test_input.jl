@@ -1,5 +1,5 @@
 using Test
-using MagestyRebuild
+using SCEFitting
 using LinearAlgebra
 using StaticArrays
 

@@ -1,10 +1,10 @@
 using Test
-using MagestyRebuild
+using SCEFitting
 using LinearAlgebra
 using StaticArrays
 using Random
 
-const MR = MagestyRebuild
+const MR = SCEFitting
 
 # Fresh-draw unit config (so anisotropic / Lf > 0 channels do not vanish).
 function _pcfg(rng, nat)

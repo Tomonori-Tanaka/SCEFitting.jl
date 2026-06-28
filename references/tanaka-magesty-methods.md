@@ -13,7 +13,7 @@ Draft source (user-local, not part of this repo):
 
 ## Why it matters here
 
-This is the **formal specification** of the construction `MagestyRebuild`
+This is the **formal specification** of the construction `SCEFitting`
 reimplements from scratch. Reading it independently confirmed that every numerical
 convention in the rebuild matches the published formalism (not just the Magesty.jl
 code) — a second, authoritative anchor beyond the oracle.

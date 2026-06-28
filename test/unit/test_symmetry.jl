@@ -1,6 +1,6 @@
 using Test
-using MagestyRebuild
-using MagestyRebuild: _assemble_spacegroup, n_ops
+using SCEFitting
+using SCEFitting: _assemble_spacegroup, n_ops
 using StaticArrays
 using LinearAlgebra
 

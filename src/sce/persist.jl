@@ -16,8 +16,8 @@ library — no external dependency; Float64 round-trips exactly) by [`save`](@re
 [`load`](@ref).
 """
 
-const _SCHEMA_BASIS = "magesty-rebuild/sce-basis"
-const _SCHEMA_MODEL = "magesty-rebuild/sce-model"
+const _SCHEMA_BASIS = "scefitting/sce-basis"
+const _SCHEMA_MODEL = "scefitting/sce-model"
 const PERSIST_SCHEMA_VERSION = 1
 
 # Normalize -0.0 → +0.0 so two builds of the same object serialize byte-identically
@@ -258,7 +258,7 @@ end
 Serialize an [`SCEBasis`](@ref), [`SCEModel`](@ref), or [`SCEFit`](@ref) (a fit is
 saved as its model) to `path_or_io` as a self-contained, human-readable TOML
 document. Not exported (the name clashes with FileIO / JLD2 / CSV); call as
-`MagestyRebuild.save("model.toml", model)`. Inverse: [`load`](@ref MagestyRebuild.load).
+`SCEFitting.save("model.toml", model)`. Inverse: [`load`](@ref SCEFitting.load).
 """
 function save(io::IO, x::Union{SCEBasis,SCEModel,SCEFit})
     TOML.print(io, _to_doc(x))
@@ -271,11 +271,11 @@ save(path::AbstractString, x::Union{SCEBasis,SCEModel,SCEFit}) =
     load(SCEBasis, path_or_io) -> SCEBasis
     load(SCEModel, path_or_io) -> SCEModel
 
-Inverse of [`save`](@ref MagestyRebuild.save): rebuild a basis or model from a TOML
+Inverse of [`save`](@ref SCEFitting.save): rebuild a basis or model from a TOML
 document. The SALC basis is reconstructed verbatim (no re-projection); a basis can be
 loaded from a model document too (the coefficients are ignored), and a model load
 re-pairs coefficients to the basis **by key** (not by position). Not exported; call as
-`MagestyRebuild.load(SCEModel, "model.toml")`.
+`SCEFitting.load(SCEModel, "model.toml")`.
 """
 load(::Type{SCEBasis}, io::IO)::SCEBasis = _basis_from_doc(TOML.parse(io))
 load(::Type{SCEModel}, io::IO)::SCEModel = _model_from_doc(TOML.parse(io))

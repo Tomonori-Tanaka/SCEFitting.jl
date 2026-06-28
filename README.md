@@ -1,4 +1,4 @@
-# MagestyRebuild.jl
+# SCEFitting.jl
 
 A clean, extensible, Julia-native rebuild of **Magesty.jl** — fitting
 **spin-cluster expansion (SCE)** models to noncollinear DFT data.
@@ -31,7 +31,7 @@ physical / Landau–Lifshitz torque `m_a × B_eff,a`), the SCE's other DFT obser
 ## Usage
 
 ```julia
-using MagestyRebuild
+using SCEFitting
 import Spglib                     # load it to activate the SpglibBackend extension
                                  # (`import`, not `using`, to avoid a `Lattice` name clash)
 using LinearAlgebra
@@ -66,8 +66,8 @@ document and reload it later. Coefficients re-pair to the basis by `SALCKey`, so
 reloaded model predicts identically:
 
 ```julia
-MagestyRebuild.save("model.toml", SCEModel(f))     # or save("basis.toml", basis)
-model = MagestyRebuild.load(SCEModel, "model.toml")
+SCEFitting.save("model.toml", SCEModel(f))     # or save("basis.toml", basis)
+model = SCEFitting.load(SCEModel, "model.toml")
 predict_energy(model, configs)
 ```
 
@@ -163,7 +163,7 @@ once you have the data the originating code is irrelevant. The **concrete VASP a
 in the companion [SCETools.jl](https://github.com/Tomonori-Tanaka/SCETools.jl) package**:
 
 ```julia
-using MagestyRebuild, SCETools
+using SCEFitting, SCETools
 using SCETools.VASP: read_poscar, Oszicar
 
 crystal = read_poscar("POSCAR")                          # → Crystal

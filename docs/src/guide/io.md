@@ -1,7 +1,7 @@
 # Persistence and I/O
 
 ```@meta
-CurrentModule = MagestyRebuild
+CurrentModule = SCEFitting
 ```
 
 Building a SALC basis is the expensive step, and a fitted model is worth keeping. This
@@ -11,13 +11,13 @@ through the code-agnostic source interface.
 
 ## Saving and reloading a model
 
-`MagestyRebuild.save` / `MagestyRebuild.load` serialize a basis or a model to a
+`SCEFitting.save` / `SCEFitting.load` serialize a basis or a model to a
 self-contained, human-readable **TOML** document. (They are intentionally *not* exported —
 the names clash with FileIO / JLD2 / CSV — so qualify them.)
 
 ```julia
-MagestyRebuild.save("model.toml", SCEModel(f))      # or save("basis.toml", basis)
-model = MagestyRebuild.load(SCEModel, "model.toml")
+SCEFitting.save("model.toml", SCEModel(f))      # or save("basis.toml", basis)
+model = SCEFitting.load(SCEModel, "model.toml")
 predict_energy(model, configs)
 ```
 
@@ -102,7 +102,7 @@ The **concrete DFT-code adapters** live in the companion
 VASP:
 
 ```julia
-using MagestyRebuild, SCETools
+using SCEFitting, SCETools
 using SCETools.VASP: read_poscar, Oszicar
 
 crystal = read_poscar("POSCAR")                          # → Crystal

@@ -1,7 +1,7 @@
 # Heisenberg chain
 
 ```@meta
-CurrentModule = MagestyRebuild
+CurrentModule = SCEFitting
 ```
 
 This tutorial walks the whole pipeline on the simplest non-trivial system: a chain of
@@ -12,7 +12,7 @@ repeat with an energy + torque co-fit.
 ## Setup
 
 ```@example heis
-using MagestyRebuild
+using SCEFitting
 import Spglib                       # activate the SpglibBackend extension
 using LinearAlgebra, Random
 

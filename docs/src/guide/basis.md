@@ -1,7 +1,7 @@
 # Building the basis
 
 ```@meta
-CurrentModule = MagestyRebuild
+CurrentModule = SCEFitting
 ```
 
 The first half of the workflow turns a crystal and an interaction specification into a
@@ -16,7 +16,7 @@ A [`Lattice`](@ref) holds the cell vectors as columns; a [`Crystal`](@ref) adds
 fractional atomic positions, integer species labels, and per-species names.
 
 ```@example basis
-using MagestyRebuild
+using SCEFitting
 import Spglib
 
 lat = Lattice([3.0 0 0; 0 3.0 0; 0 0 3.0])           # columns are the cell vectors aᵢ

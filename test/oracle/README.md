@@ -1,6 +1,6 @@
 # Oracle test environment
 
-Validates `MagestyRebuild`'s from-scratch numerics against `Magesty.jl` used as a
+Validates `SCEFitting`'s from-scratch numerics against `Magesty.jl` used as a
 numerical oracle. Kept in a **separate environment** so the core test suite never
 depends on Magesty.
 

@@ -9,8 +9,8 @@
 # independent brute force and guard the orbit reduction at the boundary.
 
 using Test
-using MagestyRebuild
-using MagestyRebuild: candidate_clusters, build_clusters, num_atoms, cartesian_positions,
+using SCEFitting
+using SCEFitting: candidate_clusters, build_clusters, num_atoms, cartesian_positions,
                       _assemble_spacegroup, _site_image, ClusterMember
 using StaticArrays
 using LinearAlgebra

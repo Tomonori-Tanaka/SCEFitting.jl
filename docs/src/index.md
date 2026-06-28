@@ -1,7 +1,7 @@
-# MagestyRebuild.jl
+# SCEFitting.jl
 
 ```@meta
-CurrentModule = MagestyRebuild
+CurrentModule = SCEFitting
 ```
 
 A clean, extensible, Julia-native rebuild of [Magesty.jl](https://github.com/Tomonori-Tanaka/Magesty.jl) —
@@ -57,9 +57,9 @@ Crystal + Interaction ──▶ SCEBasis ──▶ SCEDataset ──▶ fit ─�
     configurations from a fitted model — finite-temperature mean-field (MFA) sampling, and
     (planned) active-learning model construction — use the companion package
     [SCETools.jl](https://github.com/Tomonori-Tanaka/SCETools.jl). It depends on
-    MagestyRebuild and reads a fitted model only through the public
+    SCEFitting and reads a fitted model only through the public
     [introspection surface](api.md#Fitted-model-introspection)
-    (`multipole_terms`, `bilinear_terms`, `MagestyRebuild.Harmonics`).
+    (`multipole_terms`, `bilinear_terms`, `SCEFitting.Harmonics`).
 
 ## Documentation
 

@@ -4,12 +4,12 @@
 # tesseral contraction must reproduce `predict_energy − j0`.
 
 using Test
-using MagestyRebuild
+using SCEFitting
 using LinearAlgebra
 using Random
 using StaticArrays
 
-const Zlm = MagestyRebuild.Harmonics.Zlm
+const Zlm = SCEFitting.Harmonics.Zlm
 
 # A 2-body lmax=[2] noncollinear model carries [1,1] bilinear, [1,2]/[2,2] biquadratic, and
 # [2] single-ion channels — every body order / l the introspection must round-trip.

@@ -2,7 +2,7 @@ using Test
 
 const TEST_MODE = get(ENV, "TEST_MODE", "default")
 
-@testset "MagestyRebuild.jl" begin
+@testset "SCEFitting.jl" begin
     if TEST_MODE in ("default", "all", "unit")
         include("unit/test_geometry.jl")
         include("unit/test_harmonics.jl")

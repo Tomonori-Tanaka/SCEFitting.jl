@@ -1,13 +1,13 @@
-using MagestyRebuild
+using SCEFitting
 import Spglib   # activates the SpglibBackend extension for the executed `@example` blocks
 using Documenter
 
-DocMeta.setdocmeta!(MagestyRebuild, :DocTestSetup, :(using MagestyRebuild);
+DocMeta.setdocmeta!(SCEFitting, :DocTestSetup, :(using SCEFitting);
                     recursive = true)
 
 makedocs(;
-    sitename = "MagestyRebuild.jl",
-    modules = [MagestyRebuild],
+    sitename = "SCEFitting.jl",
+    modules = [SCEFitting],
     # Local-only build: there is no published remote yet, so do not try to resolve
     # "edit on GitHub" / source links. Add a `repolink`/`deploydocs` when a remote exists.
     remotes = nothing,

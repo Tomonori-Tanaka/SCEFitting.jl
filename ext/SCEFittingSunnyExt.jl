@@ -1,4 +1,4 @@
-module MagestyRebuildSunnyExt
+module SCEFittingSunnyExt
 
 # Assembles a Sunny.jl `System` from a fitted SCEModel. All the conversion math
 # (folded tesseral tensor → Cartesian matrix, directed-member folding, the supercell
@@ -6,9 +6,9 @@ module MagestyRebuildSunnyExt
 # extension only places the core-computed matrices into Sunny constructs, so it stays
 # thin and the numerics are validated without Sunny.
 
-using MagestyRebuild: SCEModel, SunnyTerms, SunnyPrimitive, _sunny_supercell_terms,
+using SCEFitting: SCEModel, SunnyTerms, SunnyPrimitive, _sunny_supercell_terms,
     _sunny_primitive, num_atoms
-import MagestyRebuild: to_sunny
+import SCEFitting: to_sunny
 using Sunny
 using StaticArrays
 using LinearAlgebra: dot
@@ -119,4 +119,4 @@ function to_sunny(model::SCEModel; spins, g::Real = 2, mode::Symbol = :dipole,
     return sys
 end
 
-end # module MagestyRebuildSunnyExt
+end # module SCEFittingSunnyExt

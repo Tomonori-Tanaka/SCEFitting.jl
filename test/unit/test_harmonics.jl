@@ -1,5 +1,5 @@
 using Test
-using MagestyRebuild: Harmonics
+using SCEFitting: Harmonics
 using StaticArrays
 using LinearAlgebra
 using Random

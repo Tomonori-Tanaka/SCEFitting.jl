@@ -1,9 +1,9 @@
 using Test
-using MagestyRebuild
+using SCEFitting
 using LinearAlgebra
 using Random
 
-struct _DummyEstimator <: MagestyRebuild.AbstractEstimator end
+struct _DummyEstimator <: SCEFitting.AbstractEstimator end
 
 function randcfg(rng, nat)
     M = Matrix{Float64}(undef, 3, nat)
@@ -62,7 +62,7 @@ end
         en = ElasticNet(; alpha = 0.4, lambda = 0.2, select = :lambda_1se, nfolds = 5, seed = 9)
         @test en.alpha == 0.4 && en.lambda == 0.2 && en.select === :lambda_1se
         @test ElasticNet().lambda === nothing                       # default: choose by CV
-        @test !MagestyRebuild.islinear(Lasso())                     # not a closed-form estimator
+        @test !SCEFitting.islinear(Lasso())                     # not a closed-form estimator
 
         @test_throws ArgumentError ElasticNet(; alpha = 1.5)
         @test_throws ArgumentError ElasticNet(; alpha = -0.1)
@@ -89,7 +89,7 @@ end
     ds0 = SCEDataset(basis, configs, zeros(length(configs)))
 
     @testset "AdaptiveRidge: validation, islinear, lambda = 0 ⇒ OLS" begin
-        @test MagestyRebuild.islinear(AdaptiveRidge(lambda = 1e-3))   # linear smoother (GCV-eligible)
+        @test SCEFitting.islinear(AdaptiveRidge(lambda = 1e-3))   # linear smoother (GCV-eligible)
         ar = AdaptiveRidge(lambda = 1e-3, epsilon = 1e-6, max_iter = 100, tol = 1e-8)
         @test ar.lambda == 1e-3 && ar.epsilon == 1e-6 && ar.max_iter == 100 && ar.tol == 1e-8
         @test_throws ArgumentError AdaptiveRidge(lambda = -1.0)
@@ -150,7 +150,7 @@ end
         al = AdaptiveLasso()
         @test al.pilot isa OLS && al.lambda === nothing && al.gamma == 1.0 && al.standardize
         @test AdaptiveLasso(pilot = Ridge(lambda = 1e-4), gamma = 0.5, lambda = 1e-3).gamma == 0.5
-        @test !MagestyRebuild.islinear(AdaptiveLasso())             # pilot + L1 path: not a smoother
+        @test !SCEFitting.islinear(AdaptiveLasso())             # pilot + L1 path: not a smoother
         @test_throws ArgumentError AdaptiveLasso(gamma = -1.0)
         @test_throws ArgumentError AdaptiveLasso(epsilon = 0.0)
         @test_throws ArgumentError AdaptiveLasso(select = :bogus)

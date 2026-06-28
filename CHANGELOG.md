@@ -6,9 +6,22 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — package renamed `MagestyRebuild` → `SCEFitting`
+
+- The package, its module, and the repository directory were renamed from
+  `MagestyRebuild` (`Magesty_rebuild.jl`) to **`SCEFitting`** (`SCEFitting.jl`), unifying the
+  naming with the companion `SCETools.jl` under a shared `SCE*` family. The UUID is unchanged,
+  so the package identity is preserved. The package extensions are now
+  `SCEFittingGLMNetExt`, `SCEFittingSpglibExt`, and `SCEFittingSunnyExt`. The persisted-model
+  TOML schema tags changed from `magesty-rebuild/sce-{basis,model}` to
+  `scefitting/sce-{basis,model}` (`schema_version` is still `1`); any model TOML written by an
+  earlier build must be re-saved. Downstream code updates `using MagestyRebuild` to
+  `using SCEFitting`. The legacy `Magesty.jl` package (the design-reference original) is
+  unaffected and keeps its name.
+
 ### Changed — VASP I/O moved to `SCETools.jl`
 
-- The concrete VASP adapter (`MagestyRebuild.VASP`: `read_poscar`, `write_poscar`, `Oszicar`)
+- The concrete VASP adapter (`SCEFitting.VASP`: `read_poscar`, `write_poscar`, `Oszicar`)
   has been **moved to the `SCETools.jl` package** (`SCETools.VASP`), joining the INCAR writer
   so all VASP I/O lives in one place. The core now keeps only the **code-agnostic DFT-data
   seam** — `AbstractDFTSource`, `AbstractTrainingDatum`, `SpinDatum`, `read_configs`, and
@@ -22,7 +35,7 @@ release, so everything lives under *Unreleased*.
 
 - The mean-field spin-configuration **sampler** (the P0–P4 work documented below) has been
   **moved out of this package** into the new auxiliary package `SCETools.jl`, which depends
-  on `MagestyRebuild`. This package is now focused on building and fitting SCE models;
+  on `SCEFitting`. This package is now focused on building and fitting SCE models;
   generating spin configurations (and, later, active learning) lives in `SCETools.jl`. The
   removed exports are `AbstractSampler`, `MFASampler`, `MFASample`, `ExchangeModel`,
   `MultipoleField`, `sample`, `mfa_temperature_scale`, `mfa_sublattice_m`,
@@ -39,7 +52,7 @@ release, so everything lives under *Unreleased*.
   - `num_atoms(model::SCEModel)` is a new method of the exported `num_atoms`.
   The gate is energy reconstruction (`test/unit/test_introspect.jl`): summing the per-term
   tesseral contraction reproduces `predict_energy − j0`.
-- The tesseral spherical-harmonic submodule `MagestyRebuild.Harmonics` (`Zlm`, `lm_index`) is
+- The tesseral spherical-harmonic submodule `SCEFitting.Harmonics` (`Zlm`, `lm_index`) is
   documented as a stable surface for downstream packages.
 
 ### Added — mean-field spin-configuration sampling: P4 (full multipole / many-body)
@@ -160,7 +173,7 @@ release, so everything lives under *Unreleased*.
   change drops below `tol` (or `max_iter` steps), so large coefficients keep a light
   penalty and small ones are driven toward zero. `lambda = 0` reduces to `OLS`;
   `islinear ⇒ true` (a linear smoother in the converged-weight sense).
-- **`AdaptiveLasso`** (type in core, GLMNet solve in `ext/MagestyRebuildGLMNetExt`): the
+- **`AdaptiveLasso`** (type in core, GLMNet solve in `ext/SCEFittingGLMNetExt`): the
   one-shot Adaptive Lasso (Zou 2006). A `pilot` estimator (default `OLS`, any estimator
   allowed) supplies `β̂`, then a weighted Lasso is solved with per-column penalty factor
   `wⱼ = 1/max(|β̂ⱼ|, ε)^γ`. `gamma = 0` reduces exactly to a plain `Lasso`. It shares
@@ -232,7 +245,7 @@ release, so everything lives under *Unreleased*.
   validated, and dispatched on without the heavy dependency — while the actual solve
   lights up only under `using GLMNet`.
 - **`solve_coefficients(::ElasticNet, X, y; groups)`** in the new
-  `MagestyRebuildGLMNetExt` extension. GLMNet minimizes
+  `SCEFittingGLMNetExt` extension. GLMNet minimizes
   `(1/2n)·‖y − Xβ‖² + λ·[(1−α)/2·‖β‖₂² + α·‖β‖₁]` on the column-centered `(X, y)` the
   fit hands it, with `intercept = false` (so `j0` is still recovered analytically) and
   column `standardize` (the penalty acts per-column at `λ·std`, returning β on the
@@ -265,7 +278,7 @@ release, so everything lives under *Unreleased*.
   members fold into one matrix per undirected supercell bond
   (`_sunny_supercell_terms`), and the whole conversion is gated **without Sunny** by
   reconstructing the energy (`_reconstruct_energy ≈ predict_energy − j0`).
-- **`to_sunny(model; spins, g, mode, placement)`** in the `MagestyRebuildSunnyExt`
+- **`to_sunny(model; spins, g, mode, placement)`** in the `SCEFittingSunnyExt`
   extension (loaded by `using Sunny`): builds a real `Sunny.System` on the training
   supercell (P1, inhomogeneous), placing `set_exchange_at!` per bond (rescaled
   `J = M/(SₐS_b)`) and `set_onsite_coupling_at!` per atom. The system's classical
@@ -332,7 +345,7 @@ release, so everything lives under *Unreleased*.
   torque target `τ_a = −m_a × B_a`, eV), and `SCEDataset(basis, src | data; use_torque)`.
   This is the *only* thing the SCE pipeline consumes — the originating DFT code is
   irrelevant once you hold a `SpinDatum`/`SCEDataset`.
-- **VASP adapter** (`io/vasp.jl`, `module MagestyRebuild.VASP`): `read_poscar` /
+- **VASP adapter** (`io/vasp.jl`, `module SCEFitting.VASP`): `read_poscar` /
   `write_poscar` (POSCAR/CONTCAR ↔ `Crystal`; scaling incl. negative-volume,
   Direct/Cartesian, Selective dynamics, VASP4/5) and `Oszicar`, an `AbstractDFTSource`
   over constrained-noncollinear OSZICARs (energy `F=`/`E0`, `MW_int`/`M_int` moments,
@@ -360,8 +373,8 @@ release, so everything lives under *Unreleased*.
 
 ### Added — persistence + TOML input files
 
-- **Persistence** (`sce/persist.jl`): `MagestyRebuild.save(path, x)` and
-  `MagestyRebuild.load(SCEBasis | SCEModel, path)` serialize a self-contained,
+- **Persistence** (`sce/persist.jl`): `SCEFitting.save(path, x)` and
+  `SCEFitting.load(SCEBasis | SCEModel, path)` serialize a self-contained,
   human-readable **TOML** document — the crystal, the space-group ops, the
   interaction, and the *full* SALC basis (every member / term / folded tensor); a
   model adds `j0` and per-`SALCKey` coefficients. Reload rebuilds the basis verbatim
@@ -430,7 +443,7 @@ release, so everything lives under *Unreleased*.
   `wignerD_real` (least-squares from the package's own `Zₗₘ`), complex→real coupled
   tensors; `CoupledBasis{R}`.
 - **Symmetry**: `AbstractSymmetryBackend` with in-tree `NoSymmetry` and a
-  `SpglibBackend` whose method lives in `ext/MagestyRebuildSpglibExt`.
+  `SpglibBackend` whose method lives in `ext/SCEFittingSpglibExt`.
 - **Clusters**: orbit reduction with `R`-carrying members (`build_clusters`).
 - **SALC basis**: orbit–stabilizer projector (isotropic and anisotropic channels),
   deterministic gauge, canonical `SALCKey` column addressing (`build_salc_basis`).

@@ -18,7 +18,7 @@ tesseral tensor into a Cartesian matrix with the right normalization, and summin
 the directed cluster members into one matrix per undirected bond — lives here, in
 the core, and is validated by reconstructing the SCE energy
 (`_reconstruct_energy ≈ predict_energy − j0`) **without** Sunny. The actual
-`Sunny.System` assembly is the thin `MagestyRebuildSunnyExt` extension (loaded by
+`Sunny.System` assembly is the thin `SCEFittingSunnyExt` extension (loaded by
 `using Sunny`), which consumes these matrices.
 """
 
@@ -327,5 +327,5 @@ dispersion) when the model maps cleanly, else falls back to the training superce
 """
 function to_sunny(model::SCEModel, args...; kwargs...)
     error("to_sunny requires Sunny.jl; run `using Sunny` first " *
-          "(it activates the MagestyRebuild Sunny export extension).")
+          "(it activates the SCEFitting Sunny export extension).")
 end

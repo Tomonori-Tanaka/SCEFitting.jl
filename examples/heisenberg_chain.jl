@@ -3,10 +3,10 @@
 #
 # Run:  julia --project=examples examples/heisenberg_chain.jl
 
-using MagestyRebuild
+using SCEFitting
 import Spglib           # `import` (not `using`): just load it to activate the
                         # SpglibBackend extension, without importing names that
-                        # clash with MagestyRebuild's `Lattice`/`Crystal`.
+                        # clash with SCEFitting's `Lattice`/`Crystal`.
 using LinearAlgebra
 using Random
 

@@ -6,7 +6,7 @@
 #
 # Run:  julia --project=examples examples/kagome_threebody.jl
 
-using MagestyRebuild
+using SCEFitting
 import Spglib
 using LinearAlgebra
 using Random

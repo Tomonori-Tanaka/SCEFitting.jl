@@ -4,15 +4,15 @@
 # separate environment (heavy GLMNet / Fortran binary dependency), mirroring
 # `test/sunny/` and `test/oracle/`. The `ElasticNet` / `Lasso` types and their
 # argument validation are covered Estimator-free in `test/unit/test_fit.jl`; here we
-# exercise the actual GLMNet solve through the `MagestyRebuildGLMNetExt` extension.
+# exercise the actual GLMNet solve through the `SCEFittingGLMNetExt` extension.
 
 using Test
 using Random
 using LinearAlgebra
-import MagestyRebuild
-import GLMNet   # triggers MagestyRebuildGLMNetExt
+import SCEFitting
+import GLMNet   # triggers SCEFittingGLMNetExt
 
-const MR = MagestyRebuild
+const MR = SCEFitting
 
 _rdir(rng) = (v = randn(rng, 3); v / norm(v))
 randcfg(rng, nat) = reduce(hcat, (_rdir(rng) for _ = 1:nat))

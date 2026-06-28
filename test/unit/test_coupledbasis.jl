@@ -1,11 +1,11 @@
 using Test
-using MagestyRebuild: Harmonics, AngularMomentum
-using MagestyRebuild
+using SCEFitting: Harmonics, AngularMomentum
+using SCEFitting
 using StaticArrays
 using LinearAlgebra
 using Random
 
-const coupled_bases = MagestyRebuild.coupled_bases
+const coupled_bases = SCEFitting.coupled_bases
 const Dreal = AngularMomentum.wignerD_real
 
 rand_unit(rng) = (v = SVector{3,Float64}(randn(rng), randn(rng), randn(rng)); v / norm(v))

@@ -114,7 +114,7 @@ Easy to break silently — confirm before touching the algorithm.
   `test/unit/test_nbody.jl`). `SCEModel` re-pairs `jphi` to a basis **by key** on any
   reload (positionally paired only within a session); `fingerprint = hash(sorted keys)`
   guards against cross-basis confusion. This reload is realized by persistence
-  (`MagestyRebuild.load(SCEModel, …)` rebuilds `jphi` in basis-key order from the
+  (`SCEFitting.load(SCEModel, …)` rebuilds `jphi` in basis-key order from the
   per-`SALCKey` coefficients).
 - **Persistence schema ↔ the serialized structs** (`sce/persist.jl`): `_to_doc` /
   `_from_doc` mirror the fields of `Crystal` / `Lattice` / `SpaceGroup` / `Interaction`
@@ -143,7 +143,7 @@ Easy to break silently — confirm before touching the algorithm.
   DFT-code-agnostic. The VASP parsers are cross-checked against Magesty in SCETools's oracle.
   The `SpinDatum` torque sign defined here is the convention source the adapters must match.
 - **Sunny export conversion ↔ the energy reconstruction** (`sce/sunny.jl`,
-  `ext/MagestyRebuildSunnyExt.jl`): `_l1_pair_matrix` / `_l2_onsite_matrix` must satisfy
+  `ext/SCEFittingSunnyExt.jl`): `_l1_pair_matrix` / `_l2_onsite_matrix` must satisfy
   `eₐ'·M·e_b = Σ folded·Z·Z` (the gate is the `Z₁`/`Z₂` contraction test); the per-bond
   matrix is `jϕ·(4π)^(N/2)·M` and the two directed members `(a,b,R)`/`(b,a,−R)` fold into
   one matrix on the canonical `a≤b` bond (reverse transposed). The whole chain is checked
@@ -167,7 +167,7 @@ Easy to break silently — confirm before touching the algorithm.
   in-tree or in an extension — must honor this. `groups` (optional) labels rows from the
   same physical sample (in a co-fit, a configuration's energy row and its
   torque-component rows share a label); a resampling estimator (CV-based `ElasticNet` /
-  `Lasso` / `AdaptiveLasso` in `ext/MagestyRebuildGLMNetExt.jl`) must keep same-label rows
+  `Lasso` / `AdaptiveLasso` in `ext/SCEFittingGLMNetExt.jl`) must keep same-label rows
   in the same fold so CV does not leak within-configuration structure. The analytic / adapter
   estimators (`OLS` / `Ridge` / `AdaptiveRidge` / `PrecomputedPilot`) ignore it. The GLMNet
   solve uses `intercept = false` + column `standardize` and selects λ by configuration-

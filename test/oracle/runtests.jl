@@ -1,4 +1,4 @@
-# Oracle validation: MagestyRebuild's from-scratch numerics vs Magesty.jl.
+# Oracle validation: SCEFitting's from-scratch numerics vs Magesty.jl.
 #
 # Conventions are pinned independently by the core suite (closed forms, on-sphere
 # finite differences). Here we additionally confirm bit-for-bit agreement with
@@ -12,13 +12,13 @@ using Random
 using StaticArrays
 using LinearAlgebra
 using OffsetArrays
-import MagestyRebuild
+import SCEFitting
 import Magesty
 import WignerSymbols
-import Spglib   # triggers MagestyRebuildSpglibExt
+import Spglib   # triggers SCEFittingSpglibExt
 
-const MRH = MagestyRebuild.Harmonics
-const MRA = MagestyRebuild.AngularMomentum
+const MRH = SCEFitting.Harmonics
+const MRA = SCEFitting.AngularMomentum
 const MTH = Magesty.TesseralHarmonics
 const MTR = Magesty.RotationMatrix
 
@@ -89,10 +89,10 @@ end
     end
 
     @testset "SpglibBackend space groups (M5)" begin
-        Lattice = MagestyRebuild.Lattice
-        Crystal = MagestyRebuild.Crystal
-        SpglibBackend = MagestyRebuild.SpglibBackend
-        analyze = MagestyRebuild.analyze_symmetry
+        Lattice = SCEFitting.Lattice
+        Crystal = SCEFitting.Crystal
+        SpglibBackend = SCEFitting.SpglibBackend
+        analyze = SCEFitting.analyze_symmetry
 
         a = 3.0
         sc = Crystal(Lattice(Matrix(a * I(3))), reshape([0.0, 0.0, 0.0], 3, 1), [1], ["X"])
@@ -119,10 +119,10 @@ end
     end
 
     @testset "cluster orbits with Spglib (M6)" begin
-        Lattice = MagestyRebuild.Lattice
-        Crystal = MagestyRebuild.Crystal
-        SpglibBackend = MagestyRebuild.SpglibBackend
-        analyze = MagestyRebuild.analyze_symmetry
+        Lattice = SCEFitting.Lattice
+        Crystal = SCEFitting.Crystal
+        SpglibBackend = SCEFitting.SpglibBackend
+        analyze = SCEFitting.analyze_symmetry
         a = 3.0
 
         # simple cubic (1 atom): the nearest-neighbor "bond" is the atom with its own
@@ -131,16 +131,16 @@ end
         # 2-body orbit. Under the default MinimumImage it is dropped: in plain PBC both
         # ends carry the same spin, so it is not independently resolvable from a single
         # atom — a deliberate refinement over Magesty (see CLAUDE.md).
-        MinimumImage = MagestyRebuild.MinimumImage
-        AllImages = MagestyRebuild.AllImages
+        MinimumImage = SCEFitting.MinimumImage
+        AllImages = SCEFitting.AllImages
         sc = Crystal(Lattice(Matrix(a * I(3))), reshape([0.0, 0.0, 0.0], 3, 1), [1], ["X"])
         sg = analyze(SpglibBackend(), sc)
-        nl_all = MagestyRebuild.build_neighbor_list(sc, a + 0.1, AllImages())
-        cs_all = MagestyRebuild.build_clusters(sc, nl_all, sg; nbody = 2, selection = AllImages())
+        nl_all = SCEFitting.build_neighbor_list(sc, a + 0.1, AllImages())
+        cs_all = SCEFitting.build_clusters(sc, nl_all, sg; nbody = 2, selection = AllImages())
         @test length(cs_all.by_body[1]) == 1
         @test length(cs_all.by_body[2]) == 1                  # Magesty-consistent (self-pair NN)
-        nl_min = MagestyRebuild.build_neighbor_list(sc, a + 0.1, MinimumImage())
-        cs_min = MagestyRebuild.build_clusters(sc, nl_min, sg; nbody = 2, selection = MinimumImage())
+        nl_min = SCEFitting.build_neighbor_list(sc, a + 0.1, MinimumImage())
+        cs_min = SCEFitting.build_clusters(sc, nl_min, sg; nbody = 2, selection = MinimumImage())
         @test length(cs_min.by_body[1]) == 1
         @test length(cs_min.by_body[2]) == 0                  # refined: self-pair not resolvable
 
@@ -149,28 +149,28 @@ end
         # sites are equivalent under body-centering.
         bcc = Crystal(Lattice(Matrix(a * I(3))), [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["X"])
         sgb = analyze(SpglibBackend(), bcc)
-        nlb = MagestyRebuild.build_neighbor_list(bcc, 2.7, MinimumImage())
-        csb = MagestyRebuild.build_clusters(bcc, nlb, sgb; nbody = 2, selection = MinimumImage())
+        nlb = SCEFitting.build_neighbor_list(bcc, 2.7, MinimumImage())
+        csb = SCEFitting.build_clusters(bcc, nlb, sgb; nbody = 2, selection = MinimumImage())
         @test length(csb.by_body[1]) == 1
         @test length(csb.by_body[2]) == 1
     end
 
     @testset "SALC basis on a real chain (M7)" begin
-        Lattice = MagestyRebuild.Lattice
-        Crystal = MagestyRebuild.Crystal
-        SpglibBackend = MagestyRebuild.SpglibBackend
-        analyze = MagestyRebuild.analyze_symmetry
-        evaluate = MagestyRebuild.evaluate
+        Lattice = SCEFitting.Lattice
+        Crystal = SCEFitting.Crystal
+        SpglibBackend = SCEFitting.SpglibBackend
+        analyze = SCEFitting.analyze_symmetry
+        evaluate = SCEFitting.evaluate
 
         # 4-atom chain along z (so neighboring spins differ)
         lat = Lattice(Matrix(Diagonal([8.0, 8.0, 10.0])))
         frac = [0.0 0.0 0.0 0.0; 0.0 0.0 0.0 0.0; 0.0 0.25 0.5 0.75]
         chain = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
         sg = analyze(SpglibBackend(), chain)
-        nl = MagestyRebuild.build_neighbor_list(chain, 2.6)   # nearest neighbors only
-        cs = MagestyRebuild.build_clusters(chain, nl, sg; nbody = 2)
+        nl = SCEFitting.build_neighbor_list(chain, 2.6)   # nearest neighbors only
+        cs = SCEFitting.build_clusters(chain, nl, sg; nbody = 2)
         # full basis including anisotropic (Lf>0) channels
-        basis = MagestyRebuild.build_salc_basis(chain, sg, cs; lmax_by_species = [2])
+        basis = SCEFitting.build_salc_basis(chain, sg, cs; lmax_by_species = [2])
         @test any(s -> s.Lf > 0, basis.salcs)   # anisotropic channels present
 
         rng = MersenneTwister(5)
@@ -202,16 +202,16 @@ end
     end
 
     @testset "Heisenberg chain end-to-end: recover J (M8/M9)" begin
-        Lattice = MagestyRebuild.Lattice
-        Crystal = MagestyRebuild.Crystal
-        SpglibBackend = MagestyRebuild.SpglibBackend
+        Lattice = SCEFitting.Lattice
+        Crystal = SCEFitting.Crystal
+        SpglibBackend = SCEFitting.SpglibBackend
 
         lat = Lattice(Matrix(Diagonal([8.0, 8.0, 10.0])))
         frac = [zeros(2, 4); [0.0 0.25 0.5 0.75]]
         chain = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
-        interaction = MagestyRebuild.Interaction(; nbody = 2, pair_cutoff = 2.6,
+        interaction = SCEFitting.Interaction(; nbody = 2, pair_cutoff = 2.6,
                                                  lmax = [1], isotropy = true)
-        basis = MagestyRebuild.SCEBasis(chain, interaction; backend = SpglibBackend())
+        basis = SCEFitting.SCEBasis(chain, interaction; backend = SpglibBackend())
         @test length(basis.salcs) == 1          # only the nearest-neighbor Heisenberg SALC
         heis = basis.salcs.salcs[1]
 
@@ -224,12 +224,12 @@ end
         E = [J_true * 0.5 * sum(dot(c[:, m.atoms[1]], c[:, m.atoms[2]]) for m in heis.members)
              for c in configs]
 
-        ds = MagestyRebuild.SCEDataset(basis, configs, E)
-        f = MagestyRebuild.fit(MagestyRebuild.SCEFit, ds, MagestyRebuild.OLS())
-        @test MagestyRebuild.r2_energy(f) ≈ 1.0 atol = 1e-10
-        @test isapprox(MagestyRebuild.predict_energy(f, configs), E; atol = 1e-10)
+        ds = SCEFitting.SCEDataset(basis, configs, E)
+        f = SCEFitting.fit(SCEFitting.SCEFit, ds, SCEFitting.OLS())
+        @test SCEFitting.r2_energy(f) ≈ 1.0 atol = 1e-10
+        @test isapprox(SCEFitting.predict_energy(f, configs), E; atol = 1e-10)
         # recover J from the SALC coefficient: Φ = 2√3·Σ_{undirected} e_i·e_j
-        J_recovered = 2 * sqrt(3.0) * MagestyRebuild.coef(f)[1]
+        J_recovered = 2 * sqrt(3.0) * SCEFitting.coef(f)[1]
         @test isapprox(J_recovered, J_true; rtol = 1e-8)
 
         # torque from the fitted model vs the Heisenberg closed form. With
@@ -246,7 +246,7 @@ end
             return reduce(hcat, cross(SVector{3}(G[:, a]), SVector{3}(c[:, a])) for a = 1:nat)
         end
         for c in configs[1:5]
-            @test isapprox(MagestyRebuild.predict_torque(f, c), analytic_torque(c, J_true);
+            @test isapprox(SCEFitting.predict_torque(f, c), analytic_torque(c, J_true);
                            atol = 1e-9)
         end
     end
@@ -281,14 +281,14 @@ end
             magcount[k] = get(magcount, k, 0) + 1
         end
 
-        # MagestyRebuild: count SALCs per channel.
-        Lattice = MagestyRebuild.Lattice
-        Crystal = MagestyRebuild.Crystal
+        # SCEFitting: count SALCs per channel.
+        Lattice = SCEFitting.Lattice
+        Crystal = SCEFitting.Crystal
         xtal = Crystal(Lattice(A), frac, kd, ["Fe"])
-        sg = MagestyRebuild.analyze_symmetry(MagestyRebuild.SpglibBackend(), xtal)
-        cs = MagestyRebuild.build_clusters(xtal, MagestyRebuild.build_neighbor_list(xtal, cutoff),
+        sg = SCEFitting.analyze_symmetry(SCEFitting.SpglibBackend(), xtal)
+        cs = SCEFitting.build_clusters(xtal, SCEFitting.build_neighbor_list(xtal, cutoff),
                                            sg; nbody = nbody)
-        basis = MagestyRebuild.build_salc_basis(xtal, sg, cs; lmax_by_species = [2])
+        basis = SCEFitting.build_salc_basis(xtal, sg, cs; lmax_by_species = [2])
         mrcount = Dict{Tuple{Int,Vector{Int},Int},Int}()
         for s in basis.salcs
             k = (s.key.body, sort(s.key.ls), s.key.Lf)

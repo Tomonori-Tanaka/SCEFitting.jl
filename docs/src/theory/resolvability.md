@@ -1,7 +1,7 @@
 # Periodic resolvability
 
 ```@meta
-CurrentModule = MagestyRebuild
+CurrentModule = SCEFitting
 ```
 
 A spherical cutoff is the wrong primitive for *what a finite supercell can resolve*. This
@@ -47,7 +47,7 @@ members** — each is a genuinely different, independently resolvable geometry:
 For a body-centered cubic cell, the cross pair sits at all eight corners at once:
 
 ```@example res
-using MagestyRebuild
+using SCEFitting
 cr = Crystal(Lattice([3.0 0 0; 0 3.0 0; 0 0 3.0]), [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["Fe"])
 nl = build_neighbor_list(cr, Inf, MinimumImage())
 length([p for p in nl.pairs if (p.i, p.j) == (1, 2)])     # 8 equidistant corner images

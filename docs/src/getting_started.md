@@ -2,12 +2,12 @@
 
 ## Installation
 
-MagestyRebuild.jl is an exploratory package and is not registered. Add it from its
+SCEFitting.jl is an exploratory package and is not registered. Add it from its
 local path (or a git URL) in the Julia package manager:
 
 ```julia
 using Pkg
-Pkg.develop(path = "/path/to/Magesty_rebuild.jl")
+Pkg.develop(path = "/path/to/SCEFitting.jl")
 ```
 
 The core has only lightweight dependencies. Optional features live in package
@@ -31,7 +31,7 @@ Heisenberg energies ``E = J\sum_{\langle ij\rangle}\hat{\boldsymbol e}_i\cdot\ha
 fit, and recover ``J``.
 
 ```@example gs
-using MagestyRebuild
+using SCEFitting
 import Spglib                       # activate the SpglibBackend extension
 using LinearAlgebra, Random
 

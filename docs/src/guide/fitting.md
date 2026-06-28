@@ -1,7 +1,7 @@
 # Data and fitting
 
 ```@meta
-CurrentModule = MagestyRebuild
+CurrentModule = SCEFitting
 ```
 
 With a basis in hand, the second half of the workflow pairs it with DFT data, fits the
@@ -127,7 +127,7 @@ Implementing your own estimator is one method:
 
 ```julia
 struct MyEstimator <: AbstractEstimator end
-MagestyRebuild.solve_coefficients(::MyEstimator, X, y; groups = nothing) = X \ y  # centered (X, y)
+SCEFitting.solve_coefficients(::MyEstimator, X, y; groups = nothing) = X \ y  # centered (X, y)
 ```
 
 ## Refitting on a selected support

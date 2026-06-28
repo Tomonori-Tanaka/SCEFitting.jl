@@ -1,6 +1,6 @@
 using Test
-using MagestyRebuild
-using MagestyRebuild: _assemble_spacegroup, evaluate
+using SCEFitting
+using SCEFitting: _assemble_spacegroup, evaluate
 using StaticArrays
 using LinearAlgebra
 using Random

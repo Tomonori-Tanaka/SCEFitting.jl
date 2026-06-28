@@ -1,7 +1,7 @@
 # The spin-cluster expansion
 
 ```@meta
-CurrentModule = MagestyRebuild
+CurrentModule = SCEFitting
 ```
 
 ## The problem

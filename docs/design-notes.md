@@ -1,6 +1,6 @@
 # Design notes
 
-Why `MagestyRebuild` is built the way it is — the deliberate refinements over
+Why `SCEFitting` is built the way it is — the deliberate refinements over
 `Magesty.jl`. Bit-for-bit agreement with Magesty is **not** a goal; these are
 cleaner constructions that are validated to be *physically* correct (symmetry
 invariance, finite differences, known-coupling recovery), and may differ from
@@ -265,7 +265,7 @@ machinery consumes are `SpinDatum` (energy + spin directions + moment magnitudes
 constraining field + the derived torque target) and the `SCEDataset` built from them.
 Each DFT code is an `AbstractDFTSource` *adapter* implementing
 `read_configs(src) -> Vector{SpinDatum}`; the adapters are **namespaced submodules**
-(`MagestyRebuild.VASP`, …) kept out of the core, and nothing code-specific reaches the
+(`SCEFitting.VASP`, …) kept out of the core, and nothing code-specific reaches the
 core or its export list. Adding a code is one sibling submodule — the public surface does
 not grow as codes multiply, and "once you hold the training data, its origin is
 irrelevant" is enforced by the type structure, not merely by convention. (The same seam
@@ -296,7 +296,7 @@ corrupt a downstream Hamiltonian. Two decisions keep this safe.
 
 **The conversion math lives in the core, the Sunny object in the extension.** Sunny is
 a heavy optional dependency, so the `Sunny.System` assembly is a package extension
-(`ext/MagestyRebuildSunnyExt`, loaded by `using Sunny`, like the Spglib backend). But the
+(`ext/SCEFittingSunnyExt`, loaded by `using Sunny`, like the Spglib backend). But the
 *numerically delicate* part — turning a folded tesseral tensor into a Cartesian matrix
 with the right normalization (`_l1_pair_matrix = (3/4π)·folded` reproducing
 `eₐ'·M·e_b = Σ folded·Z₁·Z₁`; the traceless-symmetric `_l2_onsite_matrix`), folding the
@@ -335,7 +335,7 @@ couplings matter is the natural next estimator after `OLS`/`Ridge`. GLMNet (the 
 elastic-net) is a heavy, binary-backed dependency, so it follows the §5 pattern exactly:
 the `ElasticNet` / `Lasso` *types* and their argument validation live in the core
 (named, dispatched on, tested without the dependency), and only `solve_coefficients(::
-ElasticNet, …)` lives in `ext/MagestyRebuildGLMNetExt` behind `using GLMNet`.
+ElasticNet, …)` lives in `ext/SCEFittingGLMNetExt` behind `using GLMNet`.
 
 The subtle part is the existing estimator contract: `fit` hands `solve_coefficients` a
 **column-centered** `X` and centered `y` and recovers `j0` analytically afterwards, so

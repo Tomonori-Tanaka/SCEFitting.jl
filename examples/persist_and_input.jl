@@ -4,7 +4,7 @@
 #
 # Run:  julia --project=examples examples/persist_and_input.jl
 
-using MagestyRebuild
+using SCEFitting
 import Spglib           # `import` (not `using`): activate the SpglibBackend extension
 using LinearAlgebra
 using Random
@@ -54,8 +54,8 @@ println("\n", coeftable(f))
 
 # --- 3. save → reload → predict identically --------------------------------------
 model_path = joinpath(dir, "model.toml")
-MagestyRebuild.save(model_path, model)
-reloaded = MagestyRebuild.load(SCEModel, model_path)
+SCEFitting.save(model_path, model)
+reloaded = SCEFitting.load(SCEModel, model_path)
 
 test = [randcfg(4) for _ = 1:10]
 @assert predict_energy(reloaded, test) == predict_energy(model, test)
@@ -68,6 +68,6 @@ foreach(println, Iterators.take(eachline(model_path), 12))
 
 # a basis alone round-trips too
 basis_path = joinpath(dir, "basis.toml")
-MagestyRebuild.save(basis_path, basis)
-@assert MagestyRebuild.load(SCEBasis, basis_path).salcs.keys == basis.salcs.keys
+SCEFitting.save(basis_path, basis)
+@assert SCEFitting.load(SCEBasis, basis_path).salcs.keys == basis.salcs.keys
 println("\n✓ basis round-trips as well")

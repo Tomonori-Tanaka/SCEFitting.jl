@@ -1,7 +1,7 @@
 # API reference
 
 ```@meta
-CurrentModule = MagestyRebuild
+CurrentModule = SCEFitting
 ```
 
 Every exported type and function, grouped by pipeline stage. The headline workflow is
@@ -137,7 +137,7 @@ contract downstream packages (e.g. the mean-field samplers in
 SALC-basis internals.
 `multipole_terms` is the general per-term dump; `bilinear_terms` is the bilinear (`ls=[1,1]`)
 and single-ion (`ls=[2]`) extraction as Cartesian `3×3` matrices (reusing the validated
-Sunny conversion). The tesseral spherical-harmonic kernel `MagestyRebuild.Harmonics`
+Sunny conversion). The tesseral spherical-harmonic kernel `SCEFitting.Harmonics`
 (`Zlm`, `lm_index`) is a stable submodule those consumers may also use.
 
 ```@docs
@@ -165,9 +165,9 @@ read_configs
 ## Persistence
 
 `save` / `load` are intentionally **not exported** (the names clash with FileIO / JLD2 /
-CSV); call them as `MagestyRebuild.save` / `MagestyRebuild.load`.
+CSV); call them as `SCEFitting.save` / `SCEFitting.load`.
 
 ```@docs
-MagestyRebuild.save
-MagestyRebuild.load
+SCEFitting.save
+SCEFitting.load
 ```

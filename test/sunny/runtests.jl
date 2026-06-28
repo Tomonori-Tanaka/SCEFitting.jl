@@ -8,11 +8,11 @@ using Test
 using Random
 using LinearAlgebra
 using StaticArrays
-import MagestyRebuild
-import Sunny   # triggers MagestyRebuildSunnyExt
-import Spglib  # triggers MagestyRebuildSpglibExt (real space groups for the unfold)
+import SCEFitting
+import Sunny   # triggers SCEFittingSunnyExt
+import Spglib  # triggers SCEFittingSpglibExt (real space groups for the unfold)
 
-const MR = MagestyRebuild
+const MR = SCEFitting
 
 _rdir(rng) = (v = randn(rng, 3); v / norm(v))
 _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
