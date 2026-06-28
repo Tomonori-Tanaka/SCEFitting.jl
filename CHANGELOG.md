@@ -6,6 +6,24 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — `refit` and the regression-diagnostic accessors
+
+- **`refit(f, estimator = OLS(); threshold = 0.0)`**: re-solve on the **support** of an
+  existing fit — the de-biasing step that follows a sparse fit. A column survives when its
+  scaled-magnitude contribution `|coef(f)[j]|·‖X[:, j]‖` exceeds `threshold` (`0` keeps the
+  nonzero support exactly); coefficients off the support are zeroed and `j0` is recovered
+  analytically. An empty support returns an all-zero `jϕ` (with a warning) and `j0 =
+  mean(y_E)`. A `PrecomputedPilot` (or an `AdaptiveLasso` carrying one) is rejected — its
+  fixed coefficient vector has the original column count, not the refit support length.
+- **Diagnostic accessors**: `dof` (`length(coef(f)) + 1`), `rss_energy` / `rss_torque`
+  (residual sums of squares), and `residuals_energy` / `residuals_torque` (the raw residual
+  vectors). The energy and torque blocks are reported separately throughout, matching the
+  existing `r2_*` / `rmse_*` split; `r2_energy` / `rmse_energy` / `r2_torque` / `rmse_torque`
+  are refactored to build on the new `rss_*` so each metric has a single source of truth.
+- Internal: the `(X, y)` centering / whitening / `groups` assembly is factored out of `fit`
+  into `_assemble_problem`, shared by `fit` and `refit` so the two build identical designs
+  (the oracle confirms `fit` is numerically unchanged).
+
 ### Added — adaptive / L0-approximating estimators
 
 - **`AdaptiveRidge`** (in-tree, no extension): iterative reweighted ridge

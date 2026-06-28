@@ -161,3 +161,82 @@ end
         @test_throws ErrorException solve_coefficients(AdaptiveLasso(lambda = 1e-3), ds0.X_E, ds0.y_E)
     end
 end
+
+@testset "refit and accessors" begin
+    lat = Lattice(Matrix(3.0 * I(3)))
+    crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+    interaction = Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false)
+    basis = SCEBasis(crystal, interaction)
+    m = length(basis.salcs)
+    @test m > 10
+
+    rng = MersenneTwister(11)
+    configs = [randcfg(rng, 2) for _ = 1:80]
+    ds0 = SCEDataset(basis, configs, zeros(length(configs)))
+
+    # A sparse in-span signal on two columns + noise (the regime selection is for).
+    ktrue = [3, 7]
+    beta = zeros(m); beta[ktrue] .= [1.0, -0.7]
+    y = 0.4 .+ ds0.X_E * beta .+ 0.005 .* randn(rng, length(configs))
+    ds = SCEDataset(basis, configs, y)
+    truem = SCEModel(basis, 0.4, beta, basis.salcs.keys)
+    dst = SCEDataset(basis, configs, 0.4 .+ ds0.X_E * beta, predict_torque(truem, configs))
+
+    @testset "energy accessors: dof, residuals, rss, and metric consistency" begin
+        f = fit(SCEFit, ds, OLS())
+        @test dof(f) == m + 1                                   # coefficients + intercept
+        @test residuals_energy(f) === f.residuals               # the stored energy residuals
+        @test length(residuals_energy(f)) == nobs(f)
+        @test rss_energy(f) ≈ sum(abs2, residuals_energy(f))
+        @test rmse_energy(f) ≈ sqrt(rss_energy(f) / nobs(f))
+        ss_tot = sum(abs2, y .- sum(y) / length(y))
+        @test r2_energy(f) ≈ 1 - rss_energy(f) / ss_tot
+        # torque accessors require a torque-carrying dataset
+        @test_throws ArgumentError residuals_torque(f)
+        @test_throws ArgumentError rss_torque(f)
+        @test_throws ArgumentError r2_torque(f)
+    end
+
+    @testset "torque accessors on a co-fit are mutually consistent" begin
+        fco = fit(SCEFit, dst, OLS(); torque_weight = 0.3)
+        @test length(residuals_torque(fco)) == length(dst.y_T)
+        @test rss_torque(fco) ≈ sum(abs2, residuals_torque(fco))
+        @test rmse_torque(fco) ≈ sqrt(rss_torque(fco) / length(dst.y_T))
+        @test r2_torque(fco) ≈ 1 - rss_torque(fco) / sum(abs2, dst.y_T)   # uncentered baseline
+    end
+
+    @testset "refit(threshold = 0) on a dense OLS fit is (near) identity" begin
+        f = fit(SCEFit, ds, OLS())
+        fr = refit(f)                                           # default OLS, keep nonzero support
+        @test isapprox(coef(fr), coef(f); atol = 1e-7)
+        @test isapprox(intercept(fr), intercept(f); atol = 1e-9)
+    end
+
+    @testset "refit de-biases a selected support" begin
+        # AdaptiveRidge concentrates onto the true columns; a scaled-magnitude threshold
+        # then keeps the dominant ones and OLS re-solves on just those.
+        fa = fit(SCEFit, ds, AdaptiveRidge(lambda = 1e-2))
+        Xc = ds.X_E .- sum(ds.X_E; dims = 1) ./ size(ds.X_E, 1)
+        contrib = [abs(coef(fa)[j]) * norm(@view Xc[:, j]) for j = 1:m]
+        fr = refit(fa; threshold = 0.05 * maximum(contrib))
+        support = findall(!iszero, coef(fr))
+        @test issubset(ktrue, support)                          # the true columns survive
+        @test length(support) < m                               # and it is genuinely sparse
+        @test all(iszero, coef(fr)[setdiff(1:m, support)])      # off-support is exactly zero
+        @test r2_energy(fr) > 0.95
+    end
+
+    @testset "refit edge cases: empty support, validation, pilot rejection" begin
+        f = fit(SCEFit, ds, OLS())
+        # An unreachable threshold drops every column ⇒ all-zero jϕ, j0 = mean(y_E).
+        fr = @test_logs (:warn,) refit(f; threshold = 1e12)
+        @test all(iszero, coef(fr))
+        @test isapprox(intercept(fr), sum(y) / length(y); atol = 1e-9)
+        @test_throws ArgumentError refit(f; threshold = -1.0)
+        # A PrecomputedPilot (its fixed vector has the full column count) is rejected, as is
+        # an AdaptiveLasso carrying one.
+        @test_throws ArgumentError refit(f, PrecomputedPilot(coef(f)))
+        @test_throws ArgumentError refit(f, AdaptiveLasso(pilot = PrecomputedPilot(coef(f)),
+                                                          lambda = 1e-3))
+    end
+end

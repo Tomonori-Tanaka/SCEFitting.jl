@@ -207,6 +207,36 @@ struct SCEFit
     torque_weight::Float64
 end
 
+# Assemble the regression problem the estimator actually sees: the column-centered
+# energy-only design (`w == 0`), or the whitened, stacked energy+torque design
+# (`w > 0`), together with the centering constants `xbar`/`ybar` (for the analytic `j0`)
+# and the per-row resampling-unit `groups`. Shared by `fit` and `refit` so the two build
+# byte-identical designs.
+function _assemble_problem(dataset::SCEDataset, w::Float64)
+    X_E = dataset.X_E
+    y_E = dataset.y_E
+    xbar = vec(mean(X_E; dims = 1))
+    ybar = mean(y_E)
+    if w > 0
+        n_E = length(y_E)
+        n_T = length(dataset.y_T)
+        se = sqrt((1 - w) / n_E)
+        sm = sqrt(w / n_T)
+        X = vcat((X_E .- xbar') .* se, dataset.X_T .* sm)
+        y = vcat((y_E .- ybar) .* se, dataset.y_T .* sm)
+        # Resampling-unit labels for grouped cross-validation: a configuration's energy
+        # row and all its (config-major) torque-component rows share its index, so a
+        # CV-based estimator never splits one configuration across folds.
+        block = div(n_T, n_E)                       # = 3·n_atoms torque rows per config
+        groups = vcat(collect(1:n_E), repeat(1:n_E; inner = block))
+    else
+        X = X_E .- xbar'
+        y = y_E .- ybar
+        groups = nothing                            # each row is its own configuration
+    end
+    return X, y, xbar, ybar, groups
+end
+
 """
     fit(SCEFit, dataset, estimator; torque_weight = 0.0) -> SCEFit
 
@@ -233,39 +263,88 @@ into the CV estimate and bias λ selection.
 """
 function fit(::Type{SCEFit}, dataset::SCEDataset, estimator::AbstractEstimator;
              torque_weight::Real = 0.0)::SCEFit
-    X_E = dataset.X_E
-    y_E = dataset.y_E
-    isempty(y_E) && throw(ArgumentError("dataset has no observations"))
+    isempty(dataset.y_E) && throw(ArgumentError("dataset has no observations"))
     w = Float64(torque_weight)
     (0.0 <= w <= 1.0) || throw(ArgumentError("torque_weight must be in [0, 1]; got $w"))
     if w > 0 && !has_torque(dataset)
         throw(ArgumentError("torque_weight = $w but the dataset has no torque data; " *
                             "build it with SCEDataset(basis, configs, energies, torques)"))
     end
-
-    xbar = vec(mean(X_E; dims = 1))
-    ybar = mean(y_E)
-    if w > 0
-        n_E = length(y_E)
-        n_T = length(dataset.y_T)
-        se = sqrt((1 - w) / n_E)
-        sm = sqrt(w / n_T)
-        X = vcat((X_E .- xbar') .* se, dataset.X_T .* sm)
-        y = vcat((y_E .- ybar) .* se, dataset.y_T .* sm)
-        # Resampling-unit labels for grouped cross-validation: a configuration's energy
-        # row and all its (config-major) torque-component rows share its index, so a
-        # CV-based estimator never splits one configuration across folds.
-        block = div(n_T, n_E)                       # = 3·n_atoms torque rows per config
-        groups = vcat(collect(1:n_E), repeat(1:n_E; inner = block))
-    else
-        X = X_E .- xbar'
-        y = y_E .- ybar
-        groups = nothing                            # each row is its own configuration
-    end
+    X, y, xbar, ybar, groups = _assemble_problem(dataset, w)
     jphi = solve_coefficients(estimator, X, y; groups = groups)
     j0 = ybar - dot(xbar, jphi)
-    residuals = y_E .- (j0 .+ X_E * jphi)
+    residuals = dataset.y_E .- (j0 .+ dataset.X_E * jphi)
     return SCEFit(dataset, j0, jphi, estimator, residuals, w)
+end
+
+"""
+    refit(f::SCEFit, estimator = OLS(); threshold = 0.0) -> SCEFit
+
+Re-fit on the **support** of an existing fit `f` — the classic de-biasing step that
+follows a sparse fit: select the basis functions a regularized estimator kept, then
+re-solve on just those columns (by default with [`OLS`](@ref)) to remove the shrinkage
+bias on the survivors. The dataset and `torque_weight` of `f` are reused, so the design is
+assembled exactly as in [`fit`](@ref).
+
+A column `j` is in the support when its **scaled-magnitude contribution** exceeds
+`threshold`:
+
+    |coef(f)[j]| · ‖X[:, j]‖ > threshold
+
+where `X` is the assembled (centered / whitened) design. `threshold = 0` (the default)
+keeps the columns of nonzero scaled magnitude — the nonzero support of `f`, minus any
+column the centering annihilates to a zero column. Coefficients off the support are set to
+zero; `j0` is recovered analytically as in `fit`. If the support is empty, an all-zero `jϕ`
+is returned (with a warning) and `j0` falls back to `mean(y_E)`.
+
+A [`PrecomputedPilot`](@ref) (or an [`AdaptiveLasso`](@ref) whose pilot is one) is
+rejected: its fixed coefficient vector has the original column count, not the refit
+support length, and is meaningless once a support has been chosen.
+"""
+function refit(f::SCEFit, estimator::AbstractEstimator = OLS();
+               threshold::Real = 0.0)::SCEFit
+    threshold >= 0 || throw(ArgumentError("refit threshold must be ≥ 0; got $threshold"))
+    _reject_precomputed_pilot(estimator)
+    dataset = f.dataset
+    w = f.torque_weight
+    X, y, xbar, ybar, groups = _assemble_problem(dataset, w)
+    jphi_in = f.jphi
+    # Scaled-magnitude support on the assembled design: a column survives when its
+    # contribution magnitude |jϕ_j|·‖X[:, j]‖ clears the threshold.
+    support = findall(j -> abs(jphi_in[j]) * norm(@view X[:, j]) > threshold,
+                      eachindex(jphi_in))
+    jphi = zeros(Float64, length(jphi_in))
+    if isempty(support)
+        # Short-circuit before `solve_coefficients`: a GLMNet-backed estimator would error
+        # on a zero-column design, and the all-zero `jϕ` is a well-defined (degenerate) fit
+        # whose `j0` falls back to `mean(y_E)`.
+        @warn "refit: empty support — every coefficient is at or below the " *
+              "scaled-magnitude threshold. Returning an all-zero jϕ; " *
+              "j0 falls back to mean(y_E)." threshold
+    else
+        jphi[support] .= solve_coefficients(estimator, view(X, :, support), y;
+                                            groups = groups)
+    end
+    j0 = ybar - dot(xbar, jphi)
+    residuals = dataset.y_E .- (j0 .+ dataset.X_E * jphi)
+    return SCEFit(dataset, j0, jphi, estimator, residuals, w)
+end
+
+# `refit` re-solves on a column sub-matrix `X[:, support]`, so a `PrecomputedPilot` —
+# whose fixed coefficient vector carries the original full column count — would throw a
+# `DimensionMismatch` deep in `solve_coefficients`, and is meaningless once a support has
+# been chosen. Reject it (and an `AdaptiveLasso` carrying one) upfront with a clear message.
+function _reject_precomputed_pilot(e::AbstractEstimator)
+    if e isa PrecomputedPilot
+        throw(ArgumentError("refit does not accept a PrecomputedPilot: its fixed " *
+            "coefficient vector has the original column count, not the refit support " *
+            "length. Pass a fresh estimator such as OLS()."))
+    elseif e isa AdaptiveLasso && e.pilot isa PrecomputedPilot
+        throw(ArgumentError("refit does not accept an AdaptiveLasso whose pilot is a " *
+            "PrecomputedPilot: the pilot's fixed coefficient vector has the original " *
+            "column count, not the refit support length. Use a fresh pilot such as OLS()."))
+    end
+    return nothing
 end
 
 """
@@ -350,16 +429,60 @@ The number of energy observations used in the fit.
 nobs(f::SCEFit) = length(f.dataset.y_E)
 
 """
+    dof(f::SCEFit) -> Int
+
+Degrees of freedom consumed by the fit: `length(coef(f)) + 1` — one per SCE coefficient
+plus the intercept `j0`. This is the full parametric count, not an effective / selected
+count, even for a sparse estimator.
+"""
+dof(f::SCEFit)::Int = length(f.jphi) + 1
+
+"""
+    residuals_energy(f::SCEFit) -> Vector{Float64}
+
+The per-configuration energy residuals `y_E − (j0 + X_E·jϕ)` (eV), one per training
+configuration — the same residuals the energy `R²` / RMSE are built from.
+"""
+residuals_energy(f::SCEFit)::Vector{Float64} = f.residuals
+
+"""
+    residuals_torque(f::SCEFit) -> Vector{Float64}
+
+The torque residuals `y_T − X_T·jϕ` over the flattened (config-major, then atom-major,
+then `xyz`) per-atom torque components (eV). Requires a torque-carrying dataset; the
+torque prediction has no intercept (`j0` does not enter it).
+"""
+function residuals_torque(f::SCEFit)::Vector{Float64}
+    has_torque(f.dataset) || throw(ArgumentError("dataset has no torque data"))
+    return f.dataset.y_T .- f.dataset.X_T * f.jphi
+end
+
+"""
+    rss_energy(f::SCEFit) -> Float64
+
+Energy residual sum of squares `Σ (y_E − ŷ_E)²` (eV²).
+"""
+rss_energy(f::SCEFit)::Float64 = sum(abs2, residuals_energy(f))
+
+"""
+    rss_torque(f::SCEFit) -> Float64
+
+Torque residual sum of squares `Σ (y_T − X_T·jϕ)²` (eV²). Requires a torque-carrying
+dataset.
+"""
+rss_torque(f::SCEFit)::Float64 = sum(abs2, residuals_torque(f))
+
+"""
     r2_energy(f::SCEFit) -> Float64
 
 In-sample energy coefficient of determination `R²` (1 = the SALC span reproduces every
-training energy).
+training energy). A degenerate target (all training energies equal ⇒ zero total variance)
+returns `1.0` by convention.
 """
 function r2_energy(f::SCEFit)::Float64
     y = f.dataset.y_E
-    ss_res = sum(abs2, f.residuals)
     ss_tot = sum(abs2, y .- mean(y))
-    return ss_tot == 0 ? 1.0 : 1 - ss_res / ss_tot
+    return ss_tot == 0 ? 1.0 : 1 - rss_energy(f) / ss_tot
 end
 
 """
@@ -367,7 +490,7 @@ end
 
 In-sample energy root-mean-square error (same unit as the training energies, typically eV).
 """
-rmse_energy(f::SCEFit)::Float64 = sqrt(mean(abs2, f.residuals))
+rmse_energy(f::SCEFit)::Float64 = sqrt(rss_energy(f) / nobs(f))
 
 """
     r2_torque(f::SCEFit) -> Float64
@@ -378,11 +501,8 @@ not enter it), so the `R²` baseline is the uncentered total sum of squares `Σ 
 error of the zero predictor), not the mean-centered one.
 """
 function r2_torque(f::SCEFit)::Float64
-    has_torque(f.dataset) || throw(ArgumentError("dataset has no torque data"))
-    y = f.dataset.y_T
-    res = y .- f.dataset.X_T * f.jphi
-    ss_res = sum(abs2, res)
-    ss_tot = sum(abs2, y)            # no-intercept model ⇒ uncentered baseline
+    ss_res = rss_torque(f)          # validates the dataset has torque (throws if not)
+    ss_tot = sum(abs2, f.dataset.y_T)  # no-intercept model ⇒ uncentered baseline
     return ss_tot == 0 ? 1.0 : 1 - ss_res / ss_tot
 end
 
@@ -392,7 +512,4 @@ end
 In-sample torque root-mean-square error over the flattened per-atom torque components
 (eV). Requires a torque-carrying dataset.
 """
-function rmse_torque(f::SCEFit)::Float64
-    has_torque(f.dataset) || throw(ArgumentError("dataset has no torque data"))
-    return sqrt(mean(abs2, f.dataset.y_T .- f.dataset.X_T * f.jphi))
-end
+rmse_torque(f::SCEFit)::Float64 = sqrt(rss_torque(f) / length(f.dataset.y_T))

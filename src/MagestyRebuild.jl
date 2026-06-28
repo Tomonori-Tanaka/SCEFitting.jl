@@ -62,11 +62,12 @@ export SymOp, SpaceGroup, AbstractSymmetryBackend, NoSymmetry, SpglibBackend,
     analyze_symmetry, n_ops
 export ClusterMember, ClusterOrbit, ClusterSet, build_clusters
 export SALCKey, SALC, SALCBasis, build_salc_basis, evaluate
-export Interaction, SCEBasis, SCEDataset, SCEModel, SCEFit, fit, nsalc, read_input
+export Interaction, SCEBasis, SCEDataset, SCEModel, SCEFit, fit, refit, nsalc, read_input
 export predict_energy, predict_torque, has_torque
 export AbstractEstimator, OLS, Ridge, ElasticNet, Lasso, AdaptiveLasso, AdaptiveRidge,
     PrecomputedPilot, solve_coefficients
-export coef, intercept, nobs, r2_energy, rmse_energy, r2_torque, rmse_torque
+export coef, intercept, nobs, dof, r2_energy, rmse_energy, r2_torque, rmse_torque,
+    rss_energy, rss_torque, residuals_energy, residuals_torque
 export coeftable, SCECoefficients
 export to_sunny
 # DFT data I/O: only the code-agnostic boundary is exported; per-code adapters are

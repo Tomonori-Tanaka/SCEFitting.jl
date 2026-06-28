@@ -168,6 +168,16 @@ Easy to break silently — confirm before touching the algorithm.
   centered-`X` contract. Validated in the separate `test/glmnet/` env (GLMNet-backed) and
   `test/unit/test_fit.jl` (core `AdaptiveRidge` / `PrecomputedPilot` solves), never mixing
   the two (GLMNet absent in the core suite).
+- **`fit` ↔ `refit` share `_assemble_problem`** (`sce/model.jl`): the `(X, y, xbar, ybar,
+  groups)` centering/whitening assembly lives in one helper so the two build identical
+  designs — change the centering or whitening there and **both** move together (the oracle
+  pins `fit`'s numerics). `refit` re-solves on the scaled-magnitude support
+  `|jϕ_j|·‖X[:,j]‖ > threshold` of an existing fit (a column sub-matrix), so it rejects a
+  `PrecomputedPilot`-backed estimator (fixed-length pilot vector ≠ support length).
+  **`SCEFit.residuals` is the energy-only residual** `y_E − (j0 + X_E·jϕ)` (not Magesty's
+  combined whitened residual); the diagnostics report energy and torque blocks separately
+  (`residuals_energy` returns the stored vector, `residuals_torque`/`rss_torque` recompute
+  `y_T − X_T·jϕ` and validate `has_torque`; `r2_*`/`rmse_*` build on `rss_*`).
 
 ## Tests
 

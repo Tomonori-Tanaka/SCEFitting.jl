@@ -99,10 +99,14 @@ files use the stdlib `TOML` (no external dependency).
 ### fitting + SCE API (M8, M9)
 - `Interaction`, `SCEBasis`, `SCEDataset` (energy design matrix `X_E`, and the
   torque design matrix `X_T` via the four-argument form), `SCEModel`/`SCEFit`,
-  `fit(SCEFit, dataset, estimator; torque_weight)`, `predict_energy`/`predict_torque`,
-  `coef`/`intercept`/`nobs`/`r2_energy`/`rmse_energy`/`r2_torque`/`rmse_torque`/
-  `has_torque`. `AbstractEstimator` with `OLS`/`Ridge`/`AdaptiveRidge` (analytic `j0`;
-  centered-`X` `solve_coefficients` contract).
+  `fit(SCEFit, dataset, estimator; torque_weight)`, `refit(f, estimator; threshold)`
+  (re-solve on the scaled-magnitude support of `f` — the de-biasing step after a sparse
+  fit; shares `_assemble_problem` with `fit`), `predict_energy`/`predict_torque`,
+  `coef`/`intercept`/`nobs`/`dof`/`r2_energy`/`rmse_energy`/`r2_torque`/`rmse_torque`/
+  `rss_energy`/`rss_torque`/`residuals_energy`/`residuals_torque`/`has_torque` (energy and
+  torque blocks reported separately; `SCEFit.residuals` stores the energy residual).
+  `AbstractEstimator` with `OLS`/`Ridge`/`AdaptiveRidge` (analytic `j0`; centered-`X`
+  `solve_coefficients` contract).
 - Validated: OLS recovers an in-span target (R²=1); **a Heisenberg chain fit
   recovers `J = 2√3·jphi` to rtol 1e-8** (the v0 done-line, oracle); torque is the
   exact derivative of the energy surface (on-sphere finite differences, equivariance,

@@ -79,6 +79,7 @@ read_input
 
 ```@docs
 fit
+refit
 AbstractEstimator
 OLS
 Ridge
@@ -104,10 +105,15 @@ has_torque
 coef
 intercept
 nobs
+dof
 r2_energy
 rmse_energy
 r2_torque
 rmse_torque
+rss_energy
+rss_torque
+residuals_energy
+residuals_torque
 ```
 
 ## Tabular coefficients

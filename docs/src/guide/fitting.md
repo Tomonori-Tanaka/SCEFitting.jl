@@ -130,6 +130,23 @@ struct MyEstimator <: AbstractEstimator end
 MagestyRebuild.solve_coefficients(::MyEstimator, X, y; groups = nothing) = X \ y  # centered (X, y)
 ```
 
+## Refitting on a selected support
+
+After a sparse fit (`Lasso` / `AdaptiveLasso` / `AdaptiveRidge`), the surviving
+coefficients are shrunk toward zero by the penalty. [`refit`](@ref) removes that bias: it
+keeps the support of an existing fit and re-solves on just those columns — by default with
+[`OLS`](@ref), the textbook de-biasing step.
+
+```julia
+fsparse = fit(SCEFit, dataset, Lasso())     # selects a support (some jϕ exactly zero)
+fdebias = refit(fsparse)                     # OLS on that support — unshrunk survivors
+```
+
+A column survives when its scaled-magnitude contribution `|coef(f)[j]|·‖X[:, j]‖` exceeds
+`threshold` (default `0`, i.e. exactly the nonzero support); pass a positive `threshold` to
+prune further. `refit` reuses the dataset and `torque_weight` of the input fit, so the
+co-fit whitening is identical.
+
 ## Diagnostics
 
 A fitted [`SCEFit`](@ref) answers the usual questions:
@@ -138,7 +155,14 @@ A fitted [`SCEFit`](@ref) answers the usual questions:
 r2_energy(f);  rmse_energy(f)        # in-sample energy R² / RMSE
 r2_torque(f);  rmse_torque(f)        # torque equivalents (need a co-fit dataset)
 nobs(f)                              # number of energy observations
+dof(f)                               # degrees of freedom: length(coef(f)) + 1
+rss_energy(f);  rss_torque(f)        # residual sums of squares
+residuals_energy(f);  residuals_torque(f)   # the raw residual vectors
 ```
+
+The energy and torque blocks are reported separately throughout (the rebuild does not fold
+them into one combined residual): `residuals_energy(f)` is `y_E − (j0 + X_E·jϕ)` and
+`residuals_torque(f)` is `y_T − X_T·jϕ` over the flattened torque components.
 
 To inspect the coefficients as a table, use [`coeftable`](@ref) — a Tables.jl source with
 one row per SALC. See [Persistence and I/O](io.md#Tabular-coefficients).

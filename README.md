@@ -111,6 +111,20 @@ df = DataFrame(coeftable(f))       # or CSV.write("J.csv", coeftable(f))
 intercept(f)                       # the reference energy j0 (not a row)
 ```
 
+Standard diagnostics are split by observable: `r2_energy` / `rmse_energy` / `rss_energy` /
+`residuals_energy` (and the `_torque` equivalents for a co-fit), plus `nobs` and `dof`.
+
+### Refitting on a selected support
+
+After a sparse fit, [`refit`](src/sce/model.jl) keeps the surviving support and re-solves on
+just those columns (by default with `OLS`) — the de-biasing step that removes the penalty's
+shrinkage from the selected coefficients:
+
+```julia
+fsparse = fit(SCEFit, dataset, Lasso())   # selects a support (some J exactly zero)
+fdebias = refit(fsparse)                   # unshrunk OLS on that support
+```
+
 ### Regularized fits (sparse / L0-like selection)
 
 `AdaptiveRidge` is an in-tree, closed-form estimator (no extra dependency): an iterative
