@@ -6,6 +6,22 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Tested — N-body Wigner–Seitz cluster counting (`N ≥ 3`)
+
+- Added `test/unit/test_ws_nbody.jl`, pinning the count of 3- and 4-body clusters on
+  the Wigner–Seitz boundary against an **independent brute-force enumeration** of all
+  compact clusters. The candidate set (for `N = 2, 3, 4`, including `pair_cutoff = Inf`)
+  and the symmetry-orbit partition are checked to match exactly on cells deliberately
+  seeded with face / edge / corner ties (cubic face-atoms, fcc, skewed hexagonal), and
+  every emitted member is re-verified to have all `C(N,2)` edges at the minimum image.
+- Documents and guards the **compact-cluster / third-edge** criterion: a cluster is
+  admitted only when *all* its pairwise edges sit at their atom-pair minimum image
+  simultaneously — individually minimum-image-resolvable pairs are not enough (the images
+  minimizing `i–j` and `i–k` may push `j–k` onto a longer image). The regression includes
+  an equal-spaced 1-D ring where every pair is minimum-image yet no compact triangle
+  exists, and an over-/under-merge guard on the orbit reduction under a cubic point group.
+  No behavior change — the enumeration was already correct; this makes it guaranteed.
+
 ### Added — GLMNet estimators (Lasso / elastic-net)
 
 - **Estimator types in core** (`fitting/estimators.jl`): `ElasticNet(; alpha, lambda,

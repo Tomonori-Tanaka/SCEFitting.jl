@@ -87,7 +87,15 @@ Easy to break silently — confirm before touching the algorithm.
   tolerance is relative (`_SAME_DIST_RTOL`) on both sides so a degenerate WS-boundary
   shell is never split. The minimum-image search box is adaptive — change it and re-check
   the skewed-cell test. `images` is **not** persisted (the full SALC basis is stored and
-  reloaded verbatim), so only `read_input`/`SCEBasis` carry it.
+  reloaded verbatim), so only `read_input`/`SCEBasis` carry it. **At `N ≥ 3` the clique
+  check is on the actual chosen images of *every* pair (not just the anchor edges): a
+  cluster is admitted only when all `C(N,2)` edges sit at their atom-pair minimum image
+  simultaneously** (the compact-cluster criterion). Having each pair individually
+  minimum-image-resolvable is *not* sufficient — the images minimizing `i–j` and `i–k`
+  may force `j–k` onto a longer image, which must reject the cluster. WS-boundary ties
+  then multiply N-body clusters just as they do pairs. The whole count (candidates and
+  symmetry orbits) is pinned against an independent brute force in
+  `test/unit/test_ws_nbody.jl`; change the edge rule or the search box and re-check it.
 - **SALC construction ↔ the ground-truth invariance test** (`test/unit/test_salc.jl`,
   `test/unit/test_nbody.jl`, `test/oracle/runtests.jl`): every SALC must satisfy
   `Φ(g·e) = Φ(e)` (non-collinear spins, all `Lf`, **all body orders**) and

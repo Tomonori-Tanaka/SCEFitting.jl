@@ -69,6 +69,26 @@ from Magesty is the degenerate single-atom-cell self-pair (one orbit there, zero
 Full-WS bases under symmetry are checked to have full design-matrix column rank (no
 collinear columns survive).
 
+**The third edge at `N ≥ 3`.** For pairs the WS boundary only multiplies tied images;
+for clusters of three or more atoms it adds a genuinely new constraint. A triangle
+`{i, j, k}` is admissible only if **all three edges sit at their atom-pair minimum image
+simultaneously** (the compact-cluster criterion) — and the clique check enforces this on
+the *actual chosen images* of every pair, not just the two anchor edges `i–j`, `i–k`. It
+is not enough for each pair to be individually minimum-image-resolvable: the images that
+make `i–j` and `i–k` minimal can force `j–k` onto a longer, non-minimum image, which must
+reject the cluster. (Concretely, three atoms equally spaced around a 1-D ring have every
+pair minimum-image at the same distance, yet admit *zero* compact triangles — you cannot
+realize all three minimal edges at once, just as an equilateral triangle does not embed on
+a ring.) On the WS boundary the tied images then multiply the compact N-body clusters the
+way they multiply pairs, and the symmetry reduction must group these without over- or
+under-merging. Because this combinatorics is easy to get subtly wrong, the full count —
+the candidate set for `N = 2, 3, 4` (including `pair_cutoff = Inf`, the whole WS cell) and
+the symmetry-orbit partition — is pinned in `test/unit/test_ws_nbody.jl` against an
+**independent brute-force enumeration** of all compact clusters, on cells deliberately
+seeded with face / edge / corner ties (cubic face-atoms, fcc, skewed hexagonal). The
+production enumeration matches it exactly, and every emitted member is re-verified to have
+all edges at the brute-force minimum-image distance.
+
 ## 2. Real Wigner-D from the package's own `Zₗₘ` (vs. Euler angles + complex D + c2r)
 
 Magesty builds the real Wigner-D as `conj(C)·wignerD(l,α,β,γ)·transpose(C)` —
