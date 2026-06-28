@@ -1,0 +1,114 @@
+# The spin-cluster expansion
+
+```@meta
+CurrentModule = MagestyRebuild
+```
+
+## The problem
+
+A noncollinear spin-DFT calculation returns, for one fixed set of spin directions
+``\{\hat{\boldsymbol e}_a\}``, a total energy and the torque on every magnetic atom. We want
+a closed-form *effective spin model* — an energy function
+
+```math
+E\bigl(\{\hat{\boldsymbol e}_a\}\bigr)
+```
+
+that reproduces the DFT energies (and torques) across the whole space of noncollinear
+configurations, not just the handful that were computed. Each ``\hat{\boldsymbol e}_a`` is a
+unit vector along the classical spin on atom ``a``; the moment magnitude is a separate
+quantity.
+
+## The expansion
+
+The SCE writes the energy as a sum over *clusters* of atoms — single sites, pairs,
+triplets, … — each contributing a basis function of the spins on its atoms:
+
+```math
+E\bigl(\{\hat{\boldsymbol e}_a\}\bigr)
+  = j_0 + \sum_{\varphi} J_\varphi\,\Phi_\varphi\bigl(\{\hat{\boldsymbol e}_a\}\bigr).
+```
+
+``j_0`` is a constant reference energy and each ``J_\varphi`` is a scalar coefficient to be
+fitted. This is the angular-momentum analogue of the cluster expansion for substitutional
+alloys: the degrees of freedom are continuous directions on the unit sphere, so the per-site
+factors are spherical harmonics rather than occupation numbers.
+
+## Building the invariants
+
+Each basis function is built from per-site **real (tesseral) spherical harmonics**
+``Z_{l,m}(\hat{\boldsymbol e})``. For a cluster of ``n`` atoms the elementary block is a
+product of one harmonic per atom,
+
+```math
+\prod_{i=1}^{n} Z_{l_i, m_i}(\hat{\boldsymbol e}_{a_i}),
+```
+
+and the design matrix carries a factor ``(4\pi)^{n/2}`` so an ``n``-body term is ``O(1)``.
+Two requirements turn these products into physical basis functions:
+
+1. **Time-reversal symmetry.** Reversing all spins, ``\hat{\boldsymbol e}_a \to
+   -\hat{\boldsymbol e}_a``, must leave the energy unchanged. Since ``Z_{l,m}(-\hat{\boldsymbol e})
+   = (-1)^l Z_{l,m}(\hat{\boldsymbol e})``, only products with even total degree
+   ``\sum_i l_i`` survive — so only those ``l``-assignments are enumerated.
+
+2. **Space-group invariance.** The energy must be invariant under the crystal's symmetry.
+   The harmonics of one cluster are coupled to a total angular momentum ``L_f`` (via
+   Clebsch–Gordan coefficients), and only the combinations transforming as the identity are
+   kept. Summed over the cluster's symmetry orbit, these are the **symmetry-adapted linear
+   combinations (SALCs)** ``\Phi_\varphi``. The package computes the real Wigner-``D``
+   matrices for this projection directly from its own ``Z_{l,m}`` (by an exact
+   least-squares fit), so the convention is consistent by construction and improper
+   rotations are handled natively.
+
+The isotropic channel ``L_f = 0`` gives the familiar rotation invariants — for a pair with
+``l = (1,1)`` this is the Heisenberg ``\hat{\boldsymbol e}_i \cdot \hat{\boldsymbol e}_j``;
+the anisotropic ``L_f > 0`` channels give Dzyaloshinskii–Moriya and symmetric-Γ terms (for
+``l = (1,1)``) and single-ion / biquadratic terms (for higher ``l``).
+
+## Evaluation
+
+A SALC stores, per symmetry-orbit *member*, the participating atoms and a *folded*
+coefficient tensor; its value on a configuration is
+
+```math
+\Phi_\varphi(\{\hat{\boldsymbol e}_a\})
+  = (4\pi)^{n/2}\sum_{\text{members}}\sum_{\text{terms}}\sum_{\mu}
+    \text{folded}[\mu]\prod_{i} Z_{l_i,\mu_i}(\hat{\boldsymbol e}_{a_i}).
+```
+
+(The inner *terms* sum is over `l`-orderings and is a single term except for the
+unequal-`l`, permutation-equivalent case at ``N \ge 3``; see
+[Architecture](architecture.md#Combined-space-projection).) [`evaluate`](@ref) implements
+this kernel.
+
+## The design matrix and the fit
+
+Stacking ``\Phi_\varphi`` over configurations gives the **energy design matrix**
+``X_E[\text{config}, \varphi] = \Phi_\varphi(\text{config})``, materialized by
+[`SCEDataset`](@ref). The fit is then a linear regression of the DFT energies on ``X_E``.
+[`fit`](@ref) column-centers ``X_E``, so the intercept ``j_0`` is recovered analytically as
+the mean residual — *independent of the estimator* — and the centered problem is solved by
+the chosen [`AbstractEstimator`](@ref) (OLS, ridge, or a GLMNet Lasso / elastic net).
+
+## The torque
+
+The SCE's second observable is the per-atom torque
+
+```math
+\boldsymbol\tau_a = \hat{\boldsymbol e}_a \times \frac{\partial E}{\partial \hat{\boldsymbol e}_a}.
+```
+
+This is the *analytic* gradient of the same energy surface, so [`predict_torque`](@ref) and
+[`predict_energy`](@ref) can never drift apart: the gradient kernel shares the energy
+kernel's ``\mu``-mapping and ``(4\pi)^{n/2}`` scale (the gate is a finite-difference
+self-consistency check, ``\boldsymbol\tau \approx \hat{\boldsymbol e}\times\nabla E_{\text{FD}}``).
+Torques carry their own design matrix ``X_T``; an energy + torque co-fit minimizes
+``(1-w)\,\mathrm{MSE}_E + w\,\mathrm{MSE}_T`` by whitening and stacking the two blocks (see
+[Data and fitting](../guide/fitting.md)).
+
+## References
+
+1. R. Drautz and M. Fähnle, *Phys. Rev. B* **69**, 104404 (2004).
+2. R. Drautz, *Phys. Rev. B* **102**, 024104 (2020).
+3. T. Tanaka and Y. Gohda, *Phys. Rev. Research* **8**, 023300 (2026).

@@ -6,6 +6,22 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — Documenter.jl documentation site
+
+- A full browser-viewable documentation site under `docs/` (Documenter.jl): home, a
+  getting-started page, a four-part guide (building the basis, data and fitting,
+  persistence and I/O, Sunny export), two narrated tutorials (Heisenberg chain, kagome
+  three-body) with executed `@example` blocks, a three-part theory section (the SCE
+  formalism, periodic resolvability, the architecture), and a complete API reference.
+  Build with `make -C docs serve` (or `build` / `open`). Local-only for now
+  (`remotes = nothing`, no `deploydocs` until a remote exists).
+- **`docs` fixed several exported public APIs that silently had no runtime docstring** —
+  a comment or a sibling definition sat between the docstring and the documented binding,
+  so Julia never attached it. `coeftable`, `load`, `intercept`, `nobs`, `nsalc`,
+  `rmse_energy`, `rmse_torque`, and the `AbstractDFTSource` / `AbstractTrainingDatum`
+  abstract types now carry their own docstrings; every exported binding is documented
+  (the API reference builds with `checkdocs = :exports`). No behavior change.
+
 ### Tested — N-body Wigner–Seitz cluster counting (`N ≥ 3`)
 
 - Added `test/unit/test_ws_nbody.jl`, pinning the count of 3- and 4-body clusters on

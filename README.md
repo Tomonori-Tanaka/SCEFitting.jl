@@ -179,6 +179,19 @@ Adding another DFT code is one sibling submodule — the core and its exports do
 See [`docs/design-notes.md`](docs/design-notes.md) for the rationale behind these
 refinements over Magesty.jl, and [`SPEC.md`](SPEC.md) for the realized architecture.
 
+## Documentation
+
+A full Documenter.jl site (home, getting started, a guide, narrated tutorials, theory, and
+the API reference) lives under [`docs/`](docs/). Build and read it locally:
+
+```bash
+make -C docs serve      # build, then serve at http://localhost:8000 with live reload
+# or:  make -C docs build && make -C docs open
+```
+
+The first build resolves `docs/Project.toml` (Documenter + Spglib + the package). The site
+is not yet deployed — add a remote and `deploydocs` when one exists.
+
 ## Status
 
 Implemented and validated (v0): geometry → symmetry (pluggable backend) →
