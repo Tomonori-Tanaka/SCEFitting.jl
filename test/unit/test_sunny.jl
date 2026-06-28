@@ -1,0 +1,119 @@
+using Test
+using MagestyRebuild
+using MagestyRebuild: _l1_pair_matrix, _l2_onsite_matrix, _classify_salc,
+    _sunny_supercell_terms, _reconstruct_energy, Harmonics
+using StaticArrays
+using LinearAlgebra
+using Random
+
+# These exercise the Sunny-export conversion math in the core — the part that must
+# be numerically correct — without loading Sunny. The actual Sunny.System assembly
+# is tested in the separate `test/sunny/` environment.
+
+_rdir(rng) = (v = randn(rng, 3); v / norm(v))
+_rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
+
+@testset "Sunny export (core conversion math)" begin
+    Z = Harmonics.Zlm
+    rng = MersenneTwister(20)
+
+    @testset "_l1_pair_matrix reproduces the Z₁ contraction" begin
+        me = 0.0
+        for _ = 1:200
+            folded = randn(rng, 3, 3)
+            M = _l1_pair_matrix(folded)
+            ea, eb = _rdir(rng), _rdir(rng)
+            ref = sum(folded[m1 + 2, m2 + 2] * Z(1, m1, SVector{3}(ea)) * Z(1, m2, SVector{3}(eb))
+                      for m1 = -1:1, m2 = -1:1)
+            me = max(me, abs(dot(ea, M * eb) - ref))
+        end
+        @test me < 1e-12
+    end
+
+    @testset "_l2_onsite_matrix reproduces the Z₂ contraction; symmetric traceless" begin
+        me = 0.0
+        for _ = 1:200
+            folded = randn(rng, 5)
+            A = _l2_onsite_matrix(folded)
+            @test isapprox(A, A'; atol = 1e-12)
+            @test abs(tr(A)) < 1e-12
+            e = _rdir(rng)
+            ref = sum(folded[m + 3] * Z(2, m, SVector{3}(e)) for m = -2:2)
+            me = max(me, abs(dot(e, A * e) - ref))
+        end
+        @test me < 1e-12
+    end
+
+    @testset "_classify_salc" begin
+        @test _classify_salc([0, 0]) === :drop
+        @test _classify_salc([1, 1]) === :pair
+        @test _classify_salc([2]) === :onsite
+        @test _classify_salc([2, 2]) === :unsupported
+        @test _classify_salc([1, 1, 2]) === :unsupported
+    end
+
+    # Reconstruct the SCE energy from the exported matrices: for a model whose only
+    # channels are ls=[1,1] / ls=[2], this must equal predict_energy − j0.
+    function _recon_max_err(basis; seed = 7, ntrial = 30)
+        rng = MersenneTwister(seed)
+        jphi = randn(rng, nsalc(basis))
+        j0 = 0.37
+        model = SCEModel(basis, j0, jphi, basis.salcs.keys)
+        terms = _sunny_supercell_terms(model)
+        nat = num_atoms(basis.crystal)
+        me = 0.0
+        for _ = 1:ntrial
+            e = _rcfg(rng, nat)
+            me = max(me, abs(_reconstruct_energy(terms, e) - (predict_energy(model, e) - j0)))
+        end
+        return me, terms
+    end
+
+    @testset "energy reconstruction == predict − j0 (supported-only models)" begin
+        lat = Lattice(Matrix(3.0 * I(3)))
+        cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+        me, terms = _recon_max_err(
+            SCEBasis(cr, Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [1], isotropy = false)))
+        @test me < 1e-12
+        @test isempty(terms.skipped)
+        @test !isempty(terms.pairs)
+
+        cr1 = Crystal(lat, reshape([0.0, 0, 0], 3, 1), [1], ["Fe"])
+        meo, termso = _recon_max_err(
+            SCEBasis(cr1, Interaction(; nbody = 1, pair_cutoff = 1.5, lmax = [2], isotropy = false)))
+        @test meo < 1e-12
+        @test isempty(termso.skipped)
+        @test !isempty(termso.onsites)
+    end
+
+    @testset "Heisenberg pair → isotropic exchange matrix (M = J·I on the bond)" begin
+        # the nearest-neighbor Heisenberg SALC alone: its exported 3×3 must be a
+        # scalar multiple of the identity (no DM, no Γ).
+        lat = Lattice([8.0 0 0; 0 8.0 0; 0 0 10.0])
+        cr = Crystal(lat, [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75], [1, 1, 1, 1], ["Fe"])
+        b = SCEBasis(cr, Interaction(; nbody = 2, pair_cutoff = 2.6, lmax = [1], isotropy = true))
+        model = SCEModel(b, 0.0, [0.0137], b.salcs.keys)
+        terms = _sunny_supercell_terms(model)
+        for (_, M) in terms.pairs
+            @test isapprox(M, (M[1, 1]) * I; atol = 1e-12)   # diagonal isotropic
+        end
+    end
+
+    @testset "unsupported channels are reported, not silently dropped" begin
+        lat = Lattice(Matrix(3.0 * I(3)))
+        cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+        b = SCEBasis(cr, Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false))
+        model = SCEModel(b, 0.0, ones(nsalc(b)), b.salcs.keys)
+        terms = _sunny_supercell_terms(model)
+        @test !isempty(terms.skipped)                         # ls=[2,2] pairs reported
+        @test all(s -> occursin("unsupported", s), terms.skipped)
+    end
+
+    @testset "to_sunny without Sunny gives a helpful error" begin
+        lat = Lattice(Matrix(3.0 * I(3)))
+        cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+        b = SCEBasis(cr, Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [1], isotropy = true))
+        model = SCEModel(b, 0.0, zeros(nsalc(b)), b.salcs.keys)
+        @test_throws ErrorException to_sunny(model; spins = 1)
+    end
+end

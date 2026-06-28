@@ -44,6 +44,9 @@ include("sce/model.jl")
 # --- tabular results (Tables.jl source) ---
 include("sce/coeftable.jl")
 
+# --- Sunny export: conversion math in core, Sunny.System assembly in the extension ---
+include("sce/sunny.jl")
+
 # --- persistence (format-agnostic schema, serialized as TOML) + TOML input files ---
 include("sce/persist.jl")
 include("sce/input.jl")
@@ -64,6 +67,7 @@ export predict_energy, predict_torque, has_torque
 export AbstractEstimator, OLS, Ridge, solve_coefficients
 export coef, intercept, nobs, r2_energy, rmse_energy, r2_torque, rmse_torque
 export coeftable, SCECoefficients
+export to_sunny
 # DFT data I/O: only the code-agnostic boundary is exported; per-code adapters are
 # namespaced submodules (e.g. `MagestyRebuild.VASP.read_poscar`), so adding a code
 # touches neither the core nor this export list.

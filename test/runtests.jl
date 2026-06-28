@@ -18,6 +18,7 @@ const TEST_MODE = get(ENV, "TEST_MODE", "default")
         include("unit/test_persist.jl")
         include("unit/test_input.jl")
         include("unit/test_coeftable.jl")
+        include("unit/test_sunny.jl")
         include("unit/test_vaspio.jl")
     end
     if TEST_MODE in ("default", "all", "aqua")

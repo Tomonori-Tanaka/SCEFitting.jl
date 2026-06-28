@@ -128,6 +128,16 @@ Easy to break silently — confirm before touching the algorithm.
   to `AbstractDFTSource` adapters** (namespaced submodules like `VASP`); the SCE pipeline
   consumes only `SpinDatum`/`SCEDataset` and stays DFT-code-agnostic. The readers are
   cross-checked against Magesty's parsers in the oracle.
+- **Sunny export conversion ↔ the energy reconstruction** (`sce/sunny.jl`,
+  `ext/MagestyRebuildSunnyExt.jl`): `_l1_pair_matrix` / `_l2_onsite_matrix` must satisfy
+  `eₐ'·M·e_b = Σ folded·Z·Z` (the gate is the `Z₁`/`Z₂` contraction test); the per-bond
+  matrix is `jϕ·(4π)^(N/2)·M` and the two directed members `(a,b,R)`/`(b,a,−R)` fold into
+  one matrix on the canonical `a≤b` bond (reverse transposed). The whole chain is checked
+  **without Sunny** by `_reconstruct_energy ≈ predict_energy − j0`; the extension then sets
+  `J = M/(SₐS_b)` so the `Sunny.System` energy matches. Only `ls=[1,1]`/`ls=[2]` are
+  representable — every other channel must be **reported as skipped**, never silently
+  dropped. Change a harmonic normalization or the `(4π)^(N/2)` scale → both the matrix
+  formulas and the energy gate move together.
 - `solve_coefficients(est, X, y)` receives a **column-centered** `X` (⇒ the solver
   adds no intercept; `j0` is recovered analytically in `fit`). Every estimator —
   in-tree or in an extension — must honor this.

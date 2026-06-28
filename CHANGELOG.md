@@ -6,6 +6,30 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — Sunny.jl export (supercell route)
+
+- **Conversion core** (`sce/sunny.jl`): turns a fitted `SCEModel` into the
+  Sunny-representable channels — `ls=[1,1]` 2-body → a 3×3 exchange matrix
+  (`M = (3/4π)·folded`, carrying Heisenberg / Dzyaloshinskii–Moriya / symmetric-Γ
+  in one matrix) and `ls=[2]` 1-body → a traceless-symmetric single-ion tensor.
+  `ls=[0…]` channels fold into `j0`; every other SALC (3-body+, higher `l`) is
+  **skipped and reported**, since Sunny cannot represent it. The directed cluster
+  members fold into one matrix per undirected supercell bond
+  (`_sunny_supercell_terms`), and the whole conversion is gated **without Sunny** by
+  reconstructing the energy (`_reconstruct_energy ≈ predict_energy − j0`).
+- **`to_sunny(model; spins, g, mode, placement)`** in the `MagestyRebuildSunnyExt`
+  extension (loaded by `using Sunny`): builds a real `Sunny.System` on the training
+  supercell (P1, inhomogeneous), placing `set_exchange_at!` per bond (rescaled
+  `J = M/(SₐS_b)`) and `set_onsite_coupling_at!` per atom. The system's classical
+  energy reproduces `predict_energy − j0` exactly; exchange is independent of the
+  spin length and Sunny mode, the single-ion term carries the
+  classical/`:dipole`-quantum rescaling. Skipped channels are surfaced via `@warn`.
+- Conversion math is a **core dependency-free** layer; only the `Sunny.System`
+  assembly lives in the extension. Validated by `test/unit/test_sunny.jl` (Sunny-free:
+  the `Z₁`/`Z₂` contractions, classification, energy reconstruction, skip reporting)
+  and the separate `test/sunny/` environment (the real `Sunny.System` energy vs the
+  SCE energy across modes/spins, the skip warning, per-species spins).
+
 ### Changed — minimum-image periodic resolvability (Wigner–Seitz cell)
 
 - **Periodic-image selection** (`geometry/neighborlist.jl`): `AbstractImageSelection`
