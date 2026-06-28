@@ -65,9 +65,10 @@ sanity check: a Heisenberg model must satisfy ``J = 2\sqrt 3\,j_\varphi``.
 
 ## Adding the torque
 
-The same coupling fixes the per-atom torque. For the Heisenberg energy,
-``\partial E/\partial\hat{\boldsymbol e}_a`` is a sum of neighbor spins; the torque is its
-cross product with ``\hat{\boldsymbol e}_a``.
+The same coupling fixes the per-atom torque
+``\boldsymbol\tau_a = -\hat{\boldsymbol e}_a \times \partial E/\partial\hat{\boldsymbol e}_a``
+(the physical / Landau–Lifshitz torque). For the Heisenberg energy,
+``\partial E/\partial\hat{\boldsymbol e}_a`` is a sum of neighbor spins.
 
 ```@example heis
 function heis_torque(c, J)
@@ -77,7 +78,7 @@ function heis_torque(c, J)
         G[:, i] .+= (J * 0.5) .* c[:, j]
         G[:, j] .+= (J * 0.5) .* c[:, i]
     end
-    reduce(hcat, cross(c[:, a], G[:, a]) for a = 1:nat)
+    reduce(hcat, cross(G[:, a], c[:, a]) for a = 1:nat)   # τ = ∇E × e = −e × ∇E
 end
 torques = [heis_torque(c, J_true) for c in configs]
 

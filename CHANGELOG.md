@@ -6,6 +6,23 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — torque sign convention → Landau–Lifshitz / physical torque
+
+- The per-atom torque is now `τ_a = −e_a × ∂E/∂e_a` (the physical / Landau–Lifshitz
+  torque `m_a × B_eff,a`), matching the published *General spin models* paper
+  (Phys. Rev. Research **8**, 023300 (2026)). Previously it was the energy-rotation-gradient
+  `+e_a × ∂E/∂e_a` (the methods-paper Eq. 15 convention), the opposite sign.
+- The change flips **both** sides together, so the fit is unchanged: `predict_torque` /
+  `_design_torque` now compute `∂Φ/∂e × e = −e × ∂Φ/∂e`, and the DFT training target from a
+  constrained OSZICAR is `τ_a = m_a × B_a` (was `−m_a × B_a`). Because the torque design
+  matrix `X_T` and the target `y_T` both negate, the co-fit objective `‖X_T J − y_T‖²` is
+  invariant — **`j0` and every coefficient `J` are identical**; only the *reported* torque
+  sign changes. The energy fit, energies, and `predict_energy` are untouched.
+- `predict_torque(model, config)` and the torque returned by `read_configs` / `SpinDatum`
+  flip sign for downstream consumers. The finite-difference self-consistency gate
+  (`test_torque.jl`, `test_nbody.jl`) and the oracle's analytic Heisenberg torque now check
+  the `−e × ∇E` convention. Docs, examples, and the design-matrix convention notes updated.
+
 ### Added — Documenter.jl documentation site
 
 - A full browser-viewable documentation site under `docs/` (Documenter.jl): home, a

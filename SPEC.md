@@ -134,7 +134,7 @@ files use the stdlib `TOML` (no external dependency).
   Tables.jl is a lightweight core dep.
 - **DFT data sources** (`io/dftsource.jl`, `io/vasp.jl`): a code-agnostic boundary —
   `SpinDatum` (energy + spin directions + magmoms + constraining field + the derived
-  torque target `τ_a = −m_a × B_a`) and
+  torque target `τ_a = m_a × B_a`, the physical / Landau–Lifshitz torque) and
   `read_configs(src::AbstractDFTSource) -> Vector{SpinDatum}`, with `SCEDataset(basis, src)`
   going source → dataset. Per-code adapters are **namespaced submodules** kept out of the
   core: `MagestyRebuild.VASP` reads POSCAR/CONTCAR (`read_poscar`/`write_poscar`) and

@@ -43,8 +43,9 @@ println("J (recovered): ", J_recovered)
 println("✓ recovered the Heisenberg coupling")
 
 # --- energy + torque co-fit ---------------------------------------------------
-# The same coupling fixes the per-atom torque τ_a = e_a × ∂E/∂e_a. For the
-# Heisenberg energy above, ∂E/∂e_a = J Σ_{members} (δ_{a,i} e_j + δ_{a,j} e_i)·0.5.
+# The same coupling fixes the per-atom torque τ_a = −e_a × ∂E/∂e_a (the physical /
+# Landau–Lifshitz torque). For the Heisenberg energy above,
+# ∂E/∂e_a = J Σ_{members} (δ_{a,i} e_j + δ_{a,j} e_i)·0.5.
 function heisenberg_torque(c, J)
     nat = size(c, 2)
     G = zeros(3, nat)
@@ -53,7 +54,7 @@ function heisenberg_torque(c, J)
         G[:, i] .+= (J * 0.5) .* c[:, j]
         G[:, j] .+= (J * 0.5) .* c[:, i]
     end
-    return reduce(hcat, cross(c[:, a], G[:, a]) for a = 1:nat)
+    return reduce(hcat, cross(G[:, a], c[:, a]) for a = 1:nat)   # τ = ∇E × e = −e × ∇E
 end
 torques = [heisenberg_torque(c, J_true) for c in configs]
 

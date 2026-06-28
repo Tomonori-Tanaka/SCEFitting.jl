@@ -31,8 +31,14 @@ code) — a second, authoritative anchor beyond the oracle.
   `AngularMomentum.c2r_matrix` **entry for entry**.
 - **Global reality phase** `exp[−i(π/2)(Σ_a l_a − L_f)]` (Eq. C5) ⇒ exactly the
   factor in `complex_to_real_tensor`.
-- **Torque** `τ_i = e_i × ∇_{e_i} E` (Eq. 15; "the Landau–Lifshitz dynamical torque
-  has the opposite sign") ⇒ exactly `predict_torque` / `_design_torque`.
+- **Torque** — the methods paper Eq. 15 writes `τ_i = e_i × ∇_{e_i} E` (the
+  energy-rotation-gradient) and notes "the Landau–Lifshitz dynamical torque has the
+  opposite sign". The rebuild deliberately uses the **Landau–Lifshitz / physical**
+  convention `τ_i = −e_i × ∇_{e_i} E = m_i × B_eff,i` instead (matching the published
+  *General spin models*, PRR 8 023300 (2026), torque), so `predict_torque` /
+  `_design_torque` carry the **opposite sign of Eq. 15**. This is sign-only: the DFT
+  training target `m × B` is flipped to match, the co-fit objective is invariant, and the
+  fitted `J` are unchanged — see the "deliberate difference" note below.
 - **Combined loss** `(1−w)/N_c‖·‖² + w/N_T‖·‖²` with row-whitening
   `√((1−w)/N_c)`, `√(w/N_T)` (Eq. 17, 21) and **analytic `j0`**
   `J_0 = ȳ_E − x̄_E·J` (Eq. 19) ⇒ exactly `fit`.

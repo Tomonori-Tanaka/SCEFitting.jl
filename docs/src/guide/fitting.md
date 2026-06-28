@@ -44,7 +44,8 @@ j0 = intercept(f)    # the reference energy
 ## Energy + torque co-fit
 
 The SCE's second observable is the per-atom torque
-``\boldsymbol\tau_a = \hat{\boldsymbol e}_a \times \partial E / \partial \hat{\boldsymbol e}_a``.
+``\boldsymbol\tau_a = -\hat{\boldsymbol e}_a \times \partial E / \partial \hat{\boldsymbol e}_a``
+(the Landau–Lifshitz / physical torque ``\boldsymbol m_a \times \boldsymbol B_{\mathrm{eff},a}``).
 Because [`predict_torque`](@ref) is the analytic gradient of the same surface
 [`predict_energy`](@ref) evaluates, the two are consistent by construction. A
 `torque_weight ∈ (0, 1]` runs a co-fit that minimizes

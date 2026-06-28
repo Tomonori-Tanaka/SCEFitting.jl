@@ -93,16 +93,20 @@ the chosen [`AbstractEstimator`](@ref) (OLS, ridge, or a GLMNet Lasso / elastic 
 
 ## The torque
 
-The SCE's second observable is the per-atom torque
+The SCE's second observable is the per-atom torque — the Landau–Lifshitz / physical
+torque ``\boldsymbol m_a \times \boldsymbol B_{\mathrm{eff},a}``, i.e. the negative of the
+energy's rotation gradient:
 
 ```math
-\boldsymbol\tau_a = \hat{\boldsymbol e}_a \times \frac{\partial E}{\partial \hat{\boldsymbol e}_a}.
+\boldsymbol\tau_a = -\,\hat{\boldsymbol e}_a \times \frac{\partial E}{\partial \hat{\boldsymbol e}_a}.
 ```
 
 This is the *analytic* gradient of the same energy surface, so [`predict_torque`](@ref) and
 [`predict_energy`](@ref) can never drift apart: the gradient kernel shares the energy
 kernel's ``\mu``-mapping and ``(4\pi)^{n/2}`` scale (the gate is a finite-difference
-self-consistency check, ``\boldsymbol\tau \approx \hat{\boldsymbol e}\times\nabla E_{\text{FD}}``).
+self-consistency check, ``\boldsymbol\tau \approx -\hat{\boldsymbol e}\times\nabla E_{\text{FD}}``).
+This matches the convention of the *General spin models* paper (Ref. 3); it is the opposite
+sign of the energy-rotation-gradient ``+\hat{\boldsymbol e}\times\nabla E``.
 Torques carry their own design matrix ``X_T``; an energy + torque co-fit minimizes
 ``(1-w)\,\mathrm{MSE}_E + w\,\mathrm{MSE}_T`` by whitening and stacking the two blocks (see
 [Data and fitting](../guide/fitting.md)).

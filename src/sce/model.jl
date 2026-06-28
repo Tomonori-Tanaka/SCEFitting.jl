@@ -127,7 +127,8 @@ function _design_energy(basis::SCEBasis, cfgs::Vector{Matrix{Float64}})::Matrix{
 end
 
 # Torque design matrix: for each SALC column, each config, each atom, the three
-# components of τ_a = e_a × ∂Φ/∂e_a stacked config-major / atom-major / xyz.
+# components of τ_a = −e_a × ∂Φ/∂e_a (the physical / Landau–Lifshitz torque) stacked
+# config-major / atom-major / xyz.
 function _design_torque(basis::SCEBasis, cfgs::Vector{Matrix{Float64}})::Matrix{Float64}
     salcs = basis.salcs.salcs
     n = length(cfgs)
@@ -145,7 +146,7 @@ function _design_torque(basis::SCEBasis, cfgs::Vector{Matrix{Float64}})::Matrix{
             for a = 1:nat
                 ea = SVector{3,Float64}(c[1, a], c[2, a], c[3, a])
                 ga = SVector{3,Float64}(G[1, a], G[2, a], G[3, a])
-                t = cross(ea, ga)
+                t = cross(ga, ea)        # τ = ∇Φ × e = −e × ∇Φ  (physical / LL torque)
                 rb = row_off + 3 * (a - 1)
                 X[rb + 1, j] = t[1]
                 X[rb + 2, j] = t[2]
@@ -295,11 +296,12 @@ predict_energy(f::SCEFit, data) = predict_energy(SCEModel(f), data)
 """
     predict_torque(model, config) -> Matrix{Float64}
 
-Predict the per-atom torque `τ_a = e_a × ∂E/∂e_a` of a spin configuration
+Predict the per-atom torque `τ_a = −e_a × ∂E/∂e_a` of a spin configuration
 (`3 × n_atoms`), returned as a `3 × n_atoms` matrix. A vector of configurations
-returns a vector of such matrices. The torque is the analytic derivative of the
-same energy surface [`predict_energy`](@ref) evaluates, so the two are consistent
-by construction (`τ = e × ∇E`).
+returns a vector of such matrices. This is the Landau–Lifshitz / physical torque
+`m_a × B_eff,a` (the negative rotation-gradient of the energy), the analytic
+derivative of the same surface [`predict_energy`](@ref) evaluates, so the two are
+consistent by construction (`τ = −e × ∇E`).
 """
 function predict_torque(model::SCEModel, config::AbstractMatrix{<:Real})::Matrix{Float64}
     salcs = model.basis.salcs.salcs
@@ -312,7 +314,7 @@ function predict_torque(model::SCEModel, config::AbstractMatrix{<:Real})::Matrix
     @inbounds for a = 1:nat
         ea = SVector{3,Float64}(config[1, a], config[2, a], config[3, a])
         ga = SVector{3,Float64}(G[1, a], G[2, a], G[3, a])
-        t = cross(ea, ga)
+        t = cross(ga, ea)                # τ = ∇E × e = −e × ∇E  (physical / LL torque)
         T[1, a] = t[1]
         T[2, a] = t[2]
         T[3, a] = t[3]

@@ -23,9 +23,10 @@ function _rand_rotation(rng)
     return Q
 end
 
-# Central-difference torque from the energy surface: τ_a = e_a × ∇_tan E, with the
-# perturbation renormalized onto the sphere so the finite difference reconstructs
-# the tangent gradient (the radial part drops out of the cross product anyway).
+# Central-difference torque from the energy surface: τ_a = −e_a × ∇_tan E (the physical
+# / Landau–Lifshitz torque), with the perturbation renormalized onto the sphere so the
+# finite difference reconstructs the tangent gradient (the radial part drops out of the
+# cross product anyway).
 function _torque_fd(model, config; δ = 1e-6)
     nat = size(config, 2)
     T = Matrix{Float64}(undef, 3, nat)
@@ -40,7 +41,7 @@ function _torque_fd(model, config; δ = 1e-6)
             em[:, a] = (e .- step) ./ norm(e .- step)
             g[d] = (predict_energy(model, ep) - predict_energy(model, em)) / (2δ)
         end
-        T[:, a] = cross(SVector{3}(e), SVector{3}(g))
+        T[:, a] = cross(SVector{3}(g), SVector{3}(e))   # τ = ∇E × e = −e × ∇E
     end
     return T
 end
@@ -50,7 +51,7 @@ end
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
 
-    @testset "predict_torque = e × ∇E (finite differences, anisotropic)" begin
+    @testset "predict_torque = −e × ∇E (finite differences, anisotropic)" begin
         interaction = Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false)
         basis = SCEBasis(crystal, interaction)   # NoSymmetry (P1): exercises Lf > 0
         m = length(basis.salcs)

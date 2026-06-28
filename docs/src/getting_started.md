@@ -71,11 +71,12 @@ fitted coefficient.
 ## Add the torque
 
 The same coefficients fix the per-atom torque
-``\boldsymbol\tau_a = \hat{\boldsymbol e}_a \times \partial E/\partial\hat{\boldsymbol e}_a``.
+``\boldsymbol\tau_a = -\hat{\boldsymbol e}_a \times \partial E/\partial\hat{\boldsymbol e}_a``
+(the Landau–Lifshitz / physical torque ``\boldsymbol m_a \times \boldsymbol B_{\mathrm{eff},a}``).
 Pass per-configuration torques and a `torque_weight` to run an energy + torque co-fit:
 
 ```@example gs
-# analytic Heisenberg torque for the synthetic data
+# analytic Heisenberg torque for the synthetic data: τ = ∇E × e = −e × ∇E
 function heis_torque(c, J)
     nat = size(c, 2); G = zeros(3, nat)
     for m in heis.members
@@ -83,7 +84,7 @@ function heis_torque(c, J)
         G[:, i] .+= (J * 0.5) .* c[:, j]
         G[:, j] .+= (J * 0.5) .* c[:, i]
     end
-    reduce(hcat, cross(c[:, a], G[:, a]) for a = 1:nat)
+    reduce(hcat, cross(G[:, a], c[:, a]) for a = 1:nat)
 end
 torques = [heis_torque(c, J_true) for c in configs]
 

@@ -18,7 +18,8 @@ where the spins ``\hat{\boldsymbol e}_a`` are unit vectors and the ``\Phi_\varph
 symmetry-adapted, time-reversal-even scalar invariants built from real tesseral
 spherical harmonics over clusters of spins. Fitting recovers the cluster coefficients
 ``J_\varphi``; the same coefficients fix the per-atom **torque**
-``\boldsymbol\tau_a = \hat{\boldsymbol e}_a \times \partial E/\partial\hat{\boldsymbol e}_a``,
+``\boldsymbol\tau_a = -\hat{\boldsymbol e}_a \times \partial E/\partial\hat{\boldsymbol e}_a``
+(the Landau–Lifshitz / physical torque ``\boldsymbol m_a \times \boldsymbol B_{\mathrm{eff},a}``),
 the SCE's other DFT observable.
 
 !!! note "Status — an architectural exploration (v0)"

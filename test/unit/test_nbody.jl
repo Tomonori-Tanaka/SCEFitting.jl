@@ -44,7 +44,8 @@ function _rcfg3(rng, nat)
     return M
 end
 
-# τ_a = e_a × ∇_tan E by renormalized on-sphere central differences.
+# τ_a = −e_a × ∇_tan E (physical / Landau–Lifshitz torque) by renormalized on-sphere
+# central differences.
 function _torque_fd3(model, config; δ = 1e-6)
     nat = size(config, 2)
     T = Matrix{Float64}(undef, 3, nat)
@@ -58,7 +59,7 @@ function _torque_fd3(model, config; δ = 1e-6)
             em[:, a] = (e .- step) ./ norm(e .- step)
             g[d] = (predict_energy(model, ep) - predict_energy(model, em)) / (2δ)
         end
-        T[:, a] = cross(SVector{3}(e), SVector{3}(g))
+        T[:, a] = cross(SVector{3}(g), SVector{3}(e))   # τ = ∇E × e = −e × ∇E
     end
     return T
 end

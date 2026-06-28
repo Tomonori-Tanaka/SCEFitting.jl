@@ -90,7 +90,7 @@ using MagestyRebuild.VASP: read_poscar, Oszicar
 crystal = read_poscar("POSCAR")                          # → Crystal
 basis   = SCEBasis(crystal, interaction)
 
-# constrained-noncollinear OSZICARs → energy + spin directions + torque target (τ = −m×B)
+# constrained-noncollinear OSZICARs → energy + spin directions + torque target (τ = m×B)
 src     = Oszicar(["run1/OSZICAR", "run2/OSZICAR"])      # an AbstractDFTSource
 dataset = SCEDataset(basis, src)                         # read_configs(src) under the hood
 fit(SCEFit, dataset, OLS(); torque_weight = 0.5)
@@ -99,7 +99,9 @@ fit(SCEFit, dataset, OLS(); torque_weight = 0.5)
 Each DFT code is a namespaced submodule (`MagestyRebuild.VASP`, …) that produces
 `SpinDatum`s, so adding another code is one sibling submodule — the core and its exports
 do not change. The torque target from a constrained calculation is
-``\boldsymbol\tau_a = -\boldsymbol m_a \times \boldsymbol B_a``, the *same* physical
-quantity, sign, and layout as the model's `predict_torque`, so the co-fit is consistent.
+``\boldsymbol\tau_a = \boldsymbol m_a \times \boldsymbol B_a`` (the physical /
+Landau–Lifshitz torque), the *same* physical quantity, sign, and layout as the model's
+[`predict_torque`](@ref) ``= -\hat{\boldsymbol e}_a \times \partial E/\partial\hat{\boldsymbol e}_a``,
+so the co-fit is consistent.
 
 Next: [Sunny export](sunny.md).

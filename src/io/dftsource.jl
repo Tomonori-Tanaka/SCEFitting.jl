@@ -52,10 +52,11 @@ Build a [`SpinDatum`](@ref) from the per-atom magnetic moment vectors `moments`
 (`3 × n_atoms`, μ_B) and the per-atom constraining field `field` (`3 × n_atoms`,
 eV/μ_B). The spin direction is `e_a = m_a / ‖m_a‖` (a near-zero moment, below
 `zero_moment_atol`, gets the placeholder `ẑ` and a zero torque), the magnitude is
-`‖m_a‖`, and the torque target is `τ_a = −m_a × B_a` (eV).
+`‖m_a‖`, and the torque target is `τ_a = m_a × B_a` (eV) — the physical /
+Landau–Lifshitz torque, matching the SCE model torque `−e_a × ∂E/∂e_a`.
 
 The target carries the per-config moment magnitude `‖m_a‖`, while the SCE model torque
-`e_a × ∂E/∂e_a` depends on directions only — so a co-fit assumes the moment magnitudes
+depends on directions only — so a co-fit assumes the moment magnitudes
 are roughly constant across configurations (large longitudinal variation would bias it).
 The zero-moment placeholder direction is a divide-by-zero guard; a *magnetic* site that
 quenches to `‖m_a‖ ≈ 0` in some configuration therefore enters with a fictitious
@@ -76,7 +77,7 @@ function SpinDatum(energy::Real, moments::AbstractMatrix{<:Real},
         mag = norm(mi)
         mags[i] = mag
         ei = mag <= zero_moment_atol ? SVector{3,Float64}(0, 0, 1) : mi / mag
-        ti = -cross(mi, Bi)                 # τ = −(m × B) = −m (e × B)  [eV]
+        ti = cross(mi, Bi)                  # τ = m × B  (physical / LL torque)  [eV]
         for k = 1:3
             dirs[k, i] = ei[k]
             torq[k, i] = ti[k]

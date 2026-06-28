@@ -99,9 +99,9 @@ end
         @test d.directions[:, 2] ≈ [0.0, 0.0, 1.0]
         @test d.field[:, 1] ≈ [0.0, 0.02, 0.0]
         @test d.field[:, 2] ≈ [0.03, 0.0, 0.0]
-        # torque target τ = −(m × B)
-        @test d.torques[:, 1] ≈ -cross(SVector(1.0, 0, 0), SVector(0.0, 0.02, 0))
-        @test d.torques[:, 2] ≈ -cross(SVector(0.0, 0, 2), SVector(0.03, 0, 0))
+        # torque target τ = m × B  (physical / Landau–Lifshitz torque)
+        @test d.torques[:, 1] ≈ cross(SVector(1.0, 0, 0), SVector(0.0, 0.02, 0))
+        @test d.torques[:, 2] ≈ cross(SVector(0.0, 0, 2), SVector(0.03, 0, 0))
     end
 
     @testset "OSZICAR — energy_kind and mint" begin
@@ -118,8 +118,8 @@ end
         R = SMatrix{3,3,Float64}([0 0 1; 0 1 0; -1 0 0])                  # Rz(0)·Ry(π/2)
         @test dx.directions[:, 1] ≈ R * d0.directions[:, 1]
         @test dx.field[:, 2] ≈ R * d0.field[:, 2]
-        @test dx.torques[:, 1] ≈ -cross(SVector(dx.magmoms[1] * dx.directions[:, 1]...),
-                                        SVector(dx.field[:, 1]...))
+        @test dx.torques[:, 1] ≈ cross(SVector(dx.magmoms[1] * dx.directions[:, 1]...),
+                                       SVector(dx.field[:, 1]...))
     end
 
     @testset "OSZICAR — multiple files, missing field, errors" begin

@@ -15,7 +15,8 @@ and reproducibility over stylistic concerns. See `SPEC.md` for the realized
 architecture and `docs/design-notes.md` for the rationale.
 
 Both SCE observables are fitted: the **energy** `E` and the per-atom **torque**
-`τ_a = e_a × ∂E/∂e_a` (the analytic derivative of the same energy surface). An
+`τ_a = −e_a × ∂E/∂e_a` (the physical / Landau–Lifshitz torque `m_a × B_eff,a`, the
+analytic derivative of the same energy surface). An
 energy+torque co-fit minimizes `L = (1−w)·MSE_E + w·MSE_T` for a `torque_weight`
 `w ∈ [0,1]`. Cluster enumeration is **arbitrary body order** (`nbody = K`):
 pairwise-within-cutoff cliques, with the SALC projection generalized to the combined
@@ -62,7 +63,9 @@ Easy to break silently — confirm before touching the algorithm.
   two coincide. Do **not** "fix" a `> L/2` cutoff by folding aliases into a shorter shell
   (double-counts) — that regime is simply unresolvable from one supercell.
 - **Energy units**: `Jφ` carry the DFT input unit (eV); `j0` is separate.
-- **Torque**: `τ_a = e_a × ∂E/∂e_a`, design-matrix entry `(4π)^(N/2)·(e_a × ∂Φ/∂e_a)`
+- **Torque**: `τ_a = −e_a × ∂E/∂e_a` (the physical / Landau–Lifshitz torque `m_a × B_eff,a`,
+  matching the *General spin models* paper; the opposite sign of the energy-rotation-gradient
+  `+e×∇E`), design-matrix entry `(4π)^(N/2)·(−e_a × ∂Φ/∂e_a)` = `(4π)^(N/2)·(∂Φ/∂e_a × e_a)`
   (same scale and `μ`-mapping as the energy kernel). The torque design matrix `X_T`
   has no `j0` column. Its rows are flattened config-major, then atom-major, then
   `xyz`. The co-fit whitens the (centered) energy block by `√((1−w)/n_E)` and the
@@ -75,9 +78,9 @@ Easy to break silently — confirm before touching the algorithm.
   drift silently biases `X`.
 - **Energy kernel `evaluate` ↔ gradient kernel `accumulate_grad!`** (`basis/salc.jl`):
   identical `μ = idx[i] − ls[i] − 1` mapping, `ls`, `folded`, and `(4π)^(N/2)` scale.
-  The gate is the finite-difference self-consistency `predict_torque ≈ e × ∇E_FD`
-  (`test/unit/test_torque.jl`): the torque must be the exact derivative of the energy
-  surface. Change one kernel, re-check the other.
+  The gate is the finite-difference self-consistency `predict_torque ≈ −e × ∇E_FD`
+  (`test/unit/test_torque.jl`, `test_nbody.jl`): the torque must be the exact (negative
+  rotation-) derivative of the energy surface. Change one kernel, re-check the other.
 - **Image selection ↔ neighbor list ↔ cluster edges** (`geometry/neighborlist.jl`,
   `clusters/enumerate.jl`, `sce/model.jl`): `SCEBasis` threads one `images` value to
   **both** `build_neighbor_list` and `candidate_clusters`/`build_clusters`; they must
@@ -128,10 +131,13 @@ Easy to break silently — confirm before touching the algorithm.
   (same order as the design matrix). Add or rename a `SALCKey` field → update the row
   builder, the `Tables.Schema`, and `test/unit/test_coeftable.jl`.
 - **VASP torque target ↔ the model torque convention** (`io/dftsource.jl`, `io/vasp.jl`):
-  the training torque from a constrained-noncollinear OSZICAR is `τ_a = −m_a × B_a`
+  the training torque from a constrained-noncollinear OSZICAR is `τ_a = m_a × B_a`
   (`B` = constraining field), which must stay the *same* physical quantity, sign, and
-  `3×n_atoms` config/atom/`xyz` layout as the model's `predict_torque = e_a × ∂E/∂e_a`
-  (the design-matrix convention) — flip one side and the co-fit silently biases. Moments
+  `3×n_atoms` config/atom/`xyz` layout as the model's `predict_torque = −e_a × ∂E/∂e_a`
+  (the design-matrix convention) — **both** are the physical / Landau–Lifshitz torque
+  `m × B_eff`. Flip one side only and the co-fit silently biases; flipping **both** (as
+  done when the package moved from the `+e×∇E` energy-rotation-gradient to this `−e×∇E`
+  Landau–Lifshitz convention) leaves `J` unchanged. Moments
   and field are rotated from the `SAXIS` frame by `Rz(α)·Ry(β)`. **DFT-code I/O is confined
   to `AbstractDFTSource` adapters** (namespaced submodules like `VASP`); the SCE pipeline
   consumes only `SpinDatum`/`SCEDataset` and stays DFT-code-agnostic. The readers are

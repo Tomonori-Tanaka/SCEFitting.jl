@@ -23,8 +23,8 @@ where the spins `e_a` are unit vectors and the `Φ_φ` are symmetry-adapted,
 time-reversal-even scalar invariants built from real tesseral spherical harmonics
 over clusters of spins. Fitting recovers the cluster coefficients `J_φ`.
 
-The same coefficients also fix the per-atom **torque** `τ_a = e_a × ∂E/∂e_a`, the
-SCE's other DFT observable. Passing per-configuration torques to `SCEDataset` and a
+The same coefficients also fix the per-atom **torque** `τ_a = −e_a × ∂E/∂e_a` (the
+physical / Landau–Lifshitz torque `m_a × B_eff,a`), the SCE's other DFT observable. Passing per-configuration torques to `SCEDataset` and a
 `torque_weight ∈ (0, 1]` to `fit` runs an energy+torque co-fit that minimizes
 `(1 − w)·MSE_energy + w·MSE_torque`.
 
