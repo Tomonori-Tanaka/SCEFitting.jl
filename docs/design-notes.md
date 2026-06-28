@@ -266,3 +266,42 @@ SALC coefficients and individual design-matrix columns are *never* compared — 
 are gauge-dependent. Absolute conventions (signs, normalization) are pinned
 independently by closed forms and finite differences, because a self-consistent
 wrong convention would pass every gauge-invariant comparison.
+
+## 11. Sunny export: conversion in the core, assembly in the extension
+
+Exporting a fitted model to Sunny.jl (for linear spin-wave theory) is the one place an
+SCE coefficient becomes a *physics-package object*, so a wrong factor would silently
+corrupt a downstream Hamiltonian. Two decisions keep this safe.
+
+**The conversion math lives in the core, the Sunny object in the extension.** Sunny is
+a heavy optional dependency, so the `Sunny.System` assembly is a package extension
+(`ext/MagestyRebuildSunnyExt`, loaded by `using Sunny`, like the Spglib backend). But the
+*numerically delicate* part — turning a folded tesseral tensor into a Cartesian matrix
+with the right normalization (`_l1_pair_matrix = (3/4π)·folded` reproducing
+`eₐ'·M·e_b = Σ folded·Z₁·Z₁`; the traceless-symmetric `_l2_onsite_matrix`), folding the
+two directed cluster members into one matrix per undirected bond, and unfolding the
+supercell onto the primitive cell — all sits in the **core** (`sce/sunny.jl`), with no
+Sunny dependency. It is gated by reconstructing the energy
+(`_reconstruct_energy ≈ predict_energy − j0`) in the main test suite, so the conversion is
+proven correct without ever loading Sunny; the extension only places the core-computed
+matrices and is checked end-to-end (Sunny's own `energy`) in a separate environment.
+
+**Only what Sunny can represent is exported — the rest is reported, not dropped.** Sunny's
+bilinear-exchange-plus-single-ion model covers exactly the `ls=[1,1]` and `ls=[2]` SCE
+channels; `ls=[0…]` is a constant (absorbed in `j0`), and every other SALC (3-body and up,
+higher `l`) is collected into a `skipped` list and surfaced via `@warn`. Silently dropping
+them would make an exported model look complete when it is not.
+
+**Two cell routes.** The *supercell* route places the fitted matrices directly on the
+training supercell (`set_exchange_at!`/`set_onsite_coupling_at!`, P1, inhomogeneous): exact
+for any model, but the magnon dispersion is folded into the supercell Brillouin zone. The
+*primitive* route recovers the chemical primitive cell from the space group's pure
+translations, groups supercell atoms into sublattices, and places **one Sunny bond per
+primitive bond without multiplicity** — Sunny's periodic replication then restores the
+supercell multiplicity — giving the unfolded dispersion. This is exact only when the model
+genuinely lives on the primitive cell (the interaction range stays below the supercell
+boundary, the same `L/2` resolvability limit as §1b); a `clean` flag detects when it does
+not and falls back to the exact supercell route. Spin enters only at assembly: the SCE
+couplings are fit with unit directions, so `J = M/(SₐS_b)` makes Sunny's length-`S` dipoles
+reproduce the unit-vector energy, and the single-ion term carries the classical
+(`:dipole_uncorrected`) or quantum rank-2 (`:dipole`) rescaling.

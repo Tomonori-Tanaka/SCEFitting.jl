@@ -151,6 +151,10 @@ Adding another DFT code is one sibling submodule — the core and its exports do
 - **Spin-spiral-ready hooks** — neighbor pairs and cluster orbits retain the
   inter-site lattice translation `R`, leaving a clean seam for generalized-Bloch
   `E(q)` training data.
+- **Sunny.jl export** — `to_sunny(model; spins)` builds a real `Sunny.System`
+  (bilinear exchange + single-ion) for linear spin-wave theory, on the exact training
+  supercell or unfolded onto the chemical primitive cell; the conversion math is a
+  dependency-free core layer gated by energy reconstruction.
 
 See [`docs/design-notes.md`](docs/design-notes.md) for the rationale behind these
 refinements over Magesty.jl, and [`SPEC.md`](SPEC.md) for the realized architecture.

@@ -6,7 +6,7 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
-### Added — Sunny.jl export (supercell route)
+### Added — Sunny.jl export (supercell + primitive-cell routes)
 
 - **Conversion core** (`sce/sunny.jl`): turns a fitted `SCEModel` into the
   Sunny-representable channels — `ls=[1,1]` 2-body → a 3×3 exchange matrix
@@ -24,11 +24,21 @@ release, so everything lives under *Unreleased*.
   energy reproduces `predict_energy − j0` exactly; exchange is independent of the
   spin length and Sunny mode, the single-ion term carries the
   classical/`:dipole`-quantum rescaling. Skipped channels are surfaced via `@warn`.
+- **Primitive-cell unfold** (`placement = :primitive`/`:auto`, `_sunny_primitive`):
+  recovers the chemical primitive cell from the space group's pure translations, groups
+  supercell atoms into sublattices, and folds the supercell bonds onto one Sunny bond
+  per **primitive** bond `(i, j, n)` (no multiplicity — Sunny's periodic replication
+  restores it), for *unfolded* spin-wave dispersion. A `clean` flag detects when the
+  model does not live on the primitive cell (interaction range reaching the supercell
+  boundary), and the export falls back to the exact supercell route.
 - Conversion math is a **core dependency-free** layer; only the `Sunny.System`
   assembly lives in the extension. Validated by `test/unit/test_sunny.jl` (Sunny-free:
-  the `Z₁`/`Z₂` contractions, classification, energy reconstruction, skip reporting)
-  and the separate `test/sunny/` environment (the real `Sunny.System` energy vs the
-  SCE energy across modes/spins, the skip warning, per-species spins).
+  the `Z₁`/`Z₂` contractions, classification, energy reconstruction, the primitive fold
+  and its clean detection, skip reporting) and the separate `test/sunny/` environment
+  (the real `Sunny.System` energy vs the SCE energy across modes/spins for both routes
+  — the primitive system reshaped back to the supercell reproduces the SCE energy,
+  confirming the unfolded bonds and offsets — plus the skip warning and per-species
+  spins).
 
 ### Changed — minimum-image periodic resolvability (Wigner–Seitz cell)
 

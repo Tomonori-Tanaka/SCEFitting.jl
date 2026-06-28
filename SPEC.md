@@ -144,8 +144,28 @@ files use the stdlib `TOML` (no external dependency).
   re-paired by key under scrambled order, multi-op space-group ops, empty basis), input
   parsing + defaults + keyword overrides + error paths.
 
+### Sunny.jl export (M11)
+- **Conversion core** (`sce/sunny.jl`, dependency-free): `_l1_pair_matrix` / `_l2_onsite_matrix`
+  turn a folded tesseral tensor into a Cartesian exchange / single-ion matrix
+  (`eₐ'·M·e_b = Σ folded·Z·Z`); `_classify_salc` keeps only `ls=[1,1]` pairs and `ls=[2]`
+  single-ion (`ls=[0…]` → `j0`, the rest skipped + reported). `_sunny_supercell_terms`
+  folds the directed members into one matrix per undirected supercell bond, and
+  `_sunny_primitive` unfolds them onto the chemical primitive cell recovered from the
+  pure translations (one Sunny bond per primitive bond, a `clean` flag for the fallback).
+  `_reconstruct_energy ≈ predict_energy − j0` gates the whole chain **without Sunny**.
+- **Extension** (`ext/MagestyRebuildSunnyExt`, loaded by `using Sunny`):
+  `to_sunny(model; spins, g, mode, placement) -> Sunny.System` builds a real `System`
+  (`set_exchange_at!`/`set_onsite_coupling_at!` on the supercell, or
+  `set_exchange!`/`Bond` on the primitive cell), rescaling `J = M/(SₐS_b)`; its classical
+  energy reproduces `predict_energy − j0`. `placement = :explicit` (exact, folded
+  dispersion) / `:primitive` (unfolded) / `:auto`.
+- Validated: Sunny-free conversion + primitive-fold tests (`test/unit/test_sunny.jl`,
+  main suite) and a separate `test/sunny/` environment (real `Sunny.System` energy vs SCE
+  for both routes, the primitive system reshaped back to the supercell, mode/spin handling,
+  the skip warning).
+
 ## Not yet implemented (v0 follow-ups)
-- Extensions for GLMNet estimators / Sunny export.
+- Extension for GLMNet estimators (Lasso / elastic-net regularization paths).
 
 ## Oracle environment (`test/oracle/`)
 

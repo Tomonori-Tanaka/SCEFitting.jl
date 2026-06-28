@@ -1,7 +1,8 @@
 using Test
 using MagestyRebuild
 using MagestyRebuild: _l1_pair_matrix, _l2_onsite_matrix, _classify_salc,
-    _sunny_supercell_terms, _reconstruct_energy, Harmonics
+    _sunny_supercell_terms, _reconstruct_energy, _sunny_primitive, _assemble_spacegroup,
+    Harmonics
 using StaticArrays
 using LinearAlgebra
 using Random
@@ -45,7 +46,8 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
     end
 
     @testset "_classify_salc" begin
-        @test _classify_salc([0, 0]) === :drop
+        @test _classify_salc([0, 0]) === :drop      # defensive; l=0 is not enumerated
+        @test _classify_salc(Int[]) === :drop
         @test _classify_salc([1, 1]) === :pair
         @test _classify_salc([2]) === :onsite
         @test _classify_salc([2, 2]) === :unsupported
@@ -107,6 +109,49 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
         terms = _sunny_supercell_terms(model)
         @test !isempty(terms.skipped)                         # ls=[2,2] pairs reported
         @test all(s -> occursin("unsupported", s), terms.skipped)
+    end
+
+    @testset "primitive unfold (Sunny-free): clean fold reproduces the supercell" begin
+        # a 4-atom chain that is a 4× supercell of a 1-atom primitive chain, with the
+        # pure z-translations supplied as a manual space group (no Spglib in this env).
+        lat = Lattice([8.0 0 0; 0 8.0 0; 0 0 10.0])
+        cr = Crystal(lat, [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75], [1, 1, 1, 1], ["Fe"])
+        rots = fill(SMatrix{3,3,Float64}(I), 4)
+        trans = [SVector{3,Float64}(0, 0, t) for t in (0.0, 0.25, 0.5, 0.75)]
+        sg = _assemble_spacegroup(cr, rots, trans, "chainZ4", 1; tol = 1e-8)
+        nl = build_neighbor_list(cr, 2.6, MinimumImage())
+        cls = build_clusters(cr, nl, sg; nbody = 2, selection = MinimumImage())
+        salcs = build_salc_basis(cr, sg, cls; lmax_by_species = [1], isotropy = false)
+        basis = SCEBasis(cr, sg, salcs,
+                         Interaction(; nbody = 2, pair_cutoff = 2.6, lmax = [1], isotropy = false))
+        rng = MersenneTwister(3)
+        model = SCEModel(basis, 0.5, randn(rng, nsalc(basis)), basis.salcs.keys)
+
+        prim = _sunny_primitive(model)
+        @test prim.clean
+        @test length(prim.positions) == 1                     # one sublattice
+        ntran = round(Int, abs(det(Matrix(prim.reshape))))
+        @test ntran == 4
+        @test length(prim.bonds) * ntran ==
+              length(_sunny_supercell_terms(model).pairs)      # each prim bond ↔ ntran cells
+
+        # uniform-config energy round-trip: supercell == ntran · (per-primitive-cell)
+        terms = _sunny_supercell_terms(model)
+        e0 = (v = randn(rng, 3); v / norm(v))
+        eu = repeat(e0, 1, num_atoms(cr))
+        e_prim = sum(dot(e0, M * e0) for (_, M) in prim.bonds; init = 0.0)
+        @test isapprox(_reconstruct_energy(terms, eu), ntran * e_prim; atol = 1e-10)
+    end
+
+    @testset "no symmetry ⇒ primitive fold is the supercell itself (clean, trivial)" begin
+        lat = Lattice(Matrix(3.0 * I(3)))
+        cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+        b = SCEBasis(cr, Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [1], isotropy = false))
+        model = SCEModel(b, 0.0, ones(nsalc(b)), b.salcs.keys)
+        prim = _sunny_primitive(model)               # NoSymmetry ⇒ only the identity translation
+        @test prim.clean
+        @test length(prim.positions) == num_atoms(cr)
+        @test round(Int, abs(det(Matrix(prim.reshape)))) == 1
     end
 
     @testset "to_sunny without Sunny gives a helpful error" begin
