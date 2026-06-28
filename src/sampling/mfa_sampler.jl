@@ -132,23 +132,47 @@ at the reduced temperature `τ` (or magnetization `m`), via [`sample`](@ref).
   `3 × n_atoms` matrix of seed directions (columns normalized on construction), and all
   atoms share one concentration `κ = 3m/τ`, `m = L(3m/τ)`. No couplings; works in reduced
   units (`mfa_temperature_scale` returns `1.0`).
-- `MFASampler(exch; reference)` — the multi-sublattice isotropic sampler (P2): the
-  per-atom magnetizations `m_a(τ)` are solved from the coupled self-consistency of the
-  [`ExchangeModel`](@ref) `exch` about the given `reference` state, so distinct
-  sublattices disorder at distinct rates (a single `T_MF`). See `sampling/exchange.jl`.
+- `MFASampler(exch; reference)` — the [`ExchangeModel`](@ref)-backed sampler (P2/P3): the
+  per-atom magnetizations `m_a(τ)` are solved from the coupled mean-field self-consistency
+  about the given `reference` state, so distinct sublattices disorder at distinct rates
+  (a single `T_MF`). For purely isotropic exchange the draw is the closed-form vMF (P2);
+  with DMI / anisotropic exchange or single-ion anisotropy it is the general Metropolis
+  draw on the Bingham single-site potential (P3). See `sampling/exchange.jl`.
 
-The internal `coupling` is the normalized molecular-field matrix `Ā` (spectral radius 1),
-or `nothing` for the single global sampler; `Tmf` is the linearized mean-field `T_MF`.
+`exch` is the backing `ExchangeModel` (`nothing` for the single global sampler); `Abar` is
+the normalized molecular-field matrix `Ā` (spectral radius 1), `rho` its Perron eigenvalue,
+and `Tmf = ρ/3` the linearized mean-field `T_MF`.
 """
 struct MFASampler <: AbstractSampler
     reference::Matrix{Float64}                 # 3 × n_atoms, unit columns
-    coupling::Union{Nothing,Matrix{Float64}}   # normalized Ā (ρ=1); nothing ⇒ single global
-    Tmf::Float64                               # linearized T_MF (model units); 1.0 if global
+    exch::Union{Nothing,ExchangeModel}         # backing model; nothing ⇒ single global
+    Abar::Matrix{Float64}                      # normalized Ā (ρ=1); 0×0 for the global sampler
+    rho::Float64                               # Perron eigenvalue (1.0 for global)
+    Tmf::Float64                               # linearized T_MF = ρ/3 (model units); 1.0 if global
 end
 
 # P1: single global, no couplings. Normalizes and validates the reference.
 function MFASampler(reference::AbstractMatrix{<:Real})
-    return MFASampler(_normalize_reference(reference), nothing, 1.0)
+    return MFASampler(_normalize_reference(reference), nothing, zeros(0, 0), 1.0, 1.0)
+end
+
+# P2/P3: backed by an ExchangeModel. Builds the longitudinal molecular-field matrix about
+# the reference, its Perron eigenvalue (T_MF = ρ/3), and checks the reference is a clean,
+# stationary ordered state (warns otherwise — exact for collinear isotropic references, D2).
+function MFASampler(exch::ExchangeModel; reference::AbstractMatrix{<:Real})
+    ref = _normalize_reference(reference)
+    size(ref, 2) == exch.natoms || throw(DimensionMismatch(
+        "reference has $(size(ref, 2)) atoms but the ExchangeModel has $(exch.natoms)"))
+    A = _mfa_matrix(exch, ref)
+    ρ, signdef = _perron(A)
+    ρ > 1.0e-12 * (1 + maximum(abs.(A); init = 0.0)) || throw(ArgumentError(
+        "the exchange model has no ordering instability about this reference " *
+        "(spectral radius ≈ 0); use the single global `MFASampler(reference)` instead"))
+    signdef || @warn "the leading molecular-field eigenvector is not sign-definite; the " *
+        "reference may be frustrated or not the model's ordered ground state — the " *
+        "self-consistency still runs but T_MF/m_a(τ) may not reflect the intended order."
+    _check_reference_stationary(exch, ref)
+    return MFASampler(ref, exch, A ./ ρ, ρ, ρ / 3)
 end
 
 # Normalize a 3 × n_atoms reference matrix to unit columns, validating shape and norms.
@@ -170,8 +194,10 @@ end
 
 _natoms(s::MFASampler)::Int = size(s.reference, 2)
 
-Base.show(io::IO, s::MFASampler) = print(io, "MFASampler(", _natoms(s), " atoms",
-    s.coupling === nothing ? ", global" : ", coupled", ")")
+_is_tensorial(s::MFASampler)::Bool = s.exch !== nothing && !s.exch.isotropic
+
+Base.show(io::IO, s::MFASampler) = print(io, "MFASampler(", _natoms(s), " atoms, ",
+    s.exch === nothing ? "global" : _is_tensorial(s) ? "tensorial" : "isotropic", ")")
 
 """
     mfa_temperature_scale(sampler) -> Float64
@@ -192,9 +218,18 @@ The self-consistent per-atom magnetizations `m_a(τ)` at reduced temperature `τ
 `thermal_averaged_m(τ)`.
 """
 function mfa_sublattice_m(s::MFASampler, τ::Real)::Vector{Float64}
+    if _is_tensorial(s)
+        _, m = _tensor_state(s.exch::ExchangeModel, _ehat(s), s.rho, Float64(τ))
+        return m
+    end
     _, _, m = _mfa_state(s, Float64(τ))
     return m
 end
+
+# The reference directions as SVectors (the rigid cone axes).
+_ehat(s::MFASampler)::Vector{SVector{3,Float64}} =
+    [SVector{3,Float64}(s.reference[1, a], s.reference[2, a], s.reference[3, a])
+     for a = 1:_natoms(s)]
 
 """
     MFASample
@@ -225,11 +260,12 @@ function _check_atom_indices(idx::AbstractVector{<:Integer}, n::Int, name::Abstr
     return nothing
 end
 
-# The per-atom draw state at reduced temperature τ: (ordered, κ::Vector, m::Vector).
-# Single global ⇒ one κ broadcast to all atoms; coupled ⇒ the solved per-atom fields.
+# The per-atom vMF draw state at reduced temperature τ: (ordered, κ::Vector, m::Vector).
+# Single global ⇒ one κ broadcast to all atoms; isotropic exchange ⇒ the solved per-atom
+# fields. (The tensorial path uses `_tensor_state` and the Metropolis draw instead.)
 function _mfa_state(s::MFASampler, τ::Float64)
     n = _natoms(s)
-    if s.coupling === nothing
+    if s.exch === nothing
         if τ < _MFA_MIN_TAU
             return (true, fill(Inf, n), ones(n))
         elseif τ > _MFA_MAX_TAU
@@ -238,7 +274,7 @@ function _mfa_state(s::MFASampler, τ::Float64)
         m = thermal_averaged_m(τ)
         return (false, fill(3m / τ, n), fill(m, n))
     end
-    return _coupled_state(s.coupling, τ, n)
+    return _coupled_state(s.Abar, τ, n)
 end
 
 # Draw one configuration with per-atom concentration `κ` (ordered ⇒ copy the reference).
@@ -330,15 +366,18 @@ function sample(sampler::MFASampler; tau = nothing, m = nothing, nsamples::Integ
     return _sample_sweep(sampler, taus, nsamples, rng, randomize, fixed, uniform)
 end
 
-# Core sweep: for each τ draw `per` configurations, value-outer / sample-inner.
+# Core sweep: for each τ draw `per` configurations, value-outer / sample-inner. Dispatches
+# to the closed-form vMF draw (global / isotropic) or the Metropolis draw (tensorial).
 function _sample_sweep(sampler::MFASampler, taus::Vector{Float64}, per::Integer,
                        rng::AbstractRNG, randomize::Bool,
                        fixed::AbstractVector{<:Integer},
                        uniform::AbstractVector{<:Integer})::MFASample
-    ref = sampler.reference
-    natoms = size(ref, 2)
+    natoms = size(sampler.reference, 2)
     _check_atom_indices(fixed, natoms, "fixed")
     _check_atom_indices(uniform, natoms, "uniform")
+    _is_tensorial(sampler) &&
+        return _sweep_tensorial(sampler, taus, per, rng, randomize, fixed, uniform)
+    ref = sampler.reference
     total = length(taus) * per
     configs = Vector{Matrix{Float64}}(undef, total)
     tau_lab = Vector{Float64}(undef, total)
@@ -349,6 +388,57 @@ function _sample_sweep(sampler::MFASampler, taus::Vector{Float64}, per::Integer,
         for _ = 1:per
             k += 1
             configs[k] = _draw_config(rng, ref, ordered, κ, randomize, fixed, uniform)
+            tau_lab[k] = τ
+            m_lab[k] = mval
+        end
+    end
+    return MFASample(configs, tau_lab, m_lab)
+end
+
+# Metropolis sweep for the tensorial / single-ion (Bingham) sampler. Per τ, solve the
+# single-site coefficients `cs` and run one Metropolis chain per (non-fixed, non-uniform)
+# atom — each chain initialized at the reference axis ê_a — to produce `per` decorrelated
+# draws; assemble the configurations, applying `uniform` / `fixed` / `randomize` as in the
+# vMF path (the global rotation is applied to the whole configuration).
+function _sweep_tensorial(sampler::MFASampler, taus::Vector{Float64}, per::Integer,
+                          rng::AbstractRNG, randomize::Bool,
+                          fixed::AbstractVector{<:Integer},
+                          uniform::AbstractVector{<:Integer})::MFASample
+    ref = sampler.reference
+    exch = sampler.exch::ExchangeModel
+    n = size(ref, 2)
+    ehat = _ehat(sampler)
+    isfixed = falses(n); isuniform = falses(n)
+    for a in fixed; isfixed[a] = true; end
+    for a in uniform; isuniform[a] = true; end
+    total = length(taus) * per
+    configs = Vector{Matrix{Float64}}(undef, total)
+    tau_lab = Vector{Float64}(undef, total)
+    m_lab = Vector{Vector{Float64}}(undef, total)
+    k = 0
+    for τ in taus
+        cs, mval = _tensor_state(exch, ehat, sampler.rho, τ)
+        chains = Vector{Vector{SVector{3,Float64}}}(undef, n)
+        @inbounds for a = 1:n
+            if isfixed[a] || isuniform[a]
+                chains[a] = SVector{3,Float64}[]
+                continue
+            end
+            # scale the proposal to the peak sharpness (∝ 1/√concentration): a sharp Bingham
+            # at low τ needs small steps to mix, a broad one near T_MF needs large steps.
+            step = clamp(1.5 / sqrt(1 + _field_scale(cs[a])), 0.05, 0.8)
+            chains[a] = sample_site_metropolis(rng, cs[a], per; e_init = ehat[a],
+                                               step = step, nburn = 300, thin = 15)
+        end
+        for s = 1:per
+            out = Matrix{Float64}(undef, 3, n)
+            @inbounds for a = 1:n
+                v = isfixed[a] ? ehat[a] : isuniform[a] ? _random_unit(rng) : chains[a][s]
+                out[1, a], out[2, a], out[3, a] = v[1], v[2], v[3]
+            end
+            randomize && (out = Matrix(_random_rotation(rng) * out))
+            k += 1
+            configs[k] = out
             tau_lab[k] = τ
             m_lab[k] = mval
         end

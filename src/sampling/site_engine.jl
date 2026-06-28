@@ -241,7 +241,11 @@ concentration `κ`) adds the resolution a sharply peaked field needs. Pass expli
 """
 function sphere_quadrature(lmax::Integer; concentration::Real = 0.0,
                            ntheta::Integer = 0, nphi::Integer = 0)::SphereQuadrature
-    base = 2 * Int(lmax) + 6 + ceil(Int, max(0.0, Float64(concentration)))
+    # Cap the auto-sized node count: beyond ~this concentration the integrand is essentially
+    # a delta and ⟨Z_lm⟩ → its value at the peak, so a finer grid buys nothing but cost — and
+    # an uncapped `base ∝ concentration` would explode (base² nodes) for the large molecular
+    # fields of the τ → 0 limit. An explicit `ntheta`/`nphi` is honored uncapped.
+    base = min(2 * Int(lmax) + 6 + ceil(Int, max(0.0, Float64(concentration))), 256)
     nt = ntheta > 0 ? Int(ntheta) : base
     np = nphi > 0 ? Int(nphi) : base
     z, wz = _gauss_legendre(nt)

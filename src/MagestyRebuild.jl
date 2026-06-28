@@ -40,8 +40,10 @@ include("basis/salcbasis.jl")
 
 # --- mean-field spin-configuration sampling (docs/specs/mfa-sampling.md) ---
 # P0: the single-site engine (potential, vMF / Metropolis draws, sphere quadrature).
-# P1: the single global, isotropic sampler (`MFASampler` + the `sample` verb).
+# P2/P3: the ExchangeModel carrier + coupled self-consistency (before MFASampler, which
+# references the ExchangeModel type). P1/P2/P3: the `MFASampler` + the `sample` verb.
 include("sampling/site_engine.jl")
+include("sampling/exchange.jl")
 include("sampling/mfa_sampler.jl")
 
 # --- fitting + high-level SCE API ---
@@ -54,9 +56,9 @@ include("sce/coeftable.jl")
 # --- Sunny export: conversion math in core, Sunny.System assembly in the extension ---
 include("sce/sunny.jl")
 
-# --- mean-field sampler P2: ExchangeModel + the coupled multi-sublattice self-consistency
-# (depends on the Sunny bilinear extraction `_sunny_supercell_terms` above).
-include("sampling/exchange.jl")
+# --- mean-field sampler: extract an ExchangeModel from a fitted SCE (depends on the Sunny
+# bilinear / single-ion extraction `_sunny_supercell_terms` above).
+include("sampling/exchange_from_sce.jl")
 
 # --- persistence (format-agnostic schema, serialized as TOML) + TOML input files ---
 include("sce/persist.jl")

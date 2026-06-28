@@ -6,6 +6,30 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — mean-field spin-configuration sampling: P3 (tensorial + single-ion)
+
+- **Tensorial `ExchangeModel`**: `ExchangeModel` now carries the full bilinear tensor
+  `bilinear[a,b] = S_ab` (Heisenberg + DM + anisotropic exchange) and single-ion anisotropy
+  `onsite[a] = A_a` (the `ls=[2]` channel), with an `isotropic` flag for the P2 fast path.
+  `ExchangeModel(model::SCEModel)` now extracts **all** of these (only the higher-order /
+  higher-`l` SALCs are dropped); `ExchangeModel(Jiso; onsite)` and
+  `ExchangeModel(bilinear; onsite)` are the raw constructors.
+- **`MFASampler(exch; reference)` — tensorial path**: with DMI / anisotropic exchange or
+  single-ion anisotropy the single-site potential `V_a(e) = β(e·g_a + e' A_a e)` (molecular
+  field `g_a = Σ_b S_ab m_b ê_b`, `β = 3/(ρτ)`) gains an `l=2` Bingham factor that the
+  closed-form vMF cannot represent, so the magnetizations are solved as `m_a = ⟨e·ê_a⟩` by
+  sphere quadrature and the configurations are drawn with the **Metropolis** engine
+  (per-atom chains, proposal scaled to the peak sharpness). The longitudinal molecular-field
+  matrix `A[a,b] = −ê_a' S_ab ê_b` (so `T_MF = ρ/3`) generalizes the P2 isotropic case,
+  which still takes the closed-form vMF path. **Noncollinear references** are supported
+  (rigid cone axis, decision D2; a warning flags a non-stationary reference, e.g. DMI
+  canting a collinear state). Because the single-ion enters with the same `β` as the
+  exchange, the anisotropy persists above `T_MF` (an anisotropy-weighted paramagnet).
+- An easy-axis single-ion sharpens the cone (and keeps order above the exchange `T_MF`); an
+  easy-plane single-ion gives a girdle; the sampled `⟨Z_2m⟩` match the quadrature
+  self-consistency. The shared sphere quadrature now caps its auto-sized node count (the
+  large molecular fields of the `τ → 0` limit would otherwise blow it up).
+
 ### Added — mean-field spin-configuration sampling: P2 (multi-sublattice, isotropic)
 
 - **`ExchangeModel`** (`docs/specs/mfa-sampling.md`): the neutral carrier of the isotropic

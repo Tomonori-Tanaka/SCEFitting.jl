@@ -24,6 +24,7 @@ const TEST_MODE = get(ENV, "TEST_MODE", "default")
         include("unit/test_site_engine.jl")
         include("unit/test_mfa_sampler.jl")
         include("unit/test_exchange.jl")
+        include("unit/test_tensorial.jl")
     end
     if TEST_MODE in ("default", "all", "aqua")
         include("aqua.jl")

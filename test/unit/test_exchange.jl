@@ -137,13 +137,20 @@ end
         @test abs(mean(c[3, 3] for c in lo.configs)) < 0.3                       # free spin random
     end
 
-    @testset "from a fitted SCE: dropped channels are reported" begin
-        # a single-ion (ls=[2]) model: ExchangeModel keeps no bilinear and must warn.
+    @testset "from a fitted SCE: single-ion kept (P3), higher-l reported" begin
         lat = Lattice(Matrix(3.0 * I(3)))
+        # a single-ion (ls=[2]) model: now extracted into onsite (tensorial), not dropped
         cr1 = Crystal(lat, reshape([0.0, 0, 0], 3, 1), [1], ["Fe"])
-        b = SCEBasis(cr1, Interaction(; nbody = 1, pair_cutoff = 1.5, lmax = [2], isotropy = false))
-        model = SCEModel(b, 0.0, ones(nsalc(b)), b.salcs.keys)
-        @test_logs (:warn,) ExchangeModel(model)
+        b1 = SCEBasis(cr1, Interaction(; nbody = 1, pair_cutoff = 1.5, lmax = [2], isotropy = false))
+        m1 = SCEModel(b1, 0.0, ones(nsalc(b1)), b1.salcs.keys)
+        ex1 = ExchangeModel(m1)
+        @test !ex1.isotropic
+        @test norm(ex1.onsite[1]) > 0
+        # higher-l 2-body channels ([1,2], [2,2]) are unsupported and reported
+        cr2 = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+        b2 = SCEBasis(cr2, Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false))
+        m2 = SCEModel(b2, 0.0, ones(nsalc(b2)), b2.salcs.keys)
+        @test_logs (:warn,) ExchangeModel(m2)
     end
 
     @testset "guards: dimension mismatch and no-instability reference" begin

@@ -2,8 +2,8 @@
 
 **Status:** in progress. Brainstormed and agreed; all design decisions are resolved
 (see [Decisions](#8-decisions)). Implementation proceeds in phases P0–P5 (§7).
-**P0 (engine), P1 (single global isotropic), and P2 (multi-sublattice isotropic
-`ExchangeModel`) are landed**; P3+ next.
+**P0 (engine), P1 (single global isotropic), P2 (multi-sublattice isotropic), and P3
+(tensorial exchange + single-ion, noncollinear) are landed**; P4+ next.
 
 **Goal.** Generate physically representative finite-temperature spin
 configurations for SCE training, instead of purely random (paramagnetic-limit)
@@ -355,7 +355,18 @@ All resolved. Conservative, exactness-leaning defaults with opt-in escapes/exten
       single-global Langevin curve for a uniform ferro/antiferromagnet, ferrimagnet gives
       distinct sublattice collapse rates at one `T_MF`, scale invariance (`max|Δm| ≈ 1e-12`),
       free-spin handling, SCE extraction + dropped-channel warnings.
-- [ ] P3 tensorial exchange + single-ion + noncollinear reference; Fisher–Bingham tests.
+- [x] **P3 tensorial** (`src/sampling/exchange.jl`, `exchange_from_sce.jl`): the full
+      bilinear tensor `S_ab` (Heisenberg + DMI + anisotropic) and single-ion `A_a` (`ls=[2]`),
+      from a fitted SCE (only higher-order channels dropped) or a raw `bilinear`/`onsite`.
+      Single-site potential `V_a(e) = β(e·g_a + e' A_a e)`, `g_a = Σ_b S_ab m_b ê_b`,
+      `β = 3/(ρτ)`; longitudinal `A[a,b] = −ê_a' S_ab ê_b` (generalizes P2), `T_MF = ρ/3`.
+      The l=2 single-ion gives a **Bingham** single-site shape (closed-form vMF cannot
+      represent it), so the self-consistency `m_a = ⟨e·ê_a⟩` uses the quadrature and the
+      draw uses the **Metropolis** engine. Tesseral-coefficient conversions (`_l1_coeffs!`/
+      `_l2_coeffs!`, exact inverses of the Sunny `_l1_pair_matrix`/`_l2_onsite_matrix`).
+      **Noncollinear references** (rigid-axis D2, with a stationarity warning). Tests:
+      easy-axis cone sharpening / above-`T_MF` persistence, easy-plane girdle, Metropolis ↔
+      quadrature agreement on `⟨Z_2m⟩`, DMI tilt of a collinear reference, the τ → 0 limit.
 - [ ] P4 full multipole MFA over all SCE clusters/`l`; many-body factorization.
 - [ ] P5 VASP reference reader; external `Jij` (TB2J); optional DFT writers.
 - [ ] Docs: a Documenter guide page + a tutorial; design-note cross-reference.
