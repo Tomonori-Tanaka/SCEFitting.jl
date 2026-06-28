@@ -1,15 +1,19 @@
-# Mean-field sampler — P1: single global magnetization, isotropic vMF draw
-# (see `docs/specs/mfa-sampling.md`).
+# Mean-field sampler — P1/P2 (see `docs/specs/mfa-sampling.md`).
 #
 # Builds on the P0 single-site engine: each spin `a` is drawn from a von Mises–Fisher
-# distribution `vMF(ê_a, κ)` about its reference direction, with one global
-# concentration `κ = 3m/τ` fixed by the classical-Heisenberg mean-field
-# self-consistency `m = L(3m/τ)` (`L` = Langevin function). This is the
-# Magesty-equivalent isotropic sampler: it has no couplings, works purely in the
-# reduced temperature `τ = T/T_MF`, and validates the engine end to end.
+# distribution `vMF(ê_a, κ_a)` about its reference direction, with a per-atom
+# concentration set by the mean-field self-consistency in the reduced temperature
+# `τ = T/T_MF`.
 #
-# `AbstractSampler` is the dispatch seam the later, model-backed samplers (per-
-# sublattice / tensorial / higher-order MFA, P2+) slot into; `sample` is the one verb.
+#   P1 — single global magnetization (no model): every atom shares one
+#        `κ = 3m/τ` from the scalar self-consistency `m = L(3m/τ)`. Magesty-equivalent.
+#   P2 — multi-sublattice isotropic exchange (from an `ExchangeModel`): the coupled
+#        per-atom self-consistency `m_a = L(3(Ā m)_a/τ)` with the normalized molecular-
+#        field matrix `Ā` (spectral radius 1), `κ_a = 3(Ā m)_a/τ`.
+#
+# `AbstractSampler` is the dispatch seam the later model-backed samplers (tensorial /
+# higher-order MFA, P3+) slot into; `sample` is the one verb. The P2 coupling extraction
+# and the `ExchangeModel` carrier live in `sampling/exchange.jl`.
 
 """
     AbstractSampler
@@ -25,20 +29,25 @@ const _MFA_MIN_TAU = 1.0e-5        # below this: fully ordered, return the refer
 const _MFA_MAX_TAU = 0.99999       # above this: use a vanishing concentration
 const _MFA_KAPPA_UNIFORM = 1.0e-6  # the near-uniform-limit concentration
 # Bracket for the self-consistent magnetization root m ∈ (0, 1). A distinct physical
-# quantity from the temperature guards above, so it carries its own name. The lower end
-# stays at 1e-5 (not smaller): L(κ) = coth κ − 1/κ cancels catastrophically as κ → 0, so
-# evaluating it at κ = 3m/τ for m ≪ 1e-5 returns a garbage sign and breaks the bracket.
-# The upper end sits at 1⁻ʳ so the near-saturated root for τ just above _MFA_MIN_TAU
-# stays bracketed (large κ there, no cancellation) rather than clamping short.
+# quantity from the temperature guards above, so it carries its own name. The upper end
+# sits at 1⁻ʳ so the near-saturated root for τ just above _MFA_MIN_TAU stays bracketed.
 const _MFA_M_MIN = 1.0e-5
 const _MFA_M_MAX = 1.0 - 1.0e-9
 
 # The Langevin function L(κ) = coth κ − 1/κ = ⟨cosθ⟩ for a vMF field of concentration κ.
-_langevin(κ::Real)::Float64 = coth(κ) - 1 / κ
+# `coth κ − 1/κ` cancels catastrophically as κ → 0, so a Maclaurin series is used there
+# (the cone half-width regime near T_MF, where the coupled solve spends its iterations).
+function _langevin(κ::Real)::Float64
+    κf = Float64(κ)
+    a = abs(κf)
+    if a < 0.1
+        return κf * (1 / 3 - κf^2 / 45 + 2 * κf^4 / 945)
+    end
+    return coth(κf) - 1 / κf
+end
 
-# Bisection root of a function that is negative at `lo` and positive at `hi` (both
-# assumed bracketing). Used for the monotone mean-field self-consistency; avoids a
-# Roots.jl dependency.
+# Bisection root of a function that brackets a sign change on [lo, hi]; orientation-
+# agnostic. Used for the monotone mean-field self-consistency (avoids a Roots dependency).
 function _bisect(f, lo::Float64, hi::Float64; tol::Float64 = 1.0e-12, maxit::Int = 200)::Float64
     a, b = lo, hi
     fa = f(a)
@@ -61,15 +70,15 @@ end
 Solve the classical-Heisenberg mean-field self-consistency `m = L(3m/τ)` (equivalently
 `m = coth(3m/τ) − τ/3m`) for the thermally averaged magnetization `m` at reduced
 temperature `τ = T/T_MF`. Returns `1.0` for `τ < $(_MFA_MIN_TAU)` (fully ordered) and
-`0.0` for `τ > $(_MFA_MAX_TAU)` (fully disordered).
+`0.0` for `τ > $(_MFA_MAX_TAU)` (fully disordered). This is the single-sublattice case of
+the coupled self-consistency [`MFASampler`](@ref) solves for `ExchangeModel` sources.
 """
 function thermal_averaged_m(τ::Real)::Float64
     τf = Float64(τ)
     τf < _MFA_MIN_TAU && return 1.0
     τf > _MFA_MAX_TAU && return 0.0
     # f(m) = m − L(3m/τ) is increasing on (0,1): f(m_min) = m(1−1/τ) < 0 (for τ<1) and
-    # f(m_max) = 1⁻ − L(3/τ) > 0 across the whole interior τ range, so the root is
-    # bracketed in [m_min, m_max].
+    # f(m_max) = 1⁻ − L(3/τ) > 0 across the whole interior τ range.
     f(m) = m - _langevin(3m / τf)
     return _bisect(f, _MFA_M_MIN, _MFA_M_MAX)
 end
@@ -95,18 +104,6 @@ function tau_from_magnetization(m::Real)::Float64
     return _bisect(g, _MFA_MIN_TAU, _MFA_MAX_TAU)
 end
 
-# Resolve a reduced-temperature value into the draw state (ordered flag, concentration
-# κ, realized magnetization m). `κ` is unused when `ordered`.
-function _mfa_state(τ::Float64)
-    if τ < _MFA_MIN_TAU
-        return (true, Inf, 1.0)
-    elseif τ > _MFA_MAX_TAU
-        return (false, _MFA_KAPPA_UNIFORM, 0.0)
-    end
-    m = thermal_averaged_m(τ)
-    return (false, 3m / τ, m)
-end
-
 # Uniform random rotation in SO(3) via Shoemake's unit-quaternion construction. Used by
 # the optional `randomize` global-frame randomization (a no-op on isotropic statistics,
 # but it diversifies the realized frame for later anisotropic/SOC training).
@@ -125,57 +122,92 @@ end
 
 """
     MFASampler(reference) <: AbstractSampler
+    MFASampler(exch::ExchangeModel; reference)
 
-Single global, isotropic mean-field sampler. `reference` is a `3 × n_atoms` matrix of
-seed spin directions (the ordered reference state); its columns are normalized to unit
-vectors on construction (per-atom magnitudes live separately in the dataset, so they are
-discarded here). Draws follow [`sample`](@ref): every spin is sampled from `vMF(ê_a, κ)`
-with one global concentration set by the reduced temperature `τ` (or magnetization `m`).
+Mean-field spin-configuration sampler. Every spin is drawn from `vMF(ê_a, κ_a)` about its
+reference direction; the per-atom concentration is set by the mean-field self-consistency
+at the reduced temperature `τ` (or magnetization `m`), via [`sample`](@ref).
+
+- `MFASampler(reference)` — the single global, isotropic sampler (P1): `reference` is a
+  `3 × n_atoms` matrix of seed directions (columns normalized on construction), and all
+  atoms share one concentration `κ = 3m/τ`, `m = L(3m/τ)`. No couplings; works in reduced
+  units (`mfa_temperature_scale` returns `1.0`).
+- `MFASampler(exch; reference)` — the multi-sublattice isotropic sampler (P2): the
+  per-atom magnetizations `m_a(τ)` are solved from the coupled self-consistency of the
+  [`ExchangeModel`](@ref) `exch` about the given `reference` state, so distinct
+  sublattices disorder at distinct rates (a single `T_MF`). See `sampling/exchange.jl`.
+
+The internal `coupling` is the normalized molecular-field matrix `Ā` (spectral radius 1),
+or `nothing` for the single global sampler; `Tmf` is the linearized mean-field `T_MF`.
 """
 struct MFASampler <: AbstractSampler
-    reference::Matrix{Float64}     # 3 × n_atoms, unit columns
-    function MFASampler(reference::AbstractMatrix{<:Real})
-        size(reference, 1) == 3 ||
-            throw(ArgumentError("reference must be 3 × n_atoms; got $(size(reference))"))
-        n = size(reference, 2)
-        n >= 1 || throw(ArgumentError("reference must have ≥ 1 atom"))
-        ref = Matrix{Float64}(undef, 3, n)
-        for a = 1:n
-            v = SVector{3,Float64}(reference[1, a], reference[2, a], reference[3, a])
-            nv = norm(v)
-            nv > 1.0e-10 || throw(ArgumentError(
-                "reference column $a has ~zero norm; cannot define a direction"))
-            ref[:, a] = v / nv
-        end
-        return new(ref)
-    end
+    reference::Matrix{Float64}                 # 3 × n_atoms, unit columns
+    coupling::Union{Nothing,Matrix{Float64}}   # normalized Ā (ρ=1); nothing ⇒ single global
+    Tmf::Float64                               # linearized T_MF (model units); 1.0 if global
 end
 
-Base.show(io::IO, s::MFASampler) =
-    print(io, "MFASampler(", size(s.reference, 2), " atoms)")
+# P1: single global, no couplings. Normalizes and validates the reference.
+function MFASampler(reference::AbstractMatrix{<:Real})
+    return MFASampler(_normalize_reference(reference), nothing, 1.0)
+end
+
+# Normalize a 3 × n_atoms reference matrix to unit columns, validating shape and norms.
+function _normalize_reference(reference::AbstractMatrix{<:Real})::Matrix{Float64}
+    size(reference, 1) == 3 ||
+        throw(ArgumentError("reference must be 3 × n_atoms; got $(size(reference))"))
+    n = size(reference, 2)
+    n >= 1 || throw(ArgumentError("reference must have ≥ 1 atom"))
+    ref = Matrix{Float64}(undef, 3, n)
+    for a = 1:n
+        v = SVector{3,Float64}(reference[1, a], reference[2, a], reference[3, a])
+        nv = norm(v)
+        nv > 1.0e-10 || throw(ArgumentError(
+            "reference column $a has ~zero norm; cannot define a direction"))
+        ref[:, a] = v / nv
+    end
+    return ref
+end
+
+_natoms(s::MFASampler)::Int = size(s.reference, 2)
+
+Base.show(io::IO, s::MFASampler) = print(io, "MFASampler(", _natoms(s), " atoms",
+    s.coupling === nothing ? ", global" : ", coupled", ")")
 
 """
     mfa_temperature_scale(sampler) -> Float64
 
-The mean-field ordering temperature `T_MF` in the sampler's energy units, so a caller
-can convert `T = τ·T_MF` (decision D4). The single global [`MFASampler`](@ref) carries no
-couplings, so it works in reduced units and returns `T_MF = 1.0` (then `τ` is itself the
-temperature); model-backed samplers (P2+) return the linearized mean-field `T_MF`.
+The mean-field ordering temperature `T_MF` in the sampler's energy units, so a caller can
+convert `T = τ·T_MF` (decision D4). The single global [`MFASampler`](@ref) carries no
+couplings and returns `T_MF = 1.0` (reduced units; `τ` is itself the temperature); an
+`ExchangeModel`-backed sampler returns the linearized `T_MF = ρ(A)/3` from its coupling
+spectrum (calibrated only up to the overall coupling scale — see decision D4).
 """
-mfa_temperature_scale(::MFASampler)::Float64 = 1.0
+mfa_temperature_scale(s::MFASampler)::Float64 = s.Tmf
+
+"""
+    mfa_sublattice_m(sampler, τ) -> Vector{Float64}
+
+The self-consistent per-atom magnetizations `m_a(τ)` at reduced temperature `τ`
+(symmetry-equivalent atoms coincide). For the single global sampler every entry equals
+`thermal_averaged_m(τ)`.
+"""
+function mfa_sublattice_m(s::MFASampler, τ::Real)::Vector{Float64}
+    _, _, m = _mfa_state(s, Float64(τ))
+    return m
+end
 
 """
     MFASample
 
 Labeled result of [`sample`](@ref) (decision D1). `configs` is the bare
-`Vector{Matrix{Float64}}` (each `3 × n_atoms` unit directions); the parallel `tau` and
-`m` hold each config's reduced temperature and realized magnetization. The object is
+`Vector{Matrix{Float64}}` (each `3 × n_atoms` unit directions); the parallel `tau` and `m`
+hold each config's reduced temperature and per-atom magnetization vector. The object is
 iterable and indexable as its `configs`.
 """
 struct MFASample
     configs::Vector{Matrix{Float64}}
     tau::Vector{Float64}
-    m::Vector{Float64}
+    m::Vector{Vector{Float64}}
 end
 
 Base.length(s::MFASample) = length(s.configs)
@@ -183,29 +215,44 @@ Base.getindex(s::MFASample, i) = s.configs[i]
 Base.eltype(::Type{MFASample}) = Matrix{Float64}
 Base.iterate(s::MFASample, st::Int = 1) =
     st > length(s.configs) ? nothing : (s.configs[st], st + 1)
-Base.show(io::IO, s::MFASample) =
-    print(io, "MFASample(", length(s.configs), " configs)")
+Base.show(io::IO, s::MFASample) = print(io, "MFASample(", length(s.configs), " configs)")
 
 # Validate 1-based atom indices against the atom count.
 function _check_atom_indices(idx::AbstractVector{<:Integer}, n::Int, name::AbstractString)
     for i in idx
-        (1 <= i <= n) ||
-            throw(ArgumentError("$name entry $i is outside 1:$n"))
+        (1 <= i <= n) || throw(ArgumentError("$name entry $i is outside 1:$n"))
     end
     return nothing
 end
 
-# Draw one configuration at concentration κ (ordered ⇒ copy the reference). `uniform`
-# columns are redrawn isotropically (overriding the vMF draw); a global rotation and the
-# `fixed` columns are applied last so `fixed` takes precedence over everything.
-function _draw_config(rng::AbstractRNG, ref::Matrix{Float64}, ordered::Bool, κ::Float64,
-                      randomize::Bool, fixed::AbstractVector{<:Integer},
+# The per-atom draw state at reduced temperature τ: (ordered, κ::Vector, m::Vector).
+# Single global ⇒ one κ broadcast to all atoms; coupled ⇒ the solved per-atom fields.
+function _mfa_state(s::MFASampler, τ::Float64)
+    n = _natoms(s)
+    if s.coupling === nothing
+        if τ < _MFA_MIN_TAU
+            return (true, fill(Inf, n), ones(n))
+        elseif τ > _MFA_MAX_TAU
+            return (false, fill(_MFA_KAPPA_UNIFORM, n), zeros(n))
+        end
+        m = thermal_averaged_m(τ)
+        return (false, fill(3m / τ, n), fill(m, n))
+    end
+    return _coupled_state(s.coupling, τ, n)
+end
+
+# Draw one configuration with per-atom concentration `κ` (ordered ⇒ copy the reference).
+# `uniform` columns are redrawn isotropically (overriding the vMF draw); a global rotation
+# and the `fixed` columns are applied last, so `fixed` takes precedence over everything.
+function _draw_config(rng::AbstractRNG, ref::Matrix{Float64}, ordered::Bool,
+                      κ::Vector{Float64}, randomize::Bool,
+                      fixed::AbstractVector{<:Integer},
                       uniform::AbstractVector{<:Integer})::Matrix{Float64}
     n = size(ref, 2)
     out = Matrix{Float64}(undef, 3, n)
     @inbounds for a = 1:n
         ea = SVector{3,Float64}(ref[1, a], ref[2, a], ref[3, a])
-        v = ordered ? ea : sample_vmf(rng, ea, κ)
+        v = ordered ? ea : sample_vmf(rng, ea, κ[a])
         out[1, a], out[2, a], out[3, a] = v[1], v[2], v[3]
     end
     for a in uniform
@@ -226,8 +273,7 @@ function _draw_config(rng::AbstractRNG, ref::Matrix{Float64}, ordered::Bool, κ:
     return out
 end
 
-# Resolve exactly one of `tau` / `m` (scalars or collections) into a reduced-temperature
-# iterator. Returns a vector of τ values.
+# Resolve exactly one of `tau` / `m` (scalars or collections) into a τ vector.
 function _resolve_taus(tau, m)::Vector{Float64}
     (tau === nothing) == (m === nothing) &&
         throw(ArgumentError("provide exactly one of `tau` or `m`"))
@@ -243,9 +289,10 @@ end
     sample(sampler::MFASampler; tau, m, nsamples = 1, rng, randomize, fixed, uniform) -> MFASample
 
 Draw spin configurations from the mean-field sampler. Provide **exactly one** control
-variable: the reduced temperature `tau = T/T_MF` or the magnetization `m`. Each spin is
-drawn from `vMF(ê_a, κ)` about its reference direction with the global concentration
-`κ = 3m/τ` set by the self-consistency [`thermal_averaged_m`](@ref).
+variable: the reduced temperature `tau = T/T_MF` or the magnetization `m` (the latter is
+only meaningful for the single global sampler, where it maps to a `τ`). Each spin is drawn
+from `vMF(ê_a, κ_a)` about its reference direction with the self-consistent per-atom
+concentration.
 
 The first form draws `n` configurations at a single control value. The second form sweeps
 a **collection** `tau` (or `m`) and draws `nsamples` configurations per value, ordered
@@ -260,7 +307,7 @@ value-outer / sample-inner.
   disordered limit) regardless of the control value.
 
 Returns an [`MFASample`](@ref): `.configs` (each `3 × n_atoms` unit directions) with
-parallel labels `.tau` and `.m`.
+parallel labels `.tau` and `.m` (per-atom magnetization).
 """
 function sample(sampler::MFASampler, n::Integer; tau = nothing, m = nothing,
                 rng::AbstractRNG = default_rng(), randomize::Bool = false,
@@ -295,10 +342,10 @@ function _sample_sweep(sampler::MFASampler, taus::Vector{Float64}, per::Integer,
     total = length(taus) * per
     configs = Vector{Matrix{Float64}}(undef, total)
     tau_lab = Vector{Float64}(undef, total)
-    m_lab = Vector{Float64}(undef, total)
+    m_lab = Vector{Vector{Float64}}(undef, total)
     k = 0
     for τ in taus
-        ordered, κ, mval = _mfa_state(τ)
+        ordered, κ, mval = _mfa_state(sampler, τ)
         for _ = 1:per
             k += 1
             configs[k] = _draw_config(rng, ref, ordered, κ, randomize, fixed, uniform)

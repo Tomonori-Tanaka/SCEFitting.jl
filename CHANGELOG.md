@@ -6,6 +6,31 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — mean-field spin-configuration sampling: P2 (multi-sublattice, isotropic)
+
+- **`ExchangeModel`** (`docs/specs/mfa-sampling.md`): the neutral carrier of the isotropic
+  bilinear exchange the mean-field sampler needs. `ExchangeModel(model::SCEModel)` extracts
+  the symmetric `Jiso[a,b] = Σ_R J_iso(a,b,R)` from a fitted SCE by reusing the Sunny
+  bilinear extraction and keeping the Heisenberg part `tr(M)/3` of each bond; the DMI /
+  anisotropic, single-ion, and higher-order channels are dropped (P3/P4) and reported via
+  `@warn`. `ExchangeModel(Jiso)` takes a raw symmetric matrix (an external-`Jij` reader is
+  a P5 target).
+- **`MFASampler(exch::ExchangeModel; reference)`**: the multi-sublattice sampler. The
+  per-atom magnetizations `m_a(τ)` are solved from the coupled mean-field self-consistency
+  `m_a = L(3(Ā m)_a/τ)`, where the molecular-field matrix `A[a,b] = −Jiso[a,b](ê_a·ê_b)`
+  folds the reference directions in (so ferro / antiferro / ferri order all become
+  ferromagnetic in the magnitude variables) and `Ā = A/ρ` is normalized by the Perron
+  eigenvalue `ρ`, with `T_MF = ρ/3`. Distinct sublattices disorder at distinct rates under
+  a single `T_MF`; because `Ā` is scale-free, only the coupling *ratios* matter — `m_a(τ)`
+  is invariant under an overall coupling rescaling (decision D4). Each spin is then drawn
+  from `vMF(ê_a, κ_a)` with the self-consistent per-atom concentration `κ_a = 3(Ā m)_a/τ`.
+- **`mfa_sublattice_m(sampler, τ)`** returns the per-atom `m_a(τ)`. The coupled solve uses
+  depth-1 Anderson acceleration (plain iteration suffers critical slowing as `τ → 1⁻`), and
+  the construction verifies the reference is a stationary, sign-definite ordered state
+  (warns on a non-stationary noncollinear or frustrated reference — the rigid-axis MFA is
+  exact only for collinear references, decision D2). `MFASample.m` is now a per-atom vector
+  per config.
+
 ### Added — mean-field spin-configuration sampling: P1 (single global, isotropic)
 
 - **`MFASampler(reference)`** and the **`sample`** verb (`docs/specs/mfa-sampling.md`):

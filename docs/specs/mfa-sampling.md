@@ -2,7 +2,8 @@
 
 **Status:** in progress. Brainstormed and agreed; all design decisions are resolved
 (see [Decisions](#8-decisions)). Implementation proceeds in phases P0–P5 (§7).
-**P0 (single-site engine) and P1 (single global isotropic sampler) are landed**; P2+ next.
+**P0 (engine), P1 (single global isotropic), and P2 (multi-sublattice isotropic
+`ExchangeModel`) are landed**; P3+ next.
 
 **Goal.** Generate physically representative finite-temperature spin
 configurations for SCE training, instead of purely random (paramagnetic-limit)
@@ -343,7 +344,17 @@ All resolved. Conservative, exactness-leaning defaults with opt-in escapes/exten
       self-consistency residual + inverse round-trip, ordered / near-uniform boundary
       limits, drawn configs carry `⟨cosθ⟩ = m(τ)`, reproducibility. Numerically equivalent
       to Magesty's `MfaSampling`.
-- [ ] P2 `ExchangeModel` (bilinear, from SCE isotropic) + coupled `m_a(τ)`; ferrimagnet test.
+- [x] **P2 multi-sublattice, isotropic** (`src/sampling/exchange.jl`): `ExchangeModel`
+      (symmetric `Jiso[a,b] = Σ_R J_iso(a,b,R)`, from a fitted SCE via the Sunny bilinear
+      extraction `tr(M)/3`, or a raw matrix) + the coupled per-atom self-consistency
+      `m_a = L(3(Ā m)_a/τ)` with the normalized molecular-field matrix `Ā = A/ρ`,
+      `A[a,b] = −Jiso[a,b](ê_a·ê_b)` (folding the reference makes ferro/antiferro/ferri
+      ferromagnetic in the magnitudes), `T_MF = ρ/3` from the Perron eigenvalue, per-atom
+      vMF `κ_a`. Anderson-accelerated solve (critical slowing near `T_MF`); Perron sign-
+      definiteness and reference-stationarity (`h_a ∥ ê_a`) checks. Tests: reduces to the
+      single-global Langevin curve for a uniform ferro/antiferromagnet, ferrimagnet gives
+      distinct sublattice collapse rates at one `T_MF`, scale invariance (`max|Δm| ≈ 1e-12`),
+      free-spin handling, SCE extraction + dropped-channel warnings.
 - [ ] P3 tensorial exchange + single-ion + noncollinear reference; Fisher–Bingham tests.
 - [ ] P4 full multipole MFA over all SCE clusters/`l`; many-body factorization.
 - [ ] P5 VASP reference reader; external `Jij` (TB2J); optional DFT writers.

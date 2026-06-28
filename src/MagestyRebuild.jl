@@ -9,7 +9,7 @@ Work in progress (v0 vertical slice). See `SPEC.md` for the realized architectur
 """
 module MagestyRebuild
 
-using LinearAlgebra: norm, det, I, eigen, Symmetric, Diagonal, dot, cross
+using LinearAlgebra: norm, det, I, eigen, Symmetric, Diagonal, dot, cross, mul!
 using StaticArrays
 using Statistics: mean
 using Random: AbstractRNG, default_rng
@@ -54,6 +54,10 @@ include("sce/coeftable.jl")
 # --- Sunny export: conversion math in core, Sunny.System assembly in the extension ---
 include("sce/sunny.jl")
 
+# --- mean-field sampler P2: ExchangeModel + the coupled multi-sublattice self-consistency
+# (depends on the Sunny bilinear extraction `_sunny_supercell_terms` above).
+include("sampling/exchange.jl")
+
 # --- persistence (format-agnostic schema, serialized as TOML) + TOML input files ---
 include("sce/persist.jl")
 include("sce/input.jl")
@@ -78,8 +82,8 @@ export coef, intercept, nobs, dof, r2_energy, rmse_energy, r2_torque, rmse_torqu
 export coeftable, SCECoefficients
 export to_sunny
 # Mean-field spin-configuration sampling (docs/specs/mfa-sampling.md).
-export AbstractSampler, MFASampler, MFASample, sample, mfa_temperature_scale,
-    thermal_averaged_m, tau_from_magnetization
+export AbstractSampler, MFASampler, MFASample, ExchangeModel, sample,
+    mfa_temperature_scale, mfa_sublattice_m, thermal_averaged_m, tau_from_magnetization
 # DFT data I/O: only the code-agnostic boundary is exported; per-code adapters are
 # namespaced submodules (e.g. `MagestyRebuild.VASP.read_poscar`), so adding a code
 # touches neither the core nor this export list.

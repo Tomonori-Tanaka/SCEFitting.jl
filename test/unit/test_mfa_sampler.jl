@@ -66,7 +66,7 @@ _zref(n) = repeat(Float64[0, 0, 1], 1, n)
             zbar = mean(mean(@view c[3, :]) for c in samp.configs)
             @test zbar ≈ MR.thermal_averaged_m(τ) atol = 2e-2
             @test all(==(τ), samp.tau)
-            @test all(≈(MR.thermal_averaged_m(τ)), samp.m)
+            @test all(v -> all(≈(MR.thermal_averaged_m(τ)), v), samp.m)
         end
     end
 
@@ -85,10 +85,10 @@ _zref(n) = repeat(Float64[0, 0, 1], 1, n)
         s = MFASampler(_zref(300))
         ordered = sample(s, 3; tau = 1.0e-9, rng = MersenneTwister(0))
         @test all(c -> c ≈ s.reference, ordered.configs)   # exactly the reference
-        @test all(==(1.0), ordered.m)
+        @test all(v -> all(==(1.0), v), ordered.m)
         hot = sample(s, 20; tau = 1.5, rng = MersenneTwister(0))
         @test abs(mean(mean(@view c[3, :]) for c in hot.configs)) < 5e-2  # ≈ isotropic
-        @test all(==(0.0), hot.m)
+        @test all(v -> all(==(0.0), v), hot.m)
     end
 
     @testset "fixed / uniform / randomize keywords" begin
