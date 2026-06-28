@@ -6,6 +6,23 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Performance — `SCEBasis` build (clusters + SALC)
+
+- The symmetry-orbit and SALC construction were the dominant cost of building a basis on
+  a large supercell (minutes for the 128-atom bcc Fe tutorial cell). Four numerics-
+  preserving changes cut it to ~1.5 s (≈10×), and removed the GiB-scale transient
+  allocations:
+  - `build_clusters` reduces orbits by **growing each orbit from one representative**
+    (`O(n_orbits · n_ops)`) instead of computing a canonical key per candidate
+    (`O(n_candidates · n_ops)`); the canonical-key inner loop is now allocation-free
+    (`Val(N)` static site tuples).
+  - `build_salc_basis` connects all orbit members to the representative in **one
+    `O(n_ops)` sweep** (was an `O(n_ops)` scan per member), and **memoizes the real
+    Wigner-D matrices** `D^l(R_g)` by `(l, g)` across the build.
+- Output is **byte-identical** (same orbits, same SALC keys/coefficients): verified by the
+  full unit suite and the gauge-invariant Magesty oracle. Benchmarks and before/after
+  numbers live in [`bench/`](bench/) and `.claude/bench_log.md`.
+
 ### Changed — public API naming consistency (BREAKING)
 
 - A naming-and-usability pass renamed several exported symbols for consistency. All are

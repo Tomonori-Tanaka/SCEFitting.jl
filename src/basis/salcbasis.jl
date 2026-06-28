@@ -101,16 +101,66 @@ function _connect(crystal::Crystal, sg::SpaceGroup, rep::ClusterMember, member::
     error("no symmetry operation connects the representative to a member")
 end
 
+# Translation signature of a raw site list (same normalization as `_member_sig`).
+_sig_of_sites(sites::Vector{Tuple{Int,SVector{3,Int}}}) =
+    _sig_of_sites(sites, Val(length(sites)))
+@inline function _sig_of_sites(sites, ::Val{N}) where {N}
+    t = ntuple(k -> (sites[k][1], sites[k][2][1], sites[k][2][2], sites[k][2][3]), Val(N))
+    return _normalize_sites(t)
+end
+
+# `[_connect(rep, m) for m in members]` in a single O(n_ops) sweep: apply each op to
+# `rep` once, match its image (by translation signature) to the member(s) of that class
+# — the orbit lists every anchor-variant, so one class can hold several — and record the
+# first connecting op for each. Same first-ascending op (and `_align` permutation) as
+# `_connect`; and the transported term is stabilizer-invariant, so the choice is moot.
+function _connect_all(crystal::Crystal, sg::SpaceGroup, rep::ClusterMember,
+                      members::Vector{ClusterMember})
+    M = length(members)
+    sig2members = Dict{Any,Vector{Int}}()
+    for j = 1:M
+        push!(get!(sig2members, _member_sig(members[j]), Int[]), j)
+    end
+    conns = Vector{Tuple{Int,Vector{Int}}}(undef, M)
+    filled = falses(M)
+    remaining = M
+    for g = 1:n_ops(sg)
+        remaining == 0 && break
+        imgs = _op_images(crystal, sg, g, rep)
+        js = get(sig2members, _sig_of_sites(imgs), nothing)
+        js === nothing && continue
+        for j in js
+            filled[j] && continue
+            perm = _align(imgs, _sites(members[j]))
+            perm === nothing && continue
+            conns[j] = (g, perm)
+            filled[j] = true
+            remaining -= 1
+        end
+    end
+    remaining == 0 || error("could not connect all orbit members to the representative")
+    return conns
+end
+
 # The Mf-th multiplet slice of a coupled tensor (rank N+1 → rank N).
 _mfslice(T::AbstractArray, Mf::Int) = Array(selectdim(T, ndims(T), Mf))
 
 _frob(A::AbstractArray, B::AbstractArray) = sum(A .* B)
 
+# Real Wigner-D matrix `D^l(R_g)`, memoized by `(l, g)` for the whole basis build
+# (it depends only on the operation and `l`, but is needed once per stabilizer column
+# and once per transported member/term — recomputing it dominated the cost).
+const _WigCache = Dict{Tuple{Int,Int},Matrix{Float64}}
+_wig(cache::_WigCache, sg::SpaceGroup, l::Int, g::Int) =
+    get!(cache, (l, g)) do
+        AngularMomentum.wignerD_real(l, sg.ops[g].rotation_cart)
+    end
+
 # Project the combined (ordering, path, Mf) space onto stabilizer invariants for a
 # fixed final `Lf`, gauge-fix, and fold each invariant into per-ordering tensors.
 # Returns a list of blocks; each block is `Vector{(ls, folded)}` (the rep terms).
 function _project_and_fold(crystal::Crystal, sg::SpaceGroup, stab::Vector{Tuple{Int,Vector{Int}}},
-                           orderings::Vector{Vector{Int}}, Lf::Int)
+                           orderings::Vector{Vector{Int}}, Lf::Int, wcache::_WigCache)
     N = length(orderings[1])
     # coupled tensors of this Lf, per ordering
     tens = [Array{Float64}[] for _ in orderings]
@@ -127,11 +177,6 @@ function _project_and_fold(crystal::Crystal, sg::SpaceGroup, stab::Vector{Tuple{
     D == 0 && return Vector{Tuple{Vector{Int},Array{Float64}}}[]
     colidx = Dict(cols[k] => k for k = 1:D)
 
-    Dcache = Dict{Tuple{Int,Int},Matrix{Float64}}()
-    wig(l, g) = get!(Dcache, (l, g)) do
-        AngularMomentum.wignerD_real(l, sg.ops[g].rotation_cart)
-    end
-
     P = zeros(Float64, D, D)
     for (g, perm) in stab
         for k = 1:D
@@ -139,7 +184,7 @@ function _project_and_fold(crystal::Crystal, sg::SpaceGroup, stab::Vector{Tuple{
             o = orderings[oi]
             v = _mfslice(tens[oi][p], Mf)
             for i = 1:N
-                v = AngularMomentum.nmode_mul(v, wig(o[i], g), i)
+                v = AngularMomentum.nmode_mul(v, _wig(wcache, sg, o[i], g), i)
             end
             # U_g sends rep axis i → position π(i)=perm[i], i.e. permutedims by π⁻¹.
             q = invperm(perm)
@@ -221,12 +266,11 @@ end
 # site axis by `wignerD_real(o_i, R_g)`, then relabel rep site i → member site
 # perm[i]. Returns the member-ordered `(ls, folded)`.
 function _transport_term(o::Vector{Int}, F::Array{Float64}, sg::SpaceGroup, g::Int,
-                         perm::Vector{Int})
+                         perm::Vector{Int}, wcache::_WigCache)
     N = length(o)
-    R = sg.ops[g].rotation_cart
     T = F
     for i = 1:N
-        T = AngularMomentum.nmode_mul(T, AngularMomentum.wignerD_real(o[i], R), i)
+        T = AngularMomentum.nmode_mul(T, _wig(wcache, sg, o[i], g), i)
     end
     q = invperm(perm)                       # member axis j ← rep axis q[j]
     G = Array{Float64}(permutedims(T, q))
@@ -260,12 +304,13 @@ function build_salc_basis(crystal::Crystal, spacegroup::SpaceGroup, clusters::Cl
                           isotropy::Bool = false)::SALCBasis
     lmax = collect(Int, lmax_by_species)
     salcs = SALC[]
+    wcache = _WigCache()                     # (l, g) → wignerD_real, shared across the build
     for N in sort(collect(keys(clusters.by_body)))
         for (orbit_id, O) in enumerate(clusters.by_body[N])
             rep = O.representative
             stab = _stabilizer(crystal, spacegroup, rep)
             perms = unique([perm for (_, perm) in stab])
-            conns = [_connect(crystal, spacegroup, rep, m) for m in O.members]
+            conns = _connect_all(crystal, spacegroup, rep, O.members)
             # `block` runs across ALL canonical l-tuples sharing one sorted label so
             # the key stays injective: when the site permutations are a proper subgroup
             # of Sₙ they split a degenerate multiset's arrangements into several orbits
@@ -277,7 +322,7 @@ function build_salc_basis(crystal::Crystal, spacegroup::SpaceGroup, clusters::Cl
                 Lfset = sort(unique(cb.Lf for cb in coupled_bases(t; isotropy = isotropy)))
                 lab = sort(collect(t))
                 for Lf in Lfset
-                    blocks = _project_and_fold(crystal, spacegroup, stab, orderings, Lf)
+                    blocks = _project_and_fold(crystal, spacegroup, stab, orderings, Lf, wcache)
                     for terms_rep in blocks
                         isempty(terms_rep) && continue
                         members = SALCMember[]
@@ -285,7 +330,7 @@ function build_salc_basis(crystal::Crystal, spacegroup::SpaceGroup, clusters::Cl
                         for (m, (g, perm)) in zip(O.members, conns)
                             mterms = SALCTerm[]
                             for (o, F) in terms_rep
-                                mls, G = _transport_term(o, F, spacegroup, g, perm)
+                                mls, G = _transport_term(o, F, spacegroup, g, perm, wcache)
                                 norm(G) > 1e-10 && (anynz = true)
                                 push!(mterms, SALCTerm(mls, G))
                             end
