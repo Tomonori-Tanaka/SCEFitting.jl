@@ -1,8 +1,8 @@
 # Spec — Mean-field spin-configuration sampling (`MFASampler`)
 
-**Status:** design (not yet implemented). Brainstormed and agreed; all design
-decisions are resolved (see [Decisions](#8-decisions)). Implementation proceeds in
-phases P0–P5 (§7); **P0 (the single-site engine) is the first unit of work.**
+**Status:** in progress. Brainstormed and agreed; all design decisions are resolved
+(see [Decisions](#8-decisions)). Implementation proceeds in phases P0–P5 (§7).
+**P0 (single-site engine) and P1 (single global isotropic sampler) are landed**; P2+ next.
 
 **Goal.** Generate physically representative finite-temperature spin
 configurations for SCE training, instead of purely random (paramagnetic-limit)
@@ -335,7 +335,14 @@ All resolved. Conservative, exactness-leaning defaults with opt-in escapes/exten
       closed form, symmetric-proposal Metropolis, field-aware Gauss–Legendre × azimuth
       quadrature for `⟨Z_lm⟩`. Tests: all three paths reproduce Langevin `L(κ)`, Metropolis
       matches quadrature on a non-vMF `l=2` field, quadrature auto-sizes to sharp peaks.
-- [ ] P1 `MFASampler(seed)` + `sample` verb + `AbstractSampler` seam; Magesty cross-check.
+- [x] **P1 single global, isotropic** (`src/sampling/mfa_sampler.jl`): `AbstractSampler`
+      seam, `MFASampler(reference)`, the `MFASample` labeled output (D1), and the `sample`
+      verb (scalar `n` form + collection sweep). Langevin self-consistency `m = L(3m/τ)`
+      via self-written bisection (no Roots dep); `τ ↔ m` inversion; `mfa_temperature_scale`
+      (D4, `T_MF = 1` in reduced units); `fixed`/`uniform`/`randomize` keywords. Tests:
+      self-consistency residual + inverse round-trip, ordered / near-uniform boundary
+      limits, drawn configs carry `⟨cosθ⟩ = m(τ)`, reproducibility. Numerically equivalent
+      to Magesty's `MfaSampling`.
 - [ ] P2 `ExchangeModel` (bilinear, from SCE isotropic) + coupled `m_a(τ)`; ferrimagnet test.
 - [ ] P3 tensorial exchange + single-ion + noncollinear reference; Fisher–Bingham tests.
 - [ ] P4 full multipole MFA over all SCE clusters/`l`; many-body factorization.

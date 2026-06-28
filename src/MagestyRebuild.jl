@@ -40,7 +40,9 @@ include("basis/salcbasis.jl")
 
 # --- mean-field spin-configuration sampling (docs/specs/mfa-sampling.md) ---
 # P0: the single-site engine (potential, vMF / Metropolis draws, sphere quadrature).
+# P1: the single global, isotropic sampler (`MFASampler` + the `sample` verb).
 include("sampling/site_engine.jl")
+include("sampling/mfa_sampler.jl")
 
 # --- fitting + high-level SCE API ---
 include("fitting/estimators.jl")
@@ -75,6 +77,9 @@ export coef, intercept, nobs, dof, r2_energy, rmse_energy, r2_torque, rmse_torqu
     rss_energy, rss_torque, residuals_energy, residuals_torque
 export coeftable, SCECoefficients
 export to_sunny
+# Mean-field spin-configuration sampling (docs/specs/mfa-sampling.md).
+export AbstractSampler, MFASampler, MFASample, sample, mfa_temperature_scale,
+    thermal_averaged_m, tau_from_magnetization
 # DFT data I/O: only the code-agnostic boundary is exported; per-code adapters are
 # namespaced submodules (e.g. `MagestyRebuild.VASP.read_poscar`), so adding a code
 # touches neither the core nor this export list.

@@ -6,6 +6,26 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — mean-field spin-configuration sampling: P1 (single global, isotropic)
+
+- **`MFASampler(reference)`** and the **`sample`** verb (`docs/specs/mfa-sampling.md`):
+  the single global, isotropic mean-field sampler, building on the P0 single-site engine.
+  Each spin is drawn from a von Mises–Fisher distribution `vMF(ê_a, κ)` about its reference
+  direction, with one global concentration `κ = 3m/τ` fixed by the classical-Heisenberg
+  mean-field self-consistency `m = L(3m/τ)` (`L` = Langevin function) in the reduced
+  temperature `τ = T/T_MF`. Numerically equivalent to Magesty's `MfaSampling`, but with an
+  explicit seeded `rng::AbstractRNG` and no Roots.jl dependency (a self-written bisection
+  solves the monotone self-consistency).
+- **`sample(sampler, n; tau | m, …)`** draws `n` configs at one control value;
+  **`sample(sampler; tau | m, nsamples, …)`** sweeps a collection. Both return an
+  **`MFASample`** (decision D1): `.configs::Vector{Matrix{Float64}}` plus parallel labels
+  `.tau` and `.m`, iterable/indexable as its configs. Keywords `fixed` / `uniform` /
+  `randomize` carry over from Magesty's `mfa_sweep`.
+- **`AbstractSampler`** is the dispatch seam for the later model-backed samplers (P2+);
+  **`thermal_averaged_m`** / **`tau_from_magnetization`** expose the self-consistency and
+  its inverse; **`mfa_temperature_scale`** returns `T_MF` (decision D4 — `1.0`, reduced
+  units, for the coupling-free global sampler).
+
 ### Added — `refit` and the regression-diagnostic accessors
 
 - **`refit(f, estimator = OLS(); threshold = 0.0)`**: re-solve on the **support** of an
