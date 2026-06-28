@@ -12,6 +12,7 @@ module MagestyRebuild
 using LinearAlgebra: norm, det, I, eigen, Symmetric, Diagonal, dot, cross
 using StaticArrays
 using Statistics: mean
+using Random: AbstractRNG, default_rng
 import TOML
 import Tables
 
@@ -36,6 +37,10 @@ include("clusters/orbits.jl")
 # --- SALC basis: symmetry-adapted, time-reversal-even invariants ---
 include("basis/salc.jl")
 include("basis/salcbasis.jl")
+
+# --- mean-field spin-configuration sampling (docs/specs/mfa-sampling.md) ---
+# P0: the single-site engine (potential, vMF / Metropolis draws, sphere quadrature).
+include("sampling/site_engine.jl")
 
 # --- fitting + high-level SCE API ---
 include("fitting/estimators.jl")

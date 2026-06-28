@@ -331,7 +331,10 @@ All resolved. Conservative, exactness-leaning defaults with opt-in escapes/exten
 
 ## 10. Task list (coarse)
 
-- [ ] P0 single-site engine (potential eval, quadrature, vMF, Metropolis) + tests.
+- [x] **P0 single-site engine** (`src/sampling/site_engine.jl`): potential eval, vMF
+      closed form, symmetric-proposal Metropolis, field-aware Gauss–Legendre × azimuth
+      quadrature for `⟨Z_lm⟩`. Tests: all three paths reproduce Langevin `L(κ)`, Metropolis
+      matches quadrature on a non-vMF `l=2` field, quadrature auto-sizes to sharp peaks.
 - [ ] P1 `MFASampler(seed)` + `sample` verb + `AbstractSampler` seam; Magesty cross-check.
 - [ ] P2 `ExchangeModel` (bilinear, from SCE isotropic) + coupled `m_a(τ)`; ferrimagnet test.
 - [ ] P3 tensorial exchange + single-ion + noncollinear reference; Fisher–Bingham tests.
