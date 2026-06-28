@@ -6,6 +6,36 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — GLMNet estimators (Lasso / elastic-net)
+
+- **Estimator types in core** (`fitting/estimators.jl`): `ElasticNet(; alpha, lambda,
+  standardize, nfolds, select, seed, nlambda)` and the `Lasso(; …)` convenience
+  (`alpha = 1`). Like the Spglib/Sunny seam, the types live in the core package — named,
+  validated, and dispatched on without the heavy dependency — while the actual solve
+  lights up only under `using GLMNet`.
+- **`solve_coefficients(::ElasticNet, X, y; groups)`** in the new
+  `MagestyRebuildGLMNetExt` extension. GLMNet minimizes
+  `(1/2n)·‖y − Xβ‖² + λ·[(1−α)/2·‖β‖₂² + α·‖β‖₁]` on the column-centered `(X, y)` the
+  fit hands it, with `intercept = false` (so `j0` is still recovered analytically) and
+  column `standardize` (the penalty acts per-column at `λ·std`, returning β on the
+  original scale). `lambda = nothing` selects the penalty by K-fold cross-validation over
+  GLMNet's automatic λ path — `select = :lambda_min` (lowest CV error) or `:lambda_1se`
+  (sparsest within one SE); a numeric `lambda` fits at exactly that penalty.
+- **Configuration-grouped, reproducible CV.** `fit` now passes per-row `groups` labels
+  to `solve_coefficients`; for an energy+torque co-fit a configuration's energy row and
+  all its torque-component rows share a label, so CV folds never split one configuration
+  (which would leak within-configuration structure and bias λ selection). Folds are
+  assigned deterministically by a seeded `hash` ranking — reproducible without taking on
+  a `Random` dependency in the extension.
+- The `AbstractEstimator` contract gains an optional `groups` keyword on
+  `solve_coefficients`; `OLS`/`Ridge` accept and ignore it.
+- Validated in a separate `test/glmnet/` environment (heavy Fortran-backed dependency,
+  mirroring `test/sunny/` and `test/oracle/`): tiny-λ ≈ OLS, the analytic-`j0` centering
+  invariant, CV support recovery and sparsity, `:lambda_1se` shrinkage, seeded
+  reproducibility, ElasticNet ≠ Lasso, and an energy+torque grouped-CV co-fit. Core-only
+  construction/validation and the deferred-backend error are covered in the main suite
+  (`test/unit/test_fit.jl`).
+
 ### Added — Sunny.jl export (supercell + primitive-cell routes)
 
 - **Conversion core** (`sce/sunny.jl`): turns a fitted `SCEModel` into the

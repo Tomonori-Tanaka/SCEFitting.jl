@@ -12,15 +12,18 @@ TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 Tables = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
 
 [weakdeps]
+GLMNet = "8d5ece8b-de18-5317-b113-243142960cc6"
 Spglib = "f761d5c5-86db-4880-b97f-9680a7cccfb5"
 Sunny = "2b4a2ac8-8f8b-43e8-abf4-3cb0c45e8736"
 
 [extensions]
+MagestyRebuildGLMNetExt = "GLMNet"
 MagestyRebuildSpglibExt = "Spglib"
 MagestyRebuildSunnyExt = "Sunny"
 
 [compat]
 Aqua = "0.8"
+GLMNet = "0.7"
 JET = "0.11"
 LegendrePolynomials = "0.4"
 LinearAlgebra = "1"

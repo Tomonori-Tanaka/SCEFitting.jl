@@ -21,9 +21,10 @@ files use the stdlib `TOML` (no external dependency).
 ## Extension seams (contracts)
 
 - **DFT sources**: `read_configs(src::AbstractDFTSource) -> Vector{<:AbstractTrainingDatum}`.
-- **Estimators**: subtype `AbstractEstimator` + `solve_coefficients(est, X, y) -> jphi`
-  (the `(X, y)` is already column-centered and row-scaled — add no intercept, do
-  not re-weight). Types live in core; solver methods needing GLMNet live in `ext/`.
+- **Estimators**: subtype `AbstractEstimator` + `solve_coefficients(est, X, y; groups)
+  -> jphi` (the `(X, y)` is already column-centered and row-scaled — add no intercept,
+  do not re-weight; `groups` labels rows from the same sample for grouped resampling).
+  Types live in core; solver methods needing GLMNet live in `ext/`.
 - **Symmetry**: `analyze_symmetry(backend::AbstractSymmetryBackend, crystal; tol) -> SpaceGroup`.
 
 ## Realized so far
@@ -164,8 +165,24 @@ files use the stdlib `TOML` (no external dependency).
   for both routes, the primitive system reshaped back to the supercell, mode/spin handling,
   the skip warning).
 
+### GLMNet estimators (M12)
+- **Types in core** (`fitting/estimators.jl`): `ElasticNet(; alpha, lambda, standardize,
+  nfolds, select, seed, nlambda)` and `Lasso(; …)` (= `alpha = 1`). Named and dispatched
+  on without the dependency; argument validation lives here.
+- **Extension** (`ext/MagestyRebuildGLMNetExt`, loaded by `using GLMNet`):
+  `solve_coefficients(::ElasticNet, X, y; groups)`. GLMNet minimizes
+  `(1/2n)‖y−Xβ‖² + λ[(1−α)/2‖β‖₂² + α‖β‖₁]` on the column-centered `(X, y)` with
+  `intercept = false` (so `j0` stays analytic) and `standardize` (penalty acts per-column
+  at `λ·std`). `lambda = nothing` ⇒ K-fold CV over GLMNet's λ path, `select` =
+  `:lambda_min`/`:lambda_1se`; folds are **grouped by configuration** (via `groups`) and
+  seeded deterministically (`hash`-ranked, no RNG dependency). A numeric `lambda` skips CV.
+- Validated in a separate `test/glmnet/` environment: tiny-λ ≈ OLS, the analytic-`j0`
+  centering invariant, CV support recovery + sparsity, `:lambda_1se` shrinkage,
+  reproducibility, ElasticNet ≠ Lasso, and an energy+torque grouped-CV co-fit. Core-only
+  construction / validation / deferred-backend error in `test/unit/test_fit.jl`.
+
 ## Not yet implemented (v0 follow-ups)
-- Extension for GLMNet estimators (Lasso / elastic-net regularization paths).
+- The v0 slice is feature-complete; no estimator/observable/IO follow-ups outstanding.
 
 ## Oracle environment (`test/oracle/`)
 

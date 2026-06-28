@@ -217,6 +217,12 @@ by whitening: the centered energy block is row-scaled by `√((1−w)/n_E)` and 
 torque block by `√(w/n_T)`, then stacked. `j0` does not enter the torque block, so
 it is still recovered from the energy data alone. `w = 0` (the default) is a
 pure-energy fit; requesting `w > 0` without torque data is an error.
+
+A resampling estimator (a cross-validating [`ElasticNet`](@ref) / [`Lasso`](@ref))
+receives per-row group labels so its folds are **grouped by configuration** — a
+configuration's energy row and its torque-component rows are never split across the
+train/holdout boundary, which would otherwise leak within-configuration structure
+into the CV estimate and bias λ selection.
 """
 function fit(::Type{SCEFit}, dataset::SCEDataset, estimator::AbstractEstimator;
              torque_weight::Real = 0.0)::SCEFit
@@ -239,11 +245,17 @@ function fit(::Type{SCEFit}, dataset::SCEDataset, estimator::AbstractEstimator;
         sm = sqrt(w / n_T)
         X = vcat((X_E .- xbar') .* se, dataset.X_T .* sm)
         y = vcat((y_E .- ybar) .* se, dataset.y_T .* sm)
+        # Resampling-unit labels for grouped cross-validation: a configuration's energy
+        # row and all its (config-major) torque-component rows share its index, so a
+        # CV-based estimator never splits one configuration across folds.
+        block = div(n_T, n_E)                       # = 3·n_atoms torque rows per config
+        groups = vcat(collect(1:n_E), repeat(1:n_E; inner = block))
     else
         X = X_E .- xbar'
         y = y_E .- ybar
+        groups = nothing                            # each row is its own configuration
     end
-    jphi = solve_coefficients(estimator, X, y)
+    jphi = solve_coefficients(estimator, X, y; groups = groups)
     j0 = ybar - dot(xbar, jphi)
     residuals = y_E .- (j0 .+ X_E * jphi)
     return SCEFit(dataset, j0, jphi, estimator, residuals, w)

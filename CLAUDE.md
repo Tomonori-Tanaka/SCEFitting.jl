@@ -138,9 +138,17 @@ Easy to break silently — confirm before touching the algorithm.
   representable — every other channel must be **reported as skipped**, never silently
   dropped. Change a harmonic normalization or the `(4π)^(N/2)` scale → both the matrix
   formulas and the energy gate move together.
-- `solve_coefficients(est, X, y)` receives a **column-centered** `X` (⇒ the solver
-  adds no intercept; `j0` is recovered analytically in `fit`). Every estimator —
-  in-tree or in an extension — must honor this.
+- `solve_coefficients(est, X, y; groups)` receives a **column-centered** `X` (⇒ the
+  solver adds no intercept; `j0` is recovered analytically in `fit`). Every estimator —
+  in-tree or in an extension — must honor this. `groups` (optional) labels rows from the
+  same physical sample (in a co-fit, a configuration's energy row and its
+  torque-component rows share a label); a resampling estimator (CV-based `ElasticNet` /
+  `Lasso` in `ext/MagestyRebuildGLMNetExt.jl`) must keep same-label rows in the same fold
+  so CV does not leak within-configuration structure. `OLS`/`Ridge` ignore it. The GLMNet
+  solve uses `intercept = false` + column `standardize` and selects λ by configuration-
+  grouped, seeded CV (`:lambda_min`/`:lambda_1se`); change the centering/whitening in
+  `fit` and the penalty scale (`λ·std`) moves with it. Validated in the separate
+  `test/glmnet/` env, never in the core suite (GLMNet absent there).
 
 ## Tests
 
@@ -150,10 +158,13 @@ Easy to break silently — confirm before touching the algorithm.
 | `TEST_MODE=all julia --project -e 'using Pkg; Pkg.test()'` | unit + Aqua + JET |
 | `TEST_MODE=jet julia --project -e 'using Pkg; Pkg.test()'` | JET type-stability |
 | `julia --project=test/oracle test/oracle/runtests.jl` | from-scratch numerics vs pinned Magesty |
+| `julia --project=test/sunny test/sunny/runtests.jl` | real `Sunny.System` energy vs SCE (extension) |
+| `julia --project=test/glmnet test/glmnet/runtests.jl` | GLMNet Lasso / elastic-net solve (extension) |
 
 The core suite (`runtests.jl`) dispatches on the `TEST_MODE` env var
-(`default`/`all`/`unit`/`aqua`/`jet`) and never depends on Magesty. The oracle
-suite is a separate environment that `dev`s a pinned Magesty.jl.
+(`default`/`all`/`unit`/`aqua`/`jet`) and never depends on Magesty. The oracle,
+Sunny, and GLMNet suites are separate environments that carry the heavy/optional
+dependency (a pinned Magesty.jl / Sunny / GLMNet) the core deliberately omits.
 
 ## Git (this rebuild)
 

@@ -154,11 +154,12 @@ within a fixed `(crystal, spacegroup, cutoff)`, protected by the fingerprint.)
 
 ## 5. Pluggable backends via package extensions
 
-Symmetry analysis and (future) regularized estimators are behind abstract types
+Symmetry analysis and regularized estimators are behind abstract types
 (`AbstractSymmetryBackend`, `AbstractEstimator`). The *types* live in the core
-(`NoSymmetry`/`SpglibBackend`, `OLS`/`Ridge`), but heavy methods live in
-extensions: `analyze_symmetry(::SpglibBackend, …)` is in `ext/` and lights up only
-on `import Spglib`. The core thus loads with no heavy dependencies, and calling an
+(`NoSymmetry`/`SpglibBackend`, `OLS`/`Ridge`/`Lasso`/`ElasticNet`), but heavy methods
+live in extensions: `analyze_symmetry(::SpglibBackend, …)` is in `ext/` and lights up
+only on `import Spglib`, just as `solve_coefficients(::ElasticNet, …)` lights up on
+`using GLMNet` (see §12). The core thus loads with no heavy dependencies, and calling an
 unloaded backend hits a friendly "load the backend" error on the abstract
 supertype rather than a bare `MethodError`. This also removes Magesty's habit of
 force-loading Spglib at `using` time.
@@ -305,3 +306,50 @@ not and falls back to the exact supercell route. Spin enters only at assembly: t
 couplings are fit with unit directions, so `J = M/(SₐS_b)` makes Sunny's length-`S` dipoles
 reproduce the unit-vector energy, and the single-ion term carries the classical
 (`:dipole_uncorrected`) or quantum rank-2 (`:dipole`) rescaling.
+
+## 12. GLMNet estimators: sparse selection inside the centered-`X` contract
+
+An SCE basis with many channels (high `l`, several body orders) easily out-runs the
+available DFT configurations, so a sparse / shrinkage estimator that selects which
+couplings matter is the natural next estimator after `OLS`/`Ridge`. GLMNet (the Fortran
+elastic-net) is a heavy, binary-backed dependency, so it follows the §5 pattern exactly:
+the `ElasticNet` / `Lasso` *types* and their argument validation live in the core
+(named, dispatched on, tested without the dependency), and only `solve_coefficients(::
+ElasticNet, …)` lives in `ext/MagestyRebuildGLMNetExt` behind `using GLMNet`.
+
+The subtle part is the existing estimator contract: `fit` hands `solve_coefficients` a
+**column-centered** `X` and centered `y` and recovers `j0` analytically afterwards, so
+the solver must add no intercept of its own. GLMNet is therefore called with
+`intercept = false` — on already-centered data the penalized minimizer is identical
+with or without a modelled intercept, and `intercept = false` keeps the contract literal
+(verified: recovered `a0 ≈ 1e-16`, `max|Δβ| = 0`). Column `standardize` is left on (the
+conventional Lasso default) so the L1 penalty is even-handed across SALC columns of very
+different scale; GLMNet returns β on the original scale, and the penalty effectively acts
+per-column at `λ·std(colⱼ)`. This `λ` is on GLMNet's `(1/2n)·RSS + λ·penalty` scale,
+**not** comparable to `Ridge`'s plain `λ‖β‖₂²`.
+
+Two refinements make the default (`lambda = nothing`, cross-validated) path trustworthy
+for *this* problem rather than generic tabular data:
+
+- **Configuration-grouped CV.** A co-fit stacks each configuration's energy row and its
+  `3·n_atoms` torque-component rows; all are deterministic functions of the same spins
+  and the same `β`. Plain row-wise CV folds would scatter them, so holding out part of a
+  configuration while training on the rest leaks within-configuration structure and makes
+  the CV error optimistically low — biasing λ selection toward under-regularization on
+  the package's headline use case. `fit` therefore passes per-row `groups` labels (a
+  configuration's energy and torque rows share one label) and the extension folds over
+  whole groups, never splitting a configuration. The contract gains one optional
+  keyword; `OLS`/`Ridge` ignore it.
+- **Reproducible folds without a `Random` dependency.** An extension may only use the
+  package's own (weak)deps, and pulling in `Random` just to seed `MersenneTwister` is
+  unwarranted. Folds are instead assigned by ranking the resampling units by a seeded
+  `hash` and dealing the ranks round-robin — balanced, seed-controlled, deterministic
+  within a Julia session/version (cross-version reproducibility is not promised, and is
+  not needed, since folds are never persisted).
+
+Because the conversion is a pure β-passthrough (no sign, unit, or layout convention is
+touched), correctness reduces to two intrinsic checks in the separate `test/glmnet/`
+env: the analytic-`j0` centering invariant (`mean(predict) = ȳ`, estimator-independent)
+and support recovery — a 1-sparse signal in a 44-column basis is recovered (the signal
+column dominates, the model is genuinely sparse), with `:lambda_1se` shrinking more than
+`:lambda_min`.

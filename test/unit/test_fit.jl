@@ -52,4 +52,25 @@ end
     @testset "unknown estimator → friendly error" begin
         @test_throws ErrorException solve_coefficients(_DummyEstimator(), ds.X_E, ds.y_E)
     end
+
+    # The GLMNet-backed estimators are constructed and validated in the core (the
+    # type is dependency-free); the actual solve needs `using GLMNet` and is exercised
+    # in test/glmnet/. Without the extension loaded, a friendly error points there.
+    @testset "ElasticNet / Lasso: construction, validation, deferred backend" begin
+        @test Lasso() === ElasticNet(; alpha = 1.0)
+        @test Lasso(lambda = 0.1).alpha == 1.0
+        en = ElasticNet(; alpha = 0.4, lambda = 0.2, select = :lambda_1se, nfolds = 5, seed = 9)
+        @test en.alpha == 0.4 && en.lambda == 0.2 && en.select === :lambda_1se
+        @test ElasticNet().lambda === nothing                       # default: choose by CV
+        @test !MagestyRebuild.islinear(Lasso())                     # not a closed-form estimator
+
+        @test_throws ArgumentError ElasticNet(; alpha = 1.5)
+        @test_throws ArgumentError ElasticNet(; alpha = -0.1)
+        @test_throws ArgumentError ElasticNet(; lambda = -1.0)
+        @test_throws ArgumentError ElasticNet(; select = :bogus)
+        @test_throws ArgumentError ElasticNet(; nfolds = 1)
+
+        # GLMNet is not loaded in this environment ⇒ the fallback fires.
+        @test_throws ErrorException solve_coefficients(Lasso(), ds.X_E, ds.y_E)
+    end
 end

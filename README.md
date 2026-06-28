@@ -111,6 +111,25 @@ df = DataFrame(coeftable(f))       # or CSV.write("J.csv", coeftable(f))
 intercept(f)                       # the reference energy j0 (not a row)
 ```
 
+### Regularized fits (Lasso / elastic-net)
+
+For sparse coefficient selection, load GLMNet to activate the `Lasso` / `ElasticNet`
+estimators. With `lambda = nothing` (the default) the penalty is chosen by
+cross-validation; pass a number to fit at a fixed penalty. The column-centering /
+analytic-`j0` contract is identical to `OLS`/`Ridge`, so the rest of the pipeline is
+unchanged:
+
+```julia
+using GLMNet                         # activates the estimator extension
+
+fit(SCEFit, dataset, Lasso())                          # CV-selected λ, sparse model
+fit(SCEFit, dataset, Lasso(select = :lambda_1se))      # the parsimonious 1-SE model
+fit(SCEFit, dataset, ElasticNet(alpha = 0.5))          # L1/L2 mix
+fit(SCEFit, dataset, Lasso(lambda = 1e-3))             # a fixed penalty (no CV)
+```
+
+For an energy+torque co-fit the cross-validation folds are grouped by configuration.
+
 ### Reading DFT data (VASP)
 
 DFT-code I/O is isolated at the training-data boundary: each code is a namespaced
@@ -135,7 +154,8 @@ Adding another DFT code is one sibling submodule — the core and its exports do
 
 - **Pluggable seams** via multiple dispatch + Julia package extensions: symmetry
   backends (`AbstractSymmetryBackend`; `NoSymmetry` in-tree, `SpglibBackend` in an
-  extension) and estimators (`AbstractEstimator`; `OLS`/`Ridge` in-tree). The
+  extension) and estimators (`AbstractEstimator`; `OLS`/`Ridge` in-tree, `Lasso` /
+  `ElasticNet` with cross-validated regularization paths in a GLMNet extension). The
   lightweight core loads with no heavy dependencies.
 - **Generalized cutoff neighbor list** — no fixed image grid; correct for
   triclinic cells and cutoffs spanning many lattice translations.
@@ -164,15 +184,16 @@ refinements over Magesty.jl, and [`SPEC.md`](SPEC.md) for the realized architect
 Implemented and validated (v0): geometry → symmetry (pluggable backend) →
 **arbitrary-body-order** cluster orbits → SALC basis (isotropic and anisotropic
 channels, including the `N ≥ 3` coupling-path / `l`-ordering mixing) → **energy and
-torque** design matrices → `OLS`/`Ridge` fit (energy-only or energy+torque co-fit) →
-`predict_energy` / `predict_torque`. Cross-validated against Magesty.jl through
-3-body (invariant-subspace dimensions agree exactly).
+torque** design matrices → `OLS` / `Ridge` / `Lasso` / `ElasticNet` fit (energy-only or
+energy+torque co-fit) → `predict_energy` / `predict_torque`. Cross-validated against
+Magesty.jl through 3-body (invariant-subspace dimensions agree exactly).
 
 Basis/model **persistence**, a human-authored **`input.toml`**, **tabular coefficient
-output** (`coeftable`), and **VASP I/O** (POSCAR + constrained-noncollinear OSZICAR
-through a code-agnostic DFT-source seam) are implemented.
+output** (`coeftable`), **VASP I/O** (POSCAR + constrained-noncollinear OSZICAR through a
+code-agnostic DFT-source seam), **GLMNet** Lasso / elastic-net estimators, and **Sunny.jl
+export** are implemented as extensions.
 
-Not yet implemented (follow-ups): extensions for GLMNet estimators / Sunny export.
+The v0 vertical slice is feature-complete.
 
 ## References
 

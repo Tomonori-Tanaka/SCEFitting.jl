@@ -64,7 +64,7 @@ export ClusterMember, ClusterOrbit, ClusterSet, build_clusters
 export SALCKey, SALC, SALCBasis, build_salc_basis, evaluate
 export Interaction, SCEBasis, SCEDataset, SCEModel, SCEFit, fit, nsalc, read_input
 export predict_energy, predict_torque, has_torque
-export AbstractEstimator, OLS, Ridge, solve_coefficients
+export AbstractEstimator, OLS, Ridge, ElasticNet, Lasso, solve_coefficients
 export coef, intercept, nobs, r2_energy, rmse_energy, r2_torque, rmse_torque
 export coeftable, SCECoefficients
 export to_sunny
