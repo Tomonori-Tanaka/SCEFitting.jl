@@ -209,8 +209,10 @@ dependency (a pinned Magesty.jl / Sunny / GLMNet) the core deliberately omits.
 
 Local git (`add` / `commit` / branch) is pre-authorized for this exploratory
 rebuild — no per-action confirmation. Only remote operations (`push`,
-registration) require confirmation. Branch off the default branch before
-committing.
+registration) require confirmation. Commit directly to `main`; the `feat/v0-core`
+working branch was retired once v0 landed (it tracked `main` one-to-one, so it
+gave no isolation). Cut a short-lived topic branch only for genuinely risky or
+experimental work you do not want on `main` yet.
 
 ## References
 
