@@ -152,6 +152,16 @@ Easy to break silently — confirm before touching the algorithm.
   representable — every other channel must be **reported as skipped**, never silently
   dropped. Change a harmonic normalization or the `(4π)^(N/2)` scale → both the matrix
   formulas and the energy gate move together.
+- **Fitted-model introspection ↔ the per-term scale convention** (`sce/introspect.jl`,
+  `test/unit/test_introspect.jl`): `multipole_terms` is the **public, stable** view downstream
+  packages (the `SCETools.jl` mean-field samplers) read instead of `model.basis.salcs.salcs` /
+  `SALCMember` / `SALCTerm`. It returns the **raw** fitted `jϕ` as `coef` and leaves the per-N
+  scale `(4π)^(body/2)` to the consumer — the scale lives in exactly one place (the
+  reconstruction gate `_energy_from_terms`), so do **not** also apply it inside
+  `multipole_terms`. `bilinear_terms` is a thin public wrapper of the Sunny
+  `_sunny_supercell_terms` extraction, so its numerics move with the Sunny coupled-site above.
+  Add or rename a `MultipoleTerm` field → update the gate and the `SCETools.jl` consumers
+  (`sce_bridge.jl`).
 - `solve_coefficients(est, X, y; groups)` receives a **column-centered** `X` (⇒ the
   solver adds no intercept; `j0` is recovered analytically in `fit`). Every estimator —
   in-tree or in an extension — must honor this. `groups` (optional) labels rows from the

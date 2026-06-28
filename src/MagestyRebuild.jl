@@ -9,7 +9,7 @@ Work in progress (v0 vertical slice). See `SPEC.md` for the realized architectur
 """
 module MagestyRebuild
 
-using LinearAlgebra: norm, det, I, eigen, Symmetric, Diagonal, dot, cross, mul!
+using LinearAlgebra: norm, det, I, eigen, Symmetric, Diagonal, dot, cross
 using StaticArrays
 using Statistics: mean
 using Random: AbstractRNG, default_rng
@@ -38,14 +38,6 @@ include("clusters/orbits.jl")
 include("basis/salc.jl")
 include("basis/salcbasis.jl")
 
-# --- mean-field spin-configuration sampling (docs/specs/mfa-sampling.md) ---
-# P0: the single-site engine (potential, vMF / Metropolis draws, sphere quadrature).
-# P2/P3: the ExchangeModel carrier + coupled self-consistency (before MFASampler, which
-# references the ExchangeModel type). P1/P2/P3: the `MFASampler` + the `sample` verb.
-include("sampling/site_engine.jl")
-include("sampling/exchange.jl")
-include("sampling/mfa_sampler.jl")
-
 # --- fitting + high-level SCE API ---
 include("fitting/estimators.jl")
 include("sce/model.jl")
@@ -56,9 +48,10 @@ include("sce/coeftable.jl")
 # --- Sunny export: conversion math in core, Sunny.System assembly in the extension ---
 include("sce/sunny.jl")
 
-# --- mean-field sampler: extract an ExchangeModel from a fitted SCE (depends on the Sunny
-# bilinear / single-ion extraction `_sunny_supercell_terms` above).
-include("sampling/exchange_from_sce.jl")
+# --- fitted-model introspection: a code-neutral view of the multipole / bilinear terms
+# (consumed by downstream packages such as the SCETools.jl samplers); depends on the Sunny
+# bilinear / single-ion extraction `_sunny_supercell_terms` above.
+include("sce/introspect.jl")
 
 # --- persistence (format-agnostic schema, serialized as TOML) + TOML input files ---
 include("sce/persist.jl")
@@ -83,9 +76,10 @@ export coef, intercept, nobs, dof, r2_energy, rmse_energy, r2_torque, rmse_torqu
     rss_energy, rss_torque, residuals_energy, residuals_torque
 export coeftable, SCECoefficients
 export to_sunny
-# Mean-field spin-configuration sampling (docs/specs/mfa-sampling.md).
-export AbstractSampler, MFASampler, MFASample, ExchangeModel, MultipoleField, sample,
-    mfa_temperature_scale, mfa_sublattice_m, thermal_averaged_m, tau_from_magnetization
+# Fitted-model introspection: a code-neutral view of the multipole / bilinear terms of a
+# fitted SCE, the stable contract downstream packages (e.g. the SCETools.jl mean-field
+# samplers) read instead of the SALC-basis internals.
+export MultipoleTerm, multipole_terms, bilinear_terms
 # DFT data I/O: only the code-agnostic boundary is exported; per-code adapters are
 # namespaced submodules (e.g. `MagestyRebuild.VASP.read_poscar`), so adding a code
 # touches neither the core nor this export list.

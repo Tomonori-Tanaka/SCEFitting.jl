@@ -6,7 +6,34 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — sampling extracted into `SCETools.jl`; fitted-model introspection added
+
+- The mean-field spin-configuration **sampler** (the P0–P4 work documented below) has been
+  **moved out of this package** into the new auxiliary package `SCETools.jl`, which depends
+  on `MagestyRebuild`. This package is now focused on building and fitting SCE models;
+  generating spin configurations (and, later, active learning) lives in `SCETools.jl`. The
+  removed exports are `AbstractSampler`, `MFASampler`, `MFASample`, `ExchangeModel`,
+  `MultipoleField`, `sample`, `mfa_temperature_scale`, `mfa_sublattice_m`,
+  `thermal_averaged_m`, and `tau_from_magnetization` (now exported by `SCETools`).
+- **Added a code-neutral fitted-model introspection surface** so a downstream consumer reads
+  the fitted Hamiltonian without reaching into the SALC-basis internals:
+  - `multipole_terms(model)` returns a flat `Vector{MultipoleTerm}` — one record per cluster
+    member / `l`-ordering of every SALC with a nonzero coefficient, carrying the raw `jϕ`
+    coefficient (the per-N scale `(4π)^(body/2)` left for the consumer), the `body`, member
+    `atoms` / `shifts`, per-site `ls`, and the `folded` tensor;
+  - `bilinear_terms(model)` returns `(; pairs, onsites, skipped)` — the bilinear (`ls=[1,1]`)
+    and single-ion (`ls=[2]`) channels as Cartesian `3×3` matrices, reusing the validated
+    Sunny export conversion;
+  - `num_atoms(model::SCEModel)` is a new method of the exported `num_atoms`.
+  The gate is energy reconstruction (`test/unit/test_introspect.jl`): summing the per-term
+  tesseral contraction reproduces `predict_energy − j0`.
+- The tesseral spherical-harmonic submodule `MagestyRebuild.Harmonics` (`Zlm`, `lm_index`) is
+  documented as a stable surface for downstream packages.
+
 ### Added — mean-field spin-configuration sampling: P4 (full multipole / many-body)
+
+> The P0–P4 sampler entries below are retained as history; the code now lives in
+> `SCETools.jl` (see the *Changed* entry above).
 
 - **`MultipoleField` and `MFASampler(model::SCEModel; reference)`**: the full multipole
   mean-field sampler over **all** SCE clusters and harmonic orders (higher-order /

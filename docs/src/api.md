@@ -129,27 +129,20 @@ SCECoefficients
 to_sunny
 ```
 
-## Mean-field spin-configuration sampling
+## Fitted-model introspection
 
-Generate physically representative finite-temperature spin configurations for SCE
-training, from the single-site mean-field (MFA) distribution at a controlled reduced
-temperature `τ = T/T_MF`. The `MFASampler` has four constructions of increasing fidelity:
-the single global isotropic sampler (`MFASampler(reference)`); the multi-sublattice
-isotropic and tensorial samplers from an `ExchangeModel` (Heisenberg / DMI / anisotropic
-exchange + single-ion); and the full multipole sampler from a fitted `SCEModel` (all
-clusters and `l`, higher-order / many-body). `sample` is the one verb.
+A code-neutral view of a fitted [`SCEModel`](@ref)'s multipole terms, the stable public
+contract downstream packages (e.g. the mean-field samplers in
+[`SCETools.jl`](https://github.com/…)) read instead of the SALC-basis internals.
+`multipole_terms` is the general per-term dump; `bilinear_terms` is the bilinear (`ls=[1,1]`)
+and single-ion (`ls=[2]`) extraction as Cartesian `3×3` matrices (reusing the validated
+Sunny conversion). The tesseral spherical-harmonic kernel `MagestyRebuild.Harmonics`
+(`Zlm`, `lm_index`) is a stable submodule those consumers may also use.
 
 ```@docs
-AbstractSampler
-MFASampler
-ExchangeModel
-MultipoleField
-sample
-MFASample
-mfa_sublattice_m
-mfa_temperature_scale
-thermal_averaged_m
-tau_from_magnetization
+MultipoleTerm
+multipole_terms
+bilinear_terms
 ```
 
 ## DFT data sources
