@@ -19,11 +19,11 @@ _mean_Z(l, m, configs, a) = mean(_Z(l, m, c[:, a]) for c in configs)
 @testset "tensorial / single-ion sampler (P3)" begin
     @testset "single-ion makes the sampler tensorial; isotropic stays vMF" begin
         iso = MFASampler(ExchangeModel([0.0 -1.0; -1.0 0.0]); reference = Float64[0 0; 0 0; 1 1])
-        @test !MR._is_tensorial(iso)                            # closed-form vMF path
+        @test !MR._needs_metropolis(iso)                        # closed-form vMF path
         A = SMatrix{3,3,Float64}(1, 0, 0, 0, 1, 0, 0, 0, -2)    # easy-axis along z
         ten = MFASampler(ExchangeModel([0.0 -1.0; -1.0 0.0]; onsite = [A, A]);
                          reference = Float64[0 0; 0 0; 1 1])
-        @test MR._is_tensorial(ten)                             # Metropolis path
+        @test MR._needs_metropolis(ten)                         # Metropolis path
         @test occursin("tensorial", sprint(show, ten))
     end
 

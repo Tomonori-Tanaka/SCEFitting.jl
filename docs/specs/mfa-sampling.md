@@ -2,8 +2,9 @@
 
 **Status:** in progress. Brainstormed and agreed; all design decisions are resolved
 (see [Decisions](#8-decisions)). Implementation proceeds in phases P0–P5 (§7).
-**P0 (engine), P1 (single global isotropic), P2 (multi-sublattice isotropic), and P3
-(tensorial exchange + single-ion, noncollinear) are landed**; P4+ next.
+**P0 (engine), P1 (single global isotropic), P2 (multi-sublattice isotropic), P3
+(tensorial exchange + single-ion, noncollinear), and P4 (full multipole / many-body)
+are landed**; only P5 (sources & I/O) remains.
 
 **Goal.** Generate physically representative finite-temperature spin
 configurations for SCE training, instead of purely random (paramagnetic-limit)
@@ -367,7 +368,18 @@ All resolved. Conservative, exactness-leaning defaults with opt-in escapes/exten
       **Noncollinear references** (rigid-axis D2, with a stationarity warning). Tests:
       easy-axis cone sharpening / above-`T_MF` persistence, easy-plane girdle, Metropolis ↔
       quadrature agreement on `⟨Z_2m⟩`, DMI tilt of a collinear reference, the τ → 0 limit.
-- [ ] P4 full multipole MFA over all SCE clusters/`l`; many-body factorization.
+- [x] **P4 full multipole MFA** (`src/sampling/exchange.jl`, `exchange_from_sce.jl`):
+      `MultipoleField` digests **every** SCE cluster term; the generalized molecular field
+      `h_a^{lm} = Σ_φ jφ·(4π)^(N/2)·folded · ∏_{b≠a} ⟨Z_{l_b}^{m_b}(e_b)⟩` is built by
+      `_site_coeffs_all!` (the `accumulate_grad!` leave-one-out structure with the site-a
+      harmonic left symbolic). The order parameters are the **full per-atom multipole
+      averages `⟨Z_lm⟩_a`** (`l ≤ lmax`), iterated to self-consistency by quadrature;
+      `β = 3/(ρτ)` with `ρ` the `l=1` (bilinear) Perron; the draw is Metropolis.
+      `MFASampler(model::SCEModel; reference)` is the user entry. Validated by the exact
+      reduction to the single-global Langevin curve for a pure-bilinear model, scale
+      invariance, and — the headline — the many-body factorization checked against the
+      conditional mean SCE energy `⟨E|e_a⟩` of a biquadratic model (matches to ~MC noise;
+      a deterministic cross-check confirms `V_a/β = ⟨E|e_a⟩` to machine precision).
 - [ ] P5 VASP reference reader; external `Jij` (TB2J); optional DFT writers.
 - [ ] Docs: a Documenter guide page + a tutorial; design-note cross-reference.
 

@@ -347,3 +347,128 @@ function _tensor_state(exch::ExchangeModel, ehat::Vector{SVector{3,Float64}}, ρ
     end
     return cs, m
 end
+
+# --- P4: the full multipole mean field over all SCE clusters / l --------------------
+
+# One mean-field interaction term: `coef = jϕ·(4π)^(N/2)`, the member's `atoms` and per-site
+# `ls`, and the rank-N real coefficient tensor `folded`. The mean-field single-site potential
+# on atom a gathers, over every term and every position i with `atoms[i] = a`, the
+# coefficient of `Z_{ls[i],m}(e_a)` obtained by contracting `folded` against the *other*
+# sites' multipole averages — the `accumulate_grad!` leave-one-out structure with the site-a
+# harmonic left symbolic instead of differentiated.
+struct _MFATerm
+    coef::Float64
+    atoms::Vector{Int}
+    ls::Vector{Int}
+    folded::Array{Float64}
+end
+
+"""
+    MultipoleField
+
+The digested full-multipole mean field of a fitted SCE (P4): every cluster term
+(`_MFATerm`), the `lmax`, and the bilinear [`ExchangeModel`](@ref) (used only for the
+`l=1` temperature scale `ρ`). Built by `MultipoleField(model::SCEModel)`; consumed by the
+[`MFASampler`](@ref) tensorial/Metropolis path.
+"""
+struct MultipoleField
+    natoms::Int
+    lmax::Int
+    terms::Vector{_MFATerm}
+    bilinear::ExchangeModel
+end
+
+Base.show(io::IO, mf::MultipoleField) =
+    print(io, "MultipoleField(", mf.natoms, " atoms, lmax=", mf.lmax, ", ",
+          length(mf.terms), " terms)")
+
+# Does atom a appear in any term (i.e. feel a mean field)?
+_atom_in_terms(mf::MultipoleField, a::Int)::Bool = any(t -> a in t.atoms, mf.terms)
+
+# Reference multipoles ⟨Z_lm⟩ = Z_lm(ê_a) (the fully ordered state), per atom, length
+# (lmax+1)² and ordered by `Harmonics.lm_index`.
+function _ref_multipoles(ehat::Vector{SVector{3,Float64}}, lmax::Int)::Vector{Vector{Float64}}
+    return [[Harmonics.Zlm(l, m, ehat[a]) for l = 0:lmax for m = -l:l]
+            for a = 1:length(ehat)]
+end
+
+# Build every atom's single-site coefficient vector c_a from the current multipole averages
+# `Zavg` (per atom): c_a[lm(ls[i],μ_i)] += coef·folded[idx]·∏_{k≠i} ⟨Z_{ls[k],μ_k}⟩_{atoms[k]},
+# summed over all terms and positions i with atoms[i] = a, then scaled by β. Mirrors
+# `accumulate_grad!` with the site-a harmonic left symbolic. `cs[a]` is zeroed first.
+function _site_coeffs_all!(cs::Vector{Vector{Float64}}, terms::Vector{_MFATerm},
+                           Zavg::Vector{Vector{Float64}}, β::Float64, n::Int)
+    @inbounds for a = 1:n
+        fill!(cs[a], 0.0)
+    end
+    @inbounds for term in terms
+        atoms = term.atoms
+        ls = term.ls
+        folded = term.folded
+        N = length(atoms)
+        for idx in CartesianIndices(folded)
+            w = term.coef * folded[idx]
+            w == 0.0 && continue
+            for i = 1:N
+                p = 1.0
+                for k = 1:N
+                    k == i && continue
+                    μk = idx[k] - ls[k] - 1
+                    p *= Zavg[atoms[k]][Harmonics.lm_index(ls[k], μk)]
+                end
+                p == 0.0 && continue
+                μi = idx[i] - ls[i] - 1
+                cs[atoms[i]][Harmonics.lm_index(ls[i], μi)] += w * p
+            end
+        end
+    end
+    @inbounds for a = 1:n
+        cs[a] .*= β
+    end
+    return cs
+end
+
+# The full multipole mean-field state at reduced temperature τ: iterate the per-atom
+# multipole averages ⟨Z_lm⟩_a (β = 3/(ρτ), ρ the l=1 bilinear Perron) to self-consistency,
+# then return (cs, m): the single-site coefficient vectors for the Metropolis draw and the
+# magnetizations m_a = ⟨e·ê_a⟩. τ floored at _MFA_MIN_TAU so β stays finite.
+function _multipole_state(mf::MultipoleField, ehat::Vector{SVector{3,Float64}}, ρ::Float64,
+                          τ::Float64)
+    n = mf.natoms
+    lmax = mf.lmax
+    nlm = (lmax + 1)^2
+    β = 3 / (ρ * max(τ, _MFA_MIN_TAU))
+    Zref = _ref_multipoles(ehat, lmax)
+    cs = [zeros(Float64, nlm) for _ = 1:n]
+    if τ < _MFA_MIN_TAU
+        # Fully ordered limit: ⟨Z⟩ = Z(ê_a); each atom appearing in a term saturates (m=1).
+        _site_coeffs_all!(cs, mf.terms, Zref, β, n)
+        m = [_atom_in_terms(mf, a) ? 1.0 : 0.0 for a = 1:n]
+        return cs, m
+    end
+    Zavg = [copy(Zref[a]) for a = 1:n]
+    flat0 = reduce(vcat, Zref)
+    G! = (out, x) -> begin
+        @inbounds for a = 1:n, j = 1:nlm
+            Zavg[a][j] = x[(a - 1) * nlm + j]
+        end
+        _site_coeffs_all!(cs, mf.terms, Zavg, β, n)
+        @inbounds for a = 1:n
+            avg = multipole_average(cs[a], lmax)
+            for j = 1:nlm
+                out[(a - 1) * nlm + j] = avg[j]
+            end
+        end
+        out
+    end
+    flat, Δ = _anderson_solve(G!, flat0, -1.5, 1.5)
+    Δ > 1.0e-6 && @warn "the full-multipole mean-field self-consistency did not converge " *
+        "at τ = $τ (residual $Δ); the multipole averages may be inaccurate (critical " *
+        "slowing near T_MF, or a frustrated reference)."
+    @inbounds for a = 1:n, j = 1:nlm
+        Zavg[a][j] = flat[(a - 1) * nlm + j]
+    end
+    _site_coeffs_all!(cs, mf.terms, Zavg, β, n)
+    m = [dot((4π / 3) * _l1_field(Zavg[a]), ehat[a]) for a = 1:n]
+    return cs, m
+end

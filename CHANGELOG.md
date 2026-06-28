@@ -6,6 +6,26 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — mean-field spin-configuration sampling: P4 (full multipole / many-body)
+
+- **`MultipoleField` and `MFASampler(model::SCEModel; reference)`**: the full multipole
+  mean-field sampler over **all** SCE clusters and harmonic orders (higher-order /
+  many-body). The mean-field decoupling of any cluster term factorizes
+  (`⟨∏ Z⟩ → ∏⟨Z⟩`), giving the generalized molecular field
+  `h_a^{lm} = Σ_φ jφ·(4π)^(N/2)·folded · ∏_{b≠a} ⟨Z_{l_b}^{m_b}(e_b)⟩` — built by contracting
+  each folded coefficient tensor against the *other* sites' multipole averages (the
+  `accumulate_grad!` leave-one-out structure with the site-`a` harmonic left symbolic). The
+  order parameters generalize from the magnetization to the **full per-atom multipole
+  averages `⟨Z_lm⟩_a`** (`l ≤ lmax`), iterated to self-consistency by sphere quadrature; the
+  `l=1` (bilinear) Perron eigenvalue sets `T_MF = ρ/3`, and the single-site Bingham /
+  higher-multipole distribution is drawn with the Metropolis engine.
+- `MFASampler(model::SCEModel; reference)` keeps every channel (bilinear, single-ion, and
+  higher-order); `MFASampler(ExchangeModel(model); reference)` remains the bilinear-only
+  truncation. Validated by the exact reduction to the single-global Langevin curve for a
+  pure-bilinear model, by coupling-scale invariance, and by matching the single-site
+  potential to the conditional mean SCE energy `⟨E | e_a⟩` of a biquadratic model (the
+  many-body factorization check).
+
 ### Added — mean-field spin-configuration sampling: P3 (tensorial + single-ion)
 
 - **Tensorial `ExchangeModel`**: `ExchangeModel` now carries the full bilinear tensor

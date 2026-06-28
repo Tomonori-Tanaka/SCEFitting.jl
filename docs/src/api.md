@@ -129,6 +129,29 @@ SCECoefficients
 to_sunny
 ```
 
+## Mean-field spin-configuration sampling
+
+Generate physically representative finite-temperature spin configurations for SCE
+training, from the single-site mean-field (MFA) distribution at a controlled reduced
+temperature `τ = T/T_MF`. The `MFASampler` has four constructions of increasing fidelity:
+the single global isotropic sampler (`MFASampler(reference)`); the multi-sublattice
+isotropic and tensorial samplers from an `ExchangeModel` (Heisenberg / DMI / anisotropic
+exchange + single-ion); and the full multipole sampler from a fitted `SCEModel` (all
+clusters and `l`, higher-order / many-body). `sample` is the one verb.
+
+```@docs
+AbstractSampler
+MFASampler
+ExchangeModel
+MultipoleField
+sample
+MFASample
+mfa_sublattice_m
+mfa_temperature_scale
+thermal_averaged_m
+tau_from_magnetization
+```
+
 ## DFT data sources
 
 ```@docs

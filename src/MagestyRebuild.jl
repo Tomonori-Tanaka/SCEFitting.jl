@@ -84,7 +84,7 @@ export coef, intercept, nobs, dof, r2_energy, rmse_energy, r2_torque, rmse_torqu
 export coeftable, SCECoefficients
 export to_sunny
 # Mean-field spin-configuration sampling (docs/specs/mfa-sampling.md).
-export AbstractSampler, MFASampler, MFASample, ExchangeModel, sample,
+export AbstractSampler, MFASampler, MFASample, ExchangeModel, MultipoleField, sample,
     mfa_temperature_scale, mfa_sublattice_m, thermal_averaged_m, tau_from_magnetization
 # DFT data I/O: only the code-agnostic boundary is exported; per-code adapters are
 # namespaced submodules (e.g. `MagestyRebuild.VASP.read_poscar`), so adding a code
