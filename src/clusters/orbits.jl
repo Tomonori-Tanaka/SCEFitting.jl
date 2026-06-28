@@ -74,8 +74,8 @@ Enumerate candidate clusters and reduce them to symmetry orbits under
 # Keyword arguments
 - `nbody::Integer = 2`: maximum body order.
 - `selection::AbstractImageSelection = MinimumImage()`: the image-admissibility rule
-  for the cluster edges; must match the one that built `neighbors` (see
-  [`candidate_clusters`](@ref)).
+  for the cluster edges; must match the one that built `neighbors` (the same rule the
+  internal `candidate_clusters` enumeration applies).
 
 # Returns
 - `ClusterSet`: orbits grouped by body order.

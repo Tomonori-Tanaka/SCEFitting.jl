@@ -1,15 +1,22 @@
 """
-DFT training-data sources.
+    AbstractDFTSource
 
-A *source* (`AbstractDFTSource`) knows how to produce a list of training data
-(`read_configs(src) -> Vector{SpinDatum}`) from some DFT output; `SpinDatum`
-is one configuration's observables (energy, per-atom spin directions, magnetic
-moments, constraining field, and the derived torque). `SCEDataset(basis, src)`
-goes straight from a source to a fit-ready dataset. Concrete sources (e.g.
-[`VASP.Oszicar`](@ref)) live alongside their format reader.
+A source of DFT training data: `read_configs(src::AbstractDFTSource) ->
+Vector{<:AbstractTrainingDatum}` turns some DFT output into fit-ready configurations,
+and `SCEDataset(basis, src)` goes straight from a source to a dataset. Concrete sources
+(e.g. [`VASP.Oszicar`](@ref)) live alongside their format reader, so the SCE pipeline
+consumes only [`SpinDatum`](@ref) / [`SCEDataset`](@ref) and never depends on the
+originating DFT code.
 """
-
 abstract type AbstractDFTSource end
+
+"""
+    AbstractTrainingDatum
+
+One DFT configuration's observables, as consumed by the SCE pipeline. The concrete type
+is [`SpinDatum`](@ref) (energy, per-atom spin directions, magnetic moments, constraining
+field, and the derived torque target).
+"""
 abstract type AbstractTrainingDatum end
 
 """

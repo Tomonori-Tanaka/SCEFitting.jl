@@ -6,10 +6,10 @@ subtyping this and defining
 
     analyze_symmetry(::MyBackend, crystal::Crystal; tol) -> SpaceGroup
 
-Backends only need to supply raw `(rotations, translations, symbol, number)`; the
-shared in-tree assembler [`_assemble_spacegroup`](@ref) derives Cartesian
-rotations, properness, and the atom permutation table `map_sym`, so every backend
-shares one convention.
+Backends only need to supply raw `(rotations, translations, symbol, number)`; a
+shared in-tree assembler (`_assemble_spacegroup`) derives Cartesian rotations,
+properness, and the atom permutation table `map_sym`, so every backend shares one
+convention.
 """
 abstract type AbstractSymmetryBackend end
 

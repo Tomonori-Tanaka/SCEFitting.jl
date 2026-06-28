@@ -56,6 +56,12 @@ function SCEBasis(crystal::Crystal, interaction::Interaction;
     return SCEBasis(crystal, sg, salcs, interaction)
 end
 
+"""
+    nsalc(basis::SCEBasis) -> Int
+
+The number of SALC basis functions in `basis` — equivalently, the number of
+design-matrix columns / fitted coefficients.
+"""
 nsalc(b::SCEBasis) = length(b.salcs)
 
 """
@@ -318,16 +324,34 @@ predict_torque(model::SCEModel, configs::AbstractVector)::Vector{Matrix{Float64}
 predict_torque(f::SCEFit, data) = predict_torque(SCEModel(f), data)
 
 """
-    coef(f) / intercept(f) / nobs(f) -> coefficients / j0 / number of observations
+    coef(fit_or_model) -> Vector{Float64}
+
+The fitted SALC coefficients `Jϕ`, one per design-matrix column (in [`SALCKey`](@ref)
+order). The reference energy `j0` is separate; read it with [`intercept`](@ref).
 """
 coef(f::SCEFit) = f.jphi
 coef(m::SCEModel) = m.jphi
+
+"""
+    intercept(fit_or_model) -> Float64
+
+The reference energy `j0` (the SCE intercept), recovered analytically in [`fit`](@ref).
+"""
 intercept(f::SCEFit) = f.j0
 intercept(m::SCEModel) = m.j0
+
+"""
+    nobs(f::SCEFit) -> Int
+
+The number of energy observations used in the fit.
+"""
 nobs(f::SCEFit) = length(f.dataset.y_E)
 
 """
-    r2_energy(f) / rmse_energy(f) -> in-sample energy R² / RMSE
+    r2_energy(f::SCEFit) -> Float64
+
+In-sample energy coefficient of determination `R²` (1 = the SALC span reproduces every
+training energy).
 """
 function r2_energy(f::SCEFit)::Float64
     y = f.dataset.y_E
@@ -335,15 +359,21 @@ function r2_energy(f::SCEFit)::Float64
     ss_tot = sum(abs2, y .- mean(y))
     return ss_tot == 0 ? 1.0 : 1 - ss_res / ss_tot
 end
+
+"""
+    rmse_energy(f::SCEFit) -> Float64
+
+In-sample energy root-mean-square error (same unit as the training energies, typically eV).
+"""
 rmse_energy(f::SCEFit)::Float64 = sqrt(mean(abs2, f.residuals))
 
 """
-    r2_torque(f) / rmse_torque(f) -> in-sample torque R² / RMSE
+    r2_torque(f::SCEFit) -> Float64
 
-Computed over the flattened per-atom torque components. Requires a
-torque-carrying dataset. The torque prediction `τ = X_T·jϕ` has no intercept
-(`j0` does not enter it), so the R² baseline is the uncentered total sum of
-squares `Σ τ²` (the error of the zero predictor), not the mean-centered one.
+In-sample torque `R²`, computed over the flattened per-atom torque components. Requires a
+torque-carrying dataset. The torque prediction `τ = X_T·jϕ` has no intercept (`j0` does
+not enter it), so the `R²` baseline is the uncentered total sum of squares `Σ τ²` (the
+error of the zero predictor), not the mean-centered one.
 """
 function r2_torque(f::SCEFit)::Float64
     has_torque(f.dataset) || throw(ArgumentError("dataset has no torque data"))
@@ -353,6 +383,13 @@ function r2_torque(f::SCEFit)::Float64
     ss_tot = sum(abs2, y)            # no-intercept model ⇒ uncentered baseline
     return ss_tot == 0 ? 1.0 : 1 - ss_res / ss_tot
 end
+
+"""
+    rmse_torque(f::SCEFit) -> Float64
+
+In-sample torque root-mean-square error over the flattened per-atom torque components
+(eV). Requires a torque-carrying dataset.
+"""
 function rmse_torque(f::SCEFit)::Float64
     has_torque(f.dataset) || throw(ArgumentError("dataset has no torque data"))
     return sqrt(mean(abs2, f.dataset.y_T .- f.dataset.X_T * f.jphi))

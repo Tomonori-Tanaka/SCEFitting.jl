@@ -257,14 +257,8 @@ end
 
 Serialize an [`SCEBasis`](@ref), [`SCEModel`](@ref), or [`SCEFit`](@ref) (a fit is
 saved as its model) to `path_or_io` as a self-contained, human-readable TOML
-document. Call as `MagestyRebuild.save("model.toml", model)`.
-
-    load(SCEBasis, path_or_io) -> SCEBasis
-    load(SCEModel, path_or_io) -> SCEModel
-
-Inverse of [`save`](@ref). A basis can be loaded from a model document too (the
-coefficients are ignored); a model load re-pairs coefficients to the basis **by
-key** (not by position).
+document. Not exported (the name clashes with FileIO / JLD2 / CSV); call as
+`MagestyRebuild.save("model.toml", model)`. Inverse: [`load`](@ref MagestyRebuild.load).
 """
 function save(io::IO, x::Union{SCEBasis,SCEModel,SCEFit})
     TOML.print(io, _to_doc(x))
@@ -273,6 +267,16 @@ end
 save(path::AbstractString, x::Union{SCEBasis,SCEModel,SCEFit}) =
     (open(io -> save(io, x), path, "w"); nothing)
 
+"""
+    load(SCEBasis, path_or_io) -> SCEBasis
+    load(SCEModel, path_or_io) -> SCEModel
+
+Inverse of [`save`](@ref MagestyRebuild.save): rebuild a basis or model from a TOML
+document. The SALC basis is reconstructed verbatim (no re-projection); a basis can be
+loaded from a model document too (the coefficients are ignored), and a model load
+re-pairs coefficients to the basis **by key** (not by position). Not exported; call as
+`MagestyRebuild.load(SCEModel, "model.toml")`.
+"""
 load(::Type{SCEBasis}, io::IO)::SCEBasis = _basis_from_doc(TOML.parse(io))
 load(::Type{SCEModel}, io::IO)::SCEModel = _model_from_doc(TOML.parse(io))
 load(::Type{SCEBasis}, path::AbstractString)::SCEBasis = _basis_from_doc(TOML.parsefile(path))
