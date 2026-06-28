@@ -57,9 +57,10 @@ include("sce/introspect.jl")
 include("sce/persist.jl")
 include("sce/input.jl")
 
-# --- DFT data sources + VASP I/O ---
+# --- DFT data sources: the code-agnostic boundary only. Concrete DFT-code adapters (e.g. the
+# VASP POSCAR / OSZICAR reader + INCAR writer) live in the SCETools.jl package; the SCE pipeline
+# only ever sees `SpinDatum` / `SCEDataset`.
 include("io/dftsource.jl")
-include("io/vasp.jl")
 
 export Lattice, Crystal, num_atoms, cartesian_positions, interplanar_spacing
 export NeighborPair, NeighborList, build_neighbor_list

@@ -79,29 +79,41 @@ table / IO / plotting package.
 
 ## Reading DFT data
 
-DFT-code I/O is isolated at the *training-data boundary*. A source implements
-[`read_configs`](@ref)`(src) -> Vector{SpinDatum}`, and the SCE pipeline only ever sees the
-code-agnostic [`SpinDatum`](@ref) / [`SCEDataset`](@ref) — once you have the data, the
-originating code is irrelevant.
+DFT-code I/O is isolated at the *training-data boundary*. The core owns only the
+**abstract seam**: a source implements [`read_configs`](@ref)`(src) -> Vector{SpinDatum}`,
+and the SCE pipeline only ever sees the code-agnostic [`SpinDatum`](@ref) /
+[`SCEDataset`](@ref) — once you have the data, the originating code is irrelevant.
 
 ```julia
-using MagestyRebuild.VASP: read_poscar, Oszicar
-
-crystal = read_poscar("POSCAR")                          # → Crystal
 basis   = SCEBasis(crystal, interaction)
-
-# constrained-noncollinear OSZICARs → energy + spin directions + torque target (τ = m×B)
-src     = Oszicar(["run1/OSZICAR", "run2/OSZICAR"])      # an AbstractDFTSource
+src     = some_source                                    # any AbstractDFTSource
 dataset = SCEDataset(basis, src)                         # read_configs(src) under the hood
 fit(SCEFit, dataset, OLS(); torque_weight = 0.5)
 ```
 
-Each DFT code is a namespaced submodule (`MagestyRebuild.VASP`, …) that produces
-`SpinDatum`s, so adding another code is one sibling submodule — the core and its exports
-do not change. The torque target from a constrained calculation is
+The torque target from a constrained calculation is
 ``\boldsymbol\tau_a = \boldsymbol m_a \times \boldsymbol B_a`` (the physical /
 Landau–Lifshitz torque), the *same* physical quantity, sign, and layout as the model's
 [`predict_torque`](@ref) ``= -\hat{\boldsymbol e}_a \times \partial E/\partial\hat{\boldsymbol e}_a``,
 so the co-fit is consistent.
+
+The **concrete DFT-code adapters** live in the companion
+[SCETools.jl](https://github.com/Tomonori-Tanaka/SCETools.jl) package, not in the core. For
+VASP:
+
+```julia
+using MagestyRebuild, SCETools
+using SCETools.VASP: read_poscar, Oszicar
+
+crystal = read_poscar("POSCAR")                          # → Crystal
+basis   = SCEBasis(crystal, interaction)
+src     = Oszicar(["run1/OSZICAR", "run2/OSZICAR"])      # an AbstractDFTSource (constrained NCL)
+dataset = SCEDataset(basis, src)
+fit(SCEFit, dataset, OLS(); torque_weight = 0.5)
+```
+
+Adding another code is one more sibling adapter in SCETools — the core and its exports do
+not change. SCETools.VASP also writes the *inverse* direction (sampled configurations →
+constrained-noncollinear INCAR / input sets) for generating new training data.
 
 Next: [Sunny export](sunny.md).

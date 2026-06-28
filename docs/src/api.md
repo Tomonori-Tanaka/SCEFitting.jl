@@ -148,23 +148,18 @@ bilinear_terms
 
 ## DFT data sources
 
+The **code-agnostic boundary** of the training-data input: the SCE pipeline only ever sees
+`SpinDatum` / [`SCEDataset`](@ref). Concrete DFT-code adapters (the VASP POSCAR / OSZICAR
+reader and INCAR writer) live in the companion
+[SCETools.jl](https://github.com/Tomonori-Tanaka/SCETools.jl) package
+(`SCETools.VASP.read_poscar` / `Oszicar` / `write_inputs`), so adding a code touches neither
+the core nor its exports.
+
 ```@docs
 AbstractDFTSource
 AbstractTrainingDatum
 SpinDatum
 read_configs
-```
-
-### VASP
-
-DFT-code readers are namespaced submodules so that the core and its exports do not grow
-as codes are added; the SCE pipeline only ever sees the code-agnostic `SpinDatum` /
-`SCEDataset` above. The VASP submodule (`MagestyRebuild.VASP`):
-
-```@docs
-MagestyRebuild.VASP.read_poscar
-MagestyRebuild.VASP.write_poscar
-MagestyRebuild.VASP.Oszicar
 ```
 
 ## Persistence

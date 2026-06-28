@@ -130,18 +130,18 @@ Easy to break silently — confirm before touching the algorithm.
   `block`) plus `jphi`; the `J` column pairs with `basis.salcs.keys` **positionally**
   (same order as the design matrix). Add or rename a `SALCKey` field → update the row
   builder, the `Tables.Schema`, and `test/unit/test_coeftable.jl`.
-- **VASP torque target ↔ the model torque convention** (`io/dftsource.jl`, `io/vasp.jl`):
-  the training torque from a constrained-noncollinear OSZICAR is `τ_a = m_a × B_a`
-  (`B` = constraining field), which must stay the *same* physical quantity, sign, and
-  `3×n_atoms` config/atom/`xyz` layout as the model's `predict_torque = −e_a × ∂E/∂e_a`
-  (the design-matrix convention) — **both** are the physical / Landau–Lifshitz torque
-  `m × B_eff`. Flip one side only and the co-fit silently biases; flipping **both** (as
-  done when the package moved from the `+e×∇E` energy-rotation-gradient to this `−e×∇E`
-  Landau–Lifshitz convention) leaves `J` unchanged. Moments
-  and field are rotated from the `SAXIS` frame by `Rz(α)·Ry(β)`. **DFT-code I/O is confined
-  to `AbstractDFTSource` adapters** (namespaced submodules like `VASP`); the SCE pipeline
-  consumes only `SpinDatum`/`SCEDataset` and stays DFT-code-agnostic. The readers are
-  cross-checked against Magesty's parsers in the oracle.
+- **DFT training-torque target ↔ the model torque convention** (`io/dftsource.jl`): the
+  training torque carried by a `SpinDatum` is `τ_a = m_a × B_a` (`B` = constraining field),
+  which must stay the *same* physical quantity, sign, and `3×n_atoms` config/atom/`xyz` layout
+  as the model's `predict_torque = −e_a × ∂E/∂e_a` (the design-matrix convention) — **both**
+  are the physical / Landau–Lifshitz torque `m × B_eff`. Flip one side only and the co-fit
+  silently biases; flipping **both** (as done when the package moved from the `+e×∇E`
+  energy-rotation-gradient to this `−e×∇E` Landau–Lifshitz convention) leaves `J` unchanged.
+  **DFT-code I/O is confined to `AbstractDFTSource` adapters in the SCETools.jl package**
+  (`SCETools.VASP`), which produce `SpinDatum`s (rotating moments / field from the `SAXIS`
+  frame by `Rz(α)·Ry(β)`); the core consumes only `SpinDatum`/`SCEDataset` and stays
+  DFT-code-agnostic. The VASP parsers are cross-checked against Magesty in SCETools's oracle.
+  The `SpinDatum` torque sign defined here is the convention source the adapters must match.
 - **Sunny export conversion ↔ the energy reconstruction** (`sce/sunny.jl`,
   `ext/MagestyRebuildSunnyExt.jl`): `_l1_pair_matrix` / `_l2_onsite_matrix` must satisfy
   `eₐ'·M·e_b = Σ folded·Z·Z` (the gate is the `Z₁`/`Z₂` contraction test); the per-bond

@@ -4,9 +4,9 @@
 A source of DFT training data: `read_configs(src::AbstractDFTSource) ->
 Vector{<:AbstractTrainingDatum}` turns some DFT output into fit-ready configurations,
 and `SCEDataset(basis, src)` goes straight from a source to a dataset. Concrete sources
-(e.g. [`VASP.Oszicar`](@ref)) live alongside their format reader, so the SCE pipeline
-consumes only [`SpinDatum`](@ref) / [`SCEDataset`](@ref) and never depends on the
-originating DFT code.
+(e.g. `SCETools.VASP.Oszicar`, in the SCETools.jl package) live alongside their format
+reader, so the SCE pipeline consumes only [`SpinDatum`](@ref) / [`SCEDataset`](@ref) and
+never depends on the originating DFT code.
 """
 abstract type AbstractDFTSource end
 
@@ -90,7 +90,7 @@ end
     read_configs(src::AbstractDFTSource) -> Vector{SpinDatum}
 
 Read all training configurations from a DFT source. Implemented per source type
-(see [`VASP.Oszicar`](@ref)).
+(e.g. `SCETools.VASP.Oszicar` in the SCETools.jl package).
 """
 read_configs(src::AbstractDFTSource) =
     throw(ArgumentError("read_configs is not implemented for $(typeof(src))"))

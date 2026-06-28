@@ -6,6 +6,18 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — VASP I/O moved to `SCETools.jl`
+
+- The concrete VASP adapter (`MagestyRebuild.VASP`: `read_poscar`, `write_poscar`, `Oszicar`)
+  has been **moved to the `SCETools.jl` package** (`SCETools.VASP`), joining the INCAR writer
+  so all VASP I/O lives in one place. The core now keeps only the **code-agnostic DFT-data
+  seam** — `AbstractDFTSource`, `AbstractTrainingDatum`, `SpinDatum`, `read_configs`, and
+  `SCEDataset(basis, src)` — so the SCE pipeline stays code-agnostic. To read VASP training
+  data, `using SCETools` and `SCETools.VASP.read_poscar` / `Oszicar` (the `SCEDataset(basis,
+  src)` seam is unchanged). The `test/unit/test_vaspio.jl` unit tests, the
+  `examples/vasp_dft_source.jl` example, and the VASP-vs-Magesty oracle cross-check moved to
+  SCETools with it.
+
 ### Changed — sampling extracted into `SCETools.jl`; fitted-model introspection added
 
 - The mean-field spin-configuration **sampler** (the P0–P4 work documented below) has been

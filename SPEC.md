@@ -136,15 +136,15 @@ files use the stdlib `TOML` (no external dependency).
   `Arrow.write`. The library owns the internal-storage → labeled-row mapping; the caller
   brings the table/IO package. `j0` is the intercept (`intercept(c)`), not a row.
   Tables.jl is a lightweight core dep.
-- **DFT data sources** (`io/dftsource.jl`, `io/vasp.jl`): a code-agnostic boundary —
+- **DFT data sources** (`io/dftsource.jl`): the **code-agnostic boundary only** —
   `SpinDatum` (energy + spin directions + magmoms + constraining field + the derived
   torque target `τ_a = m_a × B_a`, the physical / Landau–Lifshitz torque) and
   `read_configs(src::AbstractDFTSource) -> Vector{SpinDatum}`, with `SCEDataset(basis, src)`
-  going source → dataset. Per-code adapters are **namespaced submodules** kept out of the
-  core: `MagestyRebuild.VASP` reads POSCAR/CONTCAR (`read_poscar`/`write_poscar`) and
-  constrained-noncollinear OSZICARs (`Oszicar`, with SAXIS rotation). Adding a DFT code is
-  one sibling submodule — neither the core nor its export list changes. Cross-checked
-  bit-for-bit against Magesty's parsers (oracle).
+  going source → dataset. The **concrete per-code adapters live in the `SCETools.jl`
+  package** (`SCETools.VASP`: `read_poscar`/`write_poscar`, `Oszicar` with SAXIS rotation,
+  and the INCAR writer), not in the core. Adding a DFT code is one sibling adapter there —
+  neither the core nor its export list changes; the VASP parsers are cross-checked bit-for-bit
+  against Magesty in SCETools's oracle.
 - Validated: basis / model / fit round-trips (predictions bit-identical, coefficients
   re-paired by key under scrambled order, multi-op space-group ops, empty basis), input
   parsing + defaults + keyword overrides + error paths.

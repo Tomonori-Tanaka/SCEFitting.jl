@@ -155,25 +155,29 @@ fit(SCEFit, dataset, AdaptiveLasso())                  # pilot-reweighted Lasso 
 the pilot found large. For an energy+torque co-fit the cross-validation folds are grouped
 by configuration.
 
-### Reading DFT data (VASP)
+### Reading DFT data
 
-DFT-code I/O is isolated at the training-data boundary: each code is a namespaced
-submodule that produces code-agnostic `SpinDatum`s, and the SCE pipeline only ever sees
-`SpinDatum` / `SCEDataset` — once you have the data, the originating code is irrelevant.
+DFT-code I/O is isolated at the training-data boundary: the core owns only the
+code-agnostic `SpinDatum` / `SCEDataset` seam (`read_configs(src::AbstractDFTSource)`), so
+once you have the data the originating code is irrelevant. The **concrete VASP adapter lives
+in the companion [SCETools.jl](https://github.com/Tomonori-Tanaka/SCETools.jl) package**:
 
 ```julia
-using MagestyRebuild.VASP: read_poscar, Oszicar
+using MagestyRebuild, SCETools
+using SCETools.VASP: read_poscar, Oszicar
 
 crystal = read_poscar("POSCAR")                          # → Crystal
 basis   = SCEBasis(crystal, interaction)
 
-# constrained-noncollinear OSZICARs → energy + spin directions + torque target (τ = −m×B)
+# constrained-noncollinear OSZICARs → energy + spin directions + torque target (τ = m×B)
 src     = Oszicar(["run1/OSZICAR", "run2/OSZICAR"])      # an AbstractDFTSource
 dataset = SCEDataset(basis, src)                         # read_configs(src) under the hood
 fit(SCEFit, dataset, OLS(); torque_weight = 0.5)
 ```
 
-Adding another DFT code is one sibling submodule — the core and its exports do not change.
+Adding another DFT code is one sibling adapter in SCETools — the core and its exports do not
+change. (SCETools also writes the inverse direction: sampled configurations →
+constrained-noncollinear VASP inputs.)
 
 ## Design highlights
 
@@ -228,9 +232,9 @@ torque** design matrices → `OLS` / `Ridge` / `AdaptiveRidge` / `Lasso` / `Elas
 dimensions agree exactly).
 
 Basis/model **persistence**, a human-authored **`input.toml`**, **tabular coefficient
-output** (`coeftable`), **VASP I/O** (POSCAR + constrained-noncollinear OSZICAR through a
-code-agnostic DFT-source seam), **GLMNet** Lasso / elastic-net / adaptive-Lasso
-estimators, and **Sunny.jl export** are implemented as extensions.
+output** (`coeftable`), a **code-agnostic DFT-source seam** (`SpinDatum` / `SCEDataset`; the
+concrete VASP adapter lives in the companion `SCETools.jl`), **GLMNet** Lasso / elastic-net /
+adaptive-Lasso estimators, and **Sunny.jl export** are implemented as extensions.
 
 The v0 vertical slice is feature-complete.
 
