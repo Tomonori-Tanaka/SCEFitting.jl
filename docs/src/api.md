@@ -133,7 +133,8 @@ to_sunny
 
 A code-neutral view of a fitted [`SCEModel`](@ref)'s multipole terms, the stable public
 contract downstream packages (e.g. the mean-field samplers in
-[`SCETools.jl`](https://github.com/…)) read instead of the SALC-basis internals.
+[`SCETools.jl`](https://github.com/Tomonori-Tanaka/SCETools.jl)) read instead of the
+SALC-basis internals.
 `multipole_terms` is the general per-term dump; `bilinear_terms` is the bilinear (`ls=[1,1]`)
 and single-ion (`ls=[2]`) extraction as Cartesian `3×3` matrices (reusing the validated
 Sunny conversion). The tesseral spherical-harmonic kernel `MagestyRebuild.Harmonics`

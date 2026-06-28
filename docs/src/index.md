@@ -52,6 +52,15 @@ Crystal + Interaction ──▶ SCEBasis ──▶ SCEDataset ──▶ fit ─�
   human-readable TOML, and exports to [Sunny.jl](https://sunnysuite.github.io/Sunny/) for
   spin-wave theory.
 
+!!! tip "Sampling and active learning live in SCETools.jl"
+    This package is focused on **building and fitting** SCE models. To *generate* spin
+    configurations from a fitted model — finite-temperature mean-field (MFA) sampling, and
+    (planned) active-learning model construction — use the companion package
+    [SCETools.jl](https://github.com/Tomonori-Tanaka/SCETools.jl). It depends on
+    MagestyRebuild and reads a fitted model only through the public
+    [introspection surface](api.md#Fitted-model-introspection)
+    (`multipole_terms`, `bilinear_terms`, `MagestyRebuild.Harmonics`).
+
 ## Documentation
 
 | Page | What's there |
