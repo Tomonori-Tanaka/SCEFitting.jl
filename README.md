@@ -111,9 +111,16 @@ df = DataFrame(coeftable(f))       # or CSV.write("J.csv", coeftable(f))
 intercept(f)                       # the reference energy j0 (not a row)
 ```
 
-### Regularized fits (Lasso / elastic-net)
+### Regularized fits (sparse / L0-like selection)
 
-For sparse coefficient selection, load GLMNet to activate the `Lasso` / `ElasticNet`
+`AdaptiveRidge` is an in-tree, closed-form estimator (no extra dependency): an iterative
+reweighted ridge that approximates an L0 penalty, driving small coefficients toward zero.
+
+```julia
+fit(SCEFit, dataset, AdaptiveRidge(lambda = 1e-3))     # L0-like selection, analytic
+```
+
+For L1 selection, load GLMNet to activate the `Lasso` / `ElasticNet` / `AdaptiveLasso`
 estimators. With `lambda = nothing` (the default) the penalty is chosen by
 cross-validation; pass a number to fit at a fixed penalty. The column-centering /
 analytic-`j0` contract is identical to `OLS`/`Ridge`, so the rest of the pipeline is
@@ -126,9 +133,13 @@ fit(SCEFit, dataset, Lasso())                          # CV-selected λ, sparse 
 fit(SCEFit, dataset, Lasso(select = :lambda_1se))      # the parsimonious 1-SE model
 fit(SCEFit, dataset, ElasticNet(alpha = 0.5))          # L1/L2 mix
 fit(SCEFit, dataset, Lasso(lambda = 1e-3))             # a fixed penalty (no CV)
+fit(SCEFit, dataset, AdaptiveLasso())                  # pilot-reweighted Lasso (Zou 2006)
 ```
 
-For an energy+torque co-fit the cross-validation folds are grouped by configuration.
+`AdaptiveLasso` runs a pilot estimator (default `OLS`, any estimator allowed — including a
+`PrecomputedPilot` reusing a prior fit) and then a weighted Lasso that spares the columns
+the pilot found large. For an energy+torque co-fit the cross-validation folds are grouped
+by configuration.
 
 ### Reading DFT data (VASP)
 
@@ -154,9 +165,9 @@ Adding another DFT code is one sibling submodule — the core and its exports do
 
 - **Pluggable seams** via multiple dispatch + Julia package extensions: symmetry
   backends (`AbstractSymmetryBackend`; `NoSymmetry` in-tree, `SpglibBackend` in an
-  extension) and estimators (`AbstractEstimator`; `OLS`/`Ridge` in-tree, `Lasso` /
-  `ElasticNet` with cross-validated regularization paths in a GLMNet extension). The
-  lightweight core loads with no heavy dependencies.
+  extension) and estimators (`AbstractEstimator`; `OLS`/`Ridge`/`AdaptiveRidge` in-tree,
+  `Lasso` / `ElasticNet` / `AdaptiveLasso` with cross-validated regularization paths in a
+  GLMNet extension). The lightweight core loads with no heavy dependencies.
 - **Generalized cutoff neighbor list** — no fixed image grid; correct for
   triclinic cells and cutoffs spanning many lattice translations.
 - **Minimum-image periodic resolvability** — the default `MinimumImage` selection
@@ -197,14 +208,15 @@ is not yet deployed — add a remote and `deploydocs` when one exists.
 Implemented and validated (v0): geometry → symmetry (pluggable backend) →
 **arbitrary-body-order** cluster orbits → SALC basis (isotropic and anisotropic
 channels, including the `N ≥ 3` coupling-path / `l`-ordering mixing) → **energy and
-torque** design matrices → `OLS` / `Ridge` / `Lasso` / `ElasticNet` fit (energy-only or
-energy+torque co-fit) → `predict_energy` / `predict_torque`. Cross-validated against
-Magesty.jl through 3-body (invariant-subspace dimensions agree exactly).
+torque** design matrices → `OLS` / `Ridge` / `AdaptiveRidge` / `Lasso` / `ElasticNet` /
+`AdaptiveLasso` fit (energy-only or energy+torque co-fit) → `predict_energy` /
+`predict_torque`. Cross-validated against Magesty.jl through 3-body (invariant-subspace
+dimensions agree exactly).
 
 Basis/model **persistence**, a human-authored **`input.toml`**, **tabular coefficient
 output** (`coeftable`), **VASP I/O** (POSCAR + constrained-noncollinear OSZICAR through a
-code-agnostic DFT-source seam), **GLMNet** Lasso / elastic-net estimators, and **Sunny.jl
-export** are implemented as extensions.
+code-agnostic DFT-source seam), **GLMNet** Lasso / elastic-net / adaptive-Lasso
+estimators, and **Sunny.jl export** are implemented as extensions.
 
 The v0 vertical slice is feature-complete.
 

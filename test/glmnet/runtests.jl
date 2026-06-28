@@ -95,4 +95,52 @@ avg(x) = sum(x) / length(x)
         @test MR.r2_energy(fcv) > 0.9
         @test MR.r2_torque(fcv) > 0.9
     end
+
+    @testset "AdaptiveLasso recovers the support and is sparse" begin
+        # Fixed λ, OLS pilot: the weighted L1 should select the signal column and fit it.
+        fa = MR.fit(MR.SCEFit, dssparse, MR.AdaptiveLasso(lambda = 1e-3))
+        @test argmax(abs.(MR.coef(fa))) == kiso
+        @test MR.r2_energy(fa) > 0.95
+        @test count(iszero, MR.coef(fa)) >= 1                     # genuinely sparse
+        # CV-selected λ (the default) likewise selects the signal column.
+        facv = MR.fit(MR.SCEFit, dssparse, MR.AdaptiveLasso())
+        @test argmax(abs.(MR.coef(facv))) == kiso
+        @test MR.r2_energy(facv) > 0.95
+    end
+
+    @testset "gamma = 0 reduces to plain Lasso" begin
+        # With γ = 0 the weights are uniform (≡ 1 after GLMNet's sum-to-nvars rescale),
+        # so an OLS-pilot AdaptiveLasso is byte-for-byte a plain Lasso at the same λ.
+        λ = 0.02
+        fa0 = MR.fit(MR.SCEFit, dssparse, MR.AdaptiveLasso(lambda = λ, gamma = 0.0))
+        fl = MR.fit(MR.SCEFit, dssparse, MR.Lasso(lambda = λ))
+        @test isapprox(MR.coef(fa0), MR.coef(fl); atol = 1e-10)
+    end
+
+    @testset "the adaptive reweighting changes the fit, and the pilot is pluggable" begin
+        λ = 0.02
+        fl = MR.fit(MR.SCEFit, dssparse, MR.Lasso(lambda = λ))
+        fa = MR.fit(MR.SCEFit, dssparse, MR.AdaptiveLasso(lambda = λ, gamma = 1.0))
+        @test !isapprox(MR.coef(fa), MR.coef(fl); atol = 1e-8)    # γ > 0 reweights
+        # A Ridge pilot (recommended for rank-deficient designs) also fits.
+        far = MR.fit(MR.SCEFit, dssparse, MR.AdaptiveLasso(pilot = MR.Ridge(lambda = 1e-4),
+                                                           lambda = 1e-3))
+        @test MR.r2_energy(far) > 0.95
+        # PrecomputedPilot reuses a prior fit's coefficients instead of a fresh pilot run;
+        # with the OLS pilot's own coefficients it matches the OLS-pilot AdaptiveLasso.
+        prior = MR.fit(MR.SCEFit, dssparse, MR.OLS())
+        fpp = MR.fit(MR.SCEFit, dssparse,
+                     MR.AdaptiveLasso(pilot = MR.PrecomputedPilot(MR.coef(prior)), lambda = 1e-3))
+        fos = MR.fit(MR.SCEFit, dssparse, MR.AdaptiveLasso(pilot = MR.OLS(), lambda = 1e-3))
+        @test isapprox(MR.coef(fpp), MR.coef(fos); atol = 1e-8)
+    end
+
+    @testset "AdaptiveLasso energy+torque co-fit flows through grouped CV" begin
+        truem = MR.SCEModel(basis, 0.4, βdense, keys)
+        torqs = MR.predict_torque(truem, configs)
+        dst = MR.SCEDataset(basis, configs, ydense, torqs)
+        fco = MR.fit(MR.SCEFit, dst, MR.AdaptiveLasso(); torque_weight = 0.3)
+        @test MR.r2_energy(fco) > 0.9
+        @test MR.r2_torque(fco) > 0.9
+    end
 end

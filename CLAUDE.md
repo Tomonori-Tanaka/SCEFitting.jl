@@ -157,12 +157,17 @@ Easy to break silently — confirm before touching the algorithm.
   in-tree or in an extension — must honor this. `groups` (optional) labels rows from the
   same physical sample (in a co-fit, a configuration's energy row and its
   torque-component rows share a label); a resampling estimator (CV-based `ElasticNet` /
-  `Lasso` in `ext/MagestyRebuildGLMNetExt.jl`) must keep same-label rows in the same fold
-  so CV does not leak within-configuration structure. `OLS`/`Ridge` ignore it. The GLMNet
+  `Lasso` / `AdaptiveLasso` in `ext/MagestyRebuildGLMNetExt.jl`) must keep same-label rows
+  in the same fold so CV does not leak within-configuration structure. The analytic / adapter
+  estimators (`OLS` / `Ridge` / `AdaptiveRidge` / `PrecomputedPilot`) ignore it. The GLMNet
   solve uses `intercept = false` + column `standardize` and selects λ by configuration-
   grouped, seeded CV (`:lambda_min`/`:lambda_1se`); change the centering/whitening in
-  `fit` and the penalty scale (`λ·std`) moves with it. Validated in the separate
-  `test/glmnet/` env, never in the core suite (GLMNet absent there).
+  `fit` and the penalty scale (`λ·std`) moves with it. `AdaptiveLasso` runs its `pilot`
+  through `solve_coefficients` (forwarding `groups`), then a weighted-L1 GLMNet solve with
+  fixed `penalty_factor`; `AdaptiveRidge` is a pure-core reweighted-ridge loop sharing the
+  centered-`X` contract. Validated in the separate `test/glmnet/` env (GLMNet-backed) and
+  `test/unit/test_fit.jl` (core `AdaptiveRidge` / `PrecomputedPilot` solves), never mixing
+  the two (GLMNet absent in the core suite).
 
 ## Tests
 

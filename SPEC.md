@@ -101,8 +101,8 @@ files use the stdlib `TOML` (no external dependency).
   torque design matrix `X_T` via the four-argument form), `SCEModel`/`SCEFit`,
   `fit(SCEFit, dataset, estimator; torque_weight)`, `predict_energy`/`predict_torque`,
   `coef`/`intercept`/`nobs`/`r2_energy`/`rmse_energy`/`r2_torque`/`rmse_torque`/
-  `has_torque`. `AbstractEstimator` with `OLS`/`Ridge` (analytic `j0`; centered-`X`
-  `solve_coefficients` contract).
+  `has_torque`. `AbstractEstimator` with `OLS`/`Ridge`/`AdaptiveRidge` (analytic `j0`;
+  centered-`X` `solve_coefficients` contract).
 - Validated: OLS recovers an in-span target (R²=1); **a Heisenberg chain fit
   recovers `J = 2√3·jphi` to rtol 1e-8** (the v0 done-line, oracle); torque is the
   exact derivative of the energy surface (on-sphere finite differences, equivariance,
@@ -165,21 +165,34 @@ files use the stdlib `TOML` (no external dependency).
   for both routes, the primitive system reshaped back to the supercell, mode/spin handling,
   the skip warning).
 
-### GLMNet estimators (M12)
-- **Types in core** (`fitting/estimators.jl`): `ElasticNet(; alpha, lambda, standardize,
-  nfolds, select, seed, nlambda)` and `Lasso(; …)` (= `alpha = 1`). Named and dispatched
-  on without the dependency; argument validation lives here.
-- **Extension** (`ext/MagestyRebuildGLMNetExt`, loaded by `using GLMNet`):
-  `solve_coefficients(::ElasticNet, X, y; groups)`. GLMNet minimizes
-  `(1/2n)‖y−Xβ‖² + λ[(1−α)/2‖β‖₂² + α‖β‖₁]` on the column-centered `(X, y)` with
-  `intercept = false` (so `j0` stays analytic) and `standardize` (penalty acts per-column
-  at `λ·std`). `lambda = nothing` ⇒ K-fold CV over GLMNet's λ path, `select` =
-  `:lambda_min`/`:lambda_1se`; folds are **grouped by configuration** (via `groups`) and
-  seeded deterministically (`hash`-ranked, no RNG dependency). A numeric `lambda` skips CV.
+### Regularized estimators (M12)
+- **Analytic, in-core** (`fitting/estimators.jl`, no extension): `AdaptiveRidge(; lambda,
+  epsilon, max_iter, tol)` — iterative reweighted ridge (Frommlet & Nuel 2016), an L0
+  approximation that refits `(X'X + λ·Diagonal(w)) \ X'y` with `wⱼ = 1/(βⱼ² + ε)` until the
+  ∞-norm change drops below `tol`; `lambda = 0` ⇒ OLS. `islinear` ⇒ `true` (a linear
+  smoother in the converged-weight sense). `PrecomputedPilot(beta)` — adapter returning a
+  fixed coefficient vector (length-checked against `size(X, 2)`), for reuse as an
+  `AdaptiveLasso` pilot.
+- **GLMNet-backed types in core, solve in extension** (`ext/MagestyRebuildGLMNetExt`,
+  loaded by `using GLMNet`): `ElasticNet(; alpha, lambda, standardize, nfolds, select,
+  seed, nlambda)`, `Lasso(; …)` (= `alpha = 1`), and `AdaptiveLasso(; pilot, lambda, gamma,
+  epsilon, standardize, …)`. Named and dispatched on without the dependency; argument
+  validation lives in core. GLMNet minimizes `(1/2n)‖y−Xβ‖² + λ[(1−α)/2‖β‖₂² + α‖β‖₁]` on
+  the column-centered `(X, y)` with `intercept = false` (so `j0` stays analytic) and
+  `standardize` (penalty acts per-column at `λ·std`). `lambda = nothing` ⇒ K-fold CV over
+  GLMNet's λ path, `select` = `:lambda_min`/`:lambda_1se`; folds are **grouped by
+  configuration** (via `groups`) and seeded deterministically (`hash`-ranked, no RNG
+  dependency). A numeric `lambda` skips CV.
+- `AdaptiveLasso` (Zou 2006) runs `pilot` (any estimator; default `OLS`) for `β̂`, then a
+  weighted Lasso with per-column penalty factor `wⱼ = 1/max(|β̂ⱼ|, ε)^γ` (held fixed across
+  the fixed-λ or CV path). `gamma = 0` reduces exactly to a plain Lasso. The pilot's own
+  solve receives the co-fit `groups`.
 - Validated in a separate `test/glmnet/` environment: tiny-λ ≈ OLS, the analytic-`j0`
   centering invariant, CV support recovery + sparsity, `:lambda_1se` shrinkage,
-  reproducibility, ElasticNet ≠ Lasso, and an energy+torque grouped-CV co-fit. Core-only
-  construction / validation / deferred-backend error in `test/unit/test_fit.jl`.
+  reproducibility, ElasticNet ≠ Lasso, AdaptiveLasso support recovery, `γ = 0` ≡ plain
+  Lasso, pilot pluggability (`Ridge`/`PrecomputedPilot`), and energy+torque grouped-CV
+  co-fits. Core-only construction / validation / deferred-backend error, plus the full
+  `AdaptiveRidge` / `PrecomputedPilot` solves, in `test/unit/test_fit.jl`.
 
 ## Not yet implemented (v0 follow-ups)
 - The v0 slice is feature-complete; no estimator/observable/IO follow-ups outstanding.

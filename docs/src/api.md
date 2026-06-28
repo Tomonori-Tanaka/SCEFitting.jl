@@ -84,6 +84,9 @@ OLS
 Ridge
 ElasticNet
 Lasso
+AdaptiveLasso
+AdaptiveRidge
+PrecomputedPilot
 solve_coefficients
 ```
 

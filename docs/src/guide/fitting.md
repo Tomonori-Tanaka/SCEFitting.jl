@@ -68,15 +68,25 @@ end-to-end.
 
 ## Estimators
 
-The estimator is the regression strategy, dispatched on [`AbstractEstimator`](@ref). Two
+The estimator is the regression strategy, dispatched on [`AbstractEstimator`](@ref). Three
 are in-tree (closed form, no dependencies):
 
 | Estimator | Penalty | Notes |
 |-----------|---------|-------|
 | [`OLS`](@ref) | none | ordinary least squares (QR) |
 | [`Ridge`](@ref) | ``\lambda\lVert\beta\rVert_2^2`` | L2, closed form |
+| [`AdaptiveRidge`](@ref) | ``\lambda\sum_j w_j\beta_j^2`` | iterative reweighted ridge, an L0 approximation |
 
-Two more — the Lasso and the elastic net, with cross-validated regularization paths — are
+[`AdaptiveRidge`](@ref) (Frommlet & Nuel 2016) repeatedly refits a per-coefficient
+weighted ridge with ``w_j = 1/(\beta_j^2 + \varepsilon)``, so large coefficients get a
+light penalty and small ones a heavy penalty — iterating drives the small ones toward
+zero. Each subproblem is the analytic weighted ridge, so it needs no extension:
+
+```julia
+fit(SCEFit, dataset, AdaptiveRidge(lambda = 1e-3))     # L0-like selection, closed form
+```
+
+The penalized-path estimators — the Lasso, the elastic net, and the adaptive Lasso — are
 provided by a **GLMNet extension** that lights up under `using GLMNet`:
 
 ```julia
@@ -86,6 +96,7 @@ fit(SCEFit, dataset, Lasso())                          # CV-selected λ, sparse 
 fit(SCEFit, dataset, Lasso(select = :lambda_1se))      # the parsimonious 1-SE model
 fit(SCEFit, dataset, ElasticNet(alpha = 0.5))          # an L1/L2 mix
 fit(SCEFit, dataset, Lasso(lambda = 1e-3))             # a fixed penalty (no CV)
+fit(SCEFit, dataset, AdaptiveLasso())                  # data-driven reweighted Lasso
 ```
 
 [`ElasticNet`](@ref) minimizes GLMNet's
@@ -95,6 +106,22 @@ column standardization. With `lambda = nothing` the penalty is chosen by `nfolds
 cross-validation (`select = :lambda_min` or `:lambda_1se`); a numeric `lambda` fits at
 exactly that penalty. For a co-fit the CV folds are **grouped by configuration** so that a
 configuration's energy and torque rows never split across folds.
+
+[`AdaptiveLasso`](@ref) (Zou 2006) runs a `pilot` estimator first, then a weighted Lasso
+with per-column penalty factors ``w_j = 1/\max(|\hat\beta_j^{\text{pilot}}|,
+\varepsilon)^\gamma`` — penalizing columns the pilot found small and sparing those it
+found large, which gives it oracle selection. `gamma = 0` reduces to a plain Lasso; the
+pilot defaults to [`OLS`](@ref) but any estimator works, including a
+[`PrecomputedPilot`](@ref) that reuses a prior fit's coefficients:
+
+```julia
+fit(SCEFit, dataset, AdaptiveLasso(gamma = 1.0))                       # OLS pilot (Zou 2006)
+fit(SCEFit, dataset, AdaptiveLasso(pilot = Ridge(lambda = 1e-4)))      # for ill-conditioned designs
+fit(SCEFit, dataset, AdaptiveLasso(pilot = PrecomputedPilot(coef(prior)), lambda = 1e-3))
+```
+
+It shares `lambda` / `standardize` / CV behavior with [`ElasticNet`](@ref) (`lambda =
+nothing` selects λ by configuration-grouped CV with the adaptive weights held fixed).
 
 Implementing your own estimator is one method:
 

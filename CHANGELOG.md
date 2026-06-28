@@ -6,6 +6,29 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — adaptive / L0-approximating estimators
+
+- **`AdaptiveRidge`** (in-tree, no extension): iterative reweighted ridge
+  (Frommlet & Nuel 2016) that approximates an L0 penalty. It refits the analytic weighted
+  ridge `(X'X + λ·Diagonal(w)) \ X'y` with `wⱼ = 1/(βⱼ² + ε)` until the relative ∞-norm
+  change drops below `tol` (or `max_iter` steps), so large coefficients keep a light
+  penalty and small ones are driven toward zero. `lambda = 0` reduces to `OLS`;
+  `islinear ⇒ true` (a linear smoother in the converged-weight sense).
+- **`AdaptiveLasso`** (type in core, GLMNet solve in `ext/MagestyRebuildGLMNetExt`): the
+  one-shot Adaptive Lasso (Zou 2006). A `pilot` estimator (default `OLS`, any estimator
+  allowed) supplies `β̂`, then a weighted Lasso is solved with per-column penalty factor
+  `wⱼ = 1/max(|β̂ⱼ|, ε)^γ`. `gamma = 0` reduces exactly to a plain `Lasso`. It shares
+  `ElasticNet`'s `lambda` / `standardize` / grouped-CV behavior (`lambda = nothing` selects
+  λ by configuration-grouped CV with the adaptive weights held fixed).
+- **`PrecomputedPilot`** (in-tree adapter): returns a fixed coefficient vector from
+  `solve_coefficients` (length-checked against `size(X, 2)`), so an `AdaptiveLasso` can
+  reuse a prior fit's `coef(f)` as its pilot instead of re-running a pilot regression.
+- All three honor the column-centered `(X, y)` / analytic-`j0` contract. The GLMNet
+  plumbing is shared between `ElasticNet` and `AdaptiveLasso` (an optional `penalty_factor`).
+  Validated in `test/glmnet/` (support recovery, `γ = 0` ≡ plain Lasso, pilot
+  pluggability, grouped-CV co-fit) and `test/unit/test_fit.jl` (core `AdaptiveRidge` /
+  `PrecomputedPilot` solves, construction / validation, deferred-backend error).
+
 ### Changed — torque sign convention → Landau–Lifshitz / physical torque
 
 - The per-atom torque is now `τ_a = −e_a × ∂E/∂e_a` (the physical / Landau–Lifshitz

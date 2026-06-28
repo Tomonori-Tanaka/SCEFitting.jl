@@ -9,7 +9,7 @@ Work in progress (v0 vertical slice). See `SPEC.md` for the realized architectur
 """
 module MagestyRebuild
 
-using LinearAlgebra: norm, det, I, eigen, Symmetric, dot, cross
+using LinearAlgebra: norm, det, I, eigen, Symmetric, Diagonal, dot, cross
 using StaticArrays
 using Statistics: mean
 import TOML
@@ -64,7 +64,8 @@ export ClusterMember, ClusterOrbit, ClusterSet, build_clusters
 export SALCKey, SALC, SALCBasis, build_salc_basis, evaluate
 export Interaction, SCEBasis, SCEDataset, SCEModel, SCEFit, fit, nsalc, read_input
 export predict_energy, predict_torque, has_torque
-export AbstractEstimator, OLS, Ridge, ElasticNet, Lasso, solve_coefficients
+export AbstractEstimator, OLS, Ridge, ElasticNet, Lasso, AdaptiveLasso, AdaptiveRidge,
+    PrecomputedPilot, solve_coefficients
 export coef, intercept, nobs, r2_energy, rmse_energy, r2_torque, rmse_torque
 export coeftable, SCECoefficients
 export to_sunny
