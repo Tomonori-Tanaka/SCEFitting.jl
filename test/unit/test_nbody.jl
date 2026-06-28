@@ -1,6 +1,6 @@
 using Test
 using SCEFitting
-using SCEFitting: _assemble_spacegroup, evaluate
+using SCEFitting: _assemble_spacegroup, evaluate_salc
 using StaticArrays
 using LinearAlgebra
 using Random
@@ -106,11 +106,11 @@ end
         for _ = 1:25
             e = _rcfg3(rng, 3)
             for s in basis.salcs
-                base = evaluate(s, e)
+                base = evaluate_salc(s, e)
                 for g = 1:length(sg.ops)
-                    @test isapprox(evaluate(s, _act3(sg, g, e)), base; atol = 1e-9, rtol = 1e-8)
+                    @test isapprox(evaluate_salc(s, _act3(sg, g, e)), base; atol = 1e-9, rtol = 1e-8)
                 end
-                @test isapprox(evaluate(s, -e), base; atol = 1e-9, rtol = 1e-8)
+                @test isapprox(evaluate_salc(s, -e), base; atol = 1e-9, rtol = 1e-8)
             end
         end
     end
@@ -123,7 +123,7 @@ end
         rng = MersenneTwister(5)
         m = length(basis.salcs)
         configs = [_rcfg3(rng, 3) for _ = 1:6m]
-        X = [evaluate(basis.salcs[j], configs[i]) for i = 1:6m, j = 1:m]
+        X = [evaluate_salc(basis.salcs[j], configs[i]) for i = 1:6m, j = 1:m]
         @test rank(X; atol = 1e-8) == m
     end
 
@@ -142,9 +142,9 @@ end
         for _ = 1:15
             e = _rcfg3(rng, 3)
             for s in basis_cs.salcs
-                base = evaluate(s, e)
+                base = evaluate_salc(s, e)
                 for g = 1:length(sg_cs.ops)
-                    @test isapprox(evaluate(s, _act3(sg_cs, g, e)), base; atol = 1e-9, rtol = 1e-8)
+                    @test isapprox(evaluate_salc(s, _act3(sg_cs, g, e)), base; atol = 1e-9, rtol = 1e-8)
                 end
             end
         end
@@ -153,14 +153,14 @@ end
     @testset "end-to-end: energy+torque co-fit recovers an in-span 3-body model" begin
         # wrap the manual-symmetry basis in an SCEBasis (default constructor)
         sceb = SCEBasis(crystal, sg, basis, Interaction(; nbody = 3, pair_cutoff = 2.2, lmax = [2]))
-        m = nsalc(sceb)
+        m = n_salcs(sceb)
         rng = MersenneTwister(9)
         configs = [_rcfg3(rng, 3) for _ = 1:120]
         skel = SCEDataset(sceb, configs, zeros(length(configs)))
         true_jphi = randn(rng, m)
         true_j0 = 0.25
         energies = true_j0 .+ skel.X_E * true_jphi
-        model0 = SCEModel(sceb, true_j0, true_jphi, sceb.salcs.keys)
+        model0 = SCEPredictor(sceb, true_j0, true_jphi, sceb.salc_basis.keys)
         torques = [predict_torque(model0, c) for c in configs]
 
         ds = SCEDataset(sceb, configs, energies, torques)
@@ -172,7 +172,7 @@ end
 
         # torque is the exact gradient of the fitted energy surface (multi-term path)
         for c in configs[1:5]
-            @test isapprox(predict_torque(f, c), _torque_fd3(SCEModel(f), c); atol = 1e-5)
+            @test isapprox(predict_torque(f, c), _torque_fd3(SCEPredictor(f), c); atol = 1e-5)
         end
     end
 end

@@ -62,7 +62,7 @@ operation by contracting against the package's own orthonormal coupled tensors (
 ``6j``/``9j`` symbols, the same spirit as deriving the Wigner-``D`` from ``Z_{l,m}``), forms
 the projector as the average over the stabilizer, and reads its eigenvalue-1 subspace. A
 SALC is consequently **multi-term**: it can carry several ``l``-orderings, one *term* each,
-and [`evaluate`](@ref) and the torque-gradient kernel both loop over them. This is what the
+and [`evaluate_salc`](@ref) and the torque-gradient kernel both loop over them. This is what the
 [kagome three-body tutorial](../tutorials/kagome_threebody.md) exercises. Cross-validated
 against Magesty through three-body, the per-`(body, ls, Lf)` invariant-subspace dimensions
 agree exactly.

@@ -9,7 +9,7 @@ using Random
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
     basis = SCEBasis(crystal, Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false))
-    m = nsalc(basis)
+    m = n_salcs(basis)
     configs = [(E = randn(rng, 3, 2); E ./ sqrt.(sum(abs2, E; dims = 1))) for _ = 1:40]
     f = fit(SCEFit, SCEDataset(basis, configs, randn(rng, 40)), OLS())
     c = coeftable(f)
@@ -32,7 +32,7 @@ using Random
         @test eltype(ct.Lf) == Int
         @test eltype(ct.ls) == String
         # columns agree with the basis keys, positionally
-        ks = basis.salcs.keys
+        ks = basis.salc_basis.keys
         @test collect(ct.body) == [k.body for k in ks]
         @test collect(ct.orbit_id) == [k.orbit_id for k in ks]
         @test collect(ct.Lf) == [k.Lf for k in ks]
@@ -40,7 +40,7 @@ using Random
     end
 
     @testset "ls is the sorted multiset as a comma string" begin
-        ks = basis.salcs.keys
+        ks = basis.salc_basis.keys
         @test all(c[i].ls == join(ks[i].ls, ",") for i = 1:m)
         # this 2-body lmax=[2] basis has both single-l (body 1) and multi-l (body 2) labels
         ls_vals = [c[i].ls for i = 1:m]
@@ -51,21 +51,21 @@ using Random
     @testset "rows, indexing, iteration, accessors" begin
         @test eltype(c) == NamedTuple{(:body, :orbit_id, :ls, :Lf, :block, :J),
                                       Tuple{Int,Int,String,Int,Int,Float64}}
-        @test c[1] == (body = basis.salcs.keys[1].body, orbit_id = basis.salcs.keys[1].orbit_id,
-                       ls = join(basis.salcs.keys[1].ls, ","), Lf = basis.salcs.keys[1].Lf,
-                       block = basis.salcs.keys[1].block, J = f.jphi[1])
+        @test c[1] == (body = basis.salc_basis.keys[1].body, orbit_id = basis.salc_basis.keys[1].orbit_id,
+                       ls = join(basis.salc_basis.keys[1].ls, ","), Lf = basis.salc_basis.keys[1].Lf,
+                       block = basis.salc_basis.keys[1].block, J = f.jphi[1])
         @test length(collect(c)) == m
         @test Tables.rowtable(c) == collect(c)
         @test coef(c) == f.jphi
         @test intercept(c) === f.j0
         # fit and its model give the same table
-        cm = coeftable(SCEModel(f))
+        cm = coeftable(SCEPredictor(f))
         @test Tables.columntable(cm) == Tables.columntable(c)
     end
 
     @testset "empty model" begin
         eb = SCEBasis(crystal, Interaction(; nbody = 1, pair_cutoff = 0.1, lmax = [0]))
-        ce = coeftable(SCEModel(eb, 0.5, Float64[], eb.salcs.keys))
+        ce = coeftable(SCEPredictor(eb, 0.5, Float64[], eb.salc_basis.keys))
         @test length(ce) == 0
         @test Tables.istable(typeof(ce))
         ct = Tables.columntable(ce)
@@ -83,11 +83,11 @@ using Random
         one = repr(c)
         @test occursin("$m terms", one) && occursin("j0=", one)
         # a short table prints no truncation marker
-        short = coeftable(SCEModel(basis, 0.0, zeros(m)[1:1], basis.salcs.keys[1:1]))
+        short = coeftable(SCEPredictor(basis, 0.0, zeros(m)[1:1], basis.salc_basis.keys[1:1]))
         @test !occursin("more", sprint(show, MIME("text/plain"), short))
     end
 
     @testset "errors" begin
-        @test_throws ArgumentError SCECoefficients(basis.salcs.keys, Float64[], 0.0)  # length mismatch
+        @test_throws ArgumentError SCECoefficients(basis.salc_basis.keys, Float64[], 0.0)  # length mismatch
     end
 end

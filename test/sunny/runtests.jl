@@ -1,4 +1,4 @@
-# Sunny-export validation: build a Sunny.System from a fitted SCEModel and confirm
+# Sunny-export validation: build a Sunny.System from a fitted SCEPredictor and confirm
 # its classical energy reproduces the SCE energy. Runs in a separate environment
 # (heavy Sunny dependency), mirroring `test/oracle/`. The conversion math itself is
 # already covered Sunny-free in `test/unit/test_sunny.jl`; here we check the actual
@@ -20,7 +20,7 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
 # Max |Sunny energy − (predict_energy − j0)| over random configurations.
 function energy_error(model, spins, mode; seed = 5, ntrial = 20, placement = :auto)
     sys = MR.to_sunny(model; spins = spins, mode = mode, placement = placement)
-    nat = MR.num_atoms(model.basis.crystal)
+    nat = MR.n_atoms(model.basis.crystal)
     rng = MersenneTwister(seed)
     me = 0.0
     for _ = 1:ntrial
@@ -41,7 +41,7 @@ end
     @testset "bilinear exchange: energy matches across modes and spins" begin
         b = MR.SCEBasis(cr2, MR.Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [1],
                                             isotropy = false))
-        model = MR.SCEModel(b, 0.5, randn(rng, MR.nsalc(b)), b.salcs.keys)
+        model = MR.SCEPredictor(b, 0.5, randn(rng, MR.n_salcs(b)), b.salc_basis.keys)
         @test energy_error(model, 1.5, :dipole_uncorrected) < 1e-10
         @test energy_error(model, 1.0, :dipole) < 1e-10            # exchange is mode-independent
         @test energy_error(model, 2.5, :dipole) < 1e-10           # and spin-length-independent
@@ -51,7 +51,7 @@ end
         cr1 = MR.Crystal(lat, reshape([0.0, 0, 0], 3, 1), [1], ["Fe"])
         bo = MR.SCEBasis(cr1, MR.Interaction(; nbody = 1, pair_cutoff = 1.5, lmax = [2],
                                              isotropy = false))
-        mo = MR.SCEModel(bo, 0.0, randn(rng, MR.nsalc(bo)), bo.salcs.keys)
+        mo = MR.SCEPredictor(bo, 0.0, randn(rng, MR.n_salcs(bo)), bo.salc_basis.keys)
         @test energy_error(mo, 1.5, :dipole_uncorrected) < 1e-10
         @test energy_error(mo, 1.0, :dipole) < 1e-10              # s ≥ 1: quantum factor exact
         @test_throws ErrorException MR.to_sunny(mo; spins = 0.5, mode = :dipole)   # spin-1/2 guard
@@ -60,7 +60,7 @@ end
     @testset "explicit (supercell) placement: energy matches" begin
         b = MR.SCEBasis(cr2, MR.Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [1],
                                             isotropy = false))
-        model = MR.SCEModel(b, 0.3, randn(rng, MR.nsalc(b)), b.salcs.keys)
+        model = MR.SCEPredictor(b, 0.3, randn(rng, MR.n_salcs(b)), b.salc_basis.keys)
         @test energy_error(model, 1.5, :dipole_uncorrected; placement = :explicit) < 1e-10
     end
 
@@ -69,19 +69,19 @@ end
         # System and the model carry the same energy, then check consistency.
         b = MR.SCEBasis(cr2, MR.Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2],
                                             isotropy = false))
-        keys = b.salcs.keys
-        jphi = randn(rng, MR.nsalc(b))
+        keys = b.salc_basis.keys
+        jphi = randn(rng, MR.n_salcs(b))
         for k in eachindex(keys)
             MR._classify_salc(keys[k].ls) === :unsupported && (jphi[k] = 0.0)
         end
-        model = MR.SCEModel(b, 0.2, jphi, keys)
+        model = MR.SCEPredictor(b, 0.2, jphi, keys)
         @test energy_error(model, 1.5, :dipole_uncorrected) < 1e-10
     end
 
     @testset "unsupported channels trigger a warning" begin
         b = MR.SCEBasis(cr2, MR.Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2],
                                             isotropy = false))
-        model = MR.SCEModel(b, 0.0, ones(MR.nsalc(b)), b.salcs.keys)
+        model = MR.SCEPredictor(b, 0.0, ones(MR.n_salcs(b)), b.salc_basis.keys)
         @test_logs (:warn,) match_mode = :any MR.to_sunny(model; spins = 1.5,
                                                           mode = :dipole_uncorrected)
     end
@@ -89,7 +89,7 @@ end
     @testset "spins as a per-species mapping" begin
         b = MR.SCEBasis(cr2, MR.Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [1],
                                             isotropy = true))
-        model = MR.SCEModel(b, 0.0, [0.01], b.salcs.keys)
+        model = MR.SCEPredictor(b, 0.0, [0.01], b.salc_basis.keys)
         @test energy_error(model, Dict("Fe" => 1.5), :dipole_uncorrected) < 1e-10
     end
 
@@ -98,7 +98,7 @@ end
     function _set_reshaped!(sys_r, model, e)
         cr = model.basis.crystal
         A = SMatrix{3,3,Float64}(cr.lattice.vectors)
-        nat = MR.num_atoms(cr)
+        nat = MR.n_atoms(cr)
         key(f) = Tuple(mod.(round.(Int, 1000 .* f), 1000))
         lut = Dict(key(SVector{3,Float64}(cr.frac_positions[:, a])) => a for a = 1:nat)
         for site in Sunny.eachsite(sys_r)
@@ -114,7 +114,7 @@ end
         sys_p = MR.to_sunny(model; spins = S, mode = mode, placement = :primitive)
         prim = MR._sunny_primitive(model)
         sys_r = Sunny.reshape_supercell(sys_p, Matrix(prim.reshape))
-        nat = MR.num_atoms(model.basis.crystal)
+        nat = MR.n_atoms(model.basis.crystal)
         rng = MersenneTwister(seed)
         me = 0.0
         for _ = 1:ntrial
@@ -132,7 +132,7 @@ end
         crc = MR.Crystal(lat, [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75], [1, 1, 1, 1], ["Fe"])
         bc = MR.SCEBasis(crc, MR.Interaction(; nbody = 2, pair_cutoff = 2.6, lmax = [1],
                                              isotropy = false); backend = spg)
-        mc = MR.SCEModel(bc, 0.5, randn(rng, MR.nsalc(bc)), bc.salcs.keys)
+        mc = MR.SCEPredictor(bc, 0.5, randn(rng, MR.n_salcs(bc)), bc.salc_basis.keys)
         me, prim = primitive_energy_error(mc, 1.5, :dipole_uncorrected)
         @test prim.clean && length(prim.positions) == 1
         @test me < 1e-10
@@ -142,7 +142,7 @@ end
         crb = MR.Crystal(latb, [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["Fe"])
         bb = MR.SCEBasis(crb, MR.Interaction(; nbody = 2, pair_cutoff = 2.7, lmax = [1],
                                              isotropy = false); backend = spg)
-        mb = MR.SCEModel(bb, 0.0, randn(rng, MR.nsalc(bb)), bb.salcs.keys)
+        mb = MR.SCEPredictor(bb, 0.0, randn(rng, MR.n_salcs(bb)), bb.salc_basis.keys)
         meb, primb = primitive_energy_error(mb, 2.0, :dipole)
         @test primb.clean
         @test meb < 1e-10
@@ -155,7 +155,7 @@ end
                          [1, 1, 1, 1], ["Fe"])
         bs = MR.SCEBasis(crs, MR.Interaction(; nbody = 2, pair_cutoff = 3.1, lmax = [1],
                                              isotropy = true); backend = spg)
-        ms = MR.SCEModel(bs, 0.0, [0.01], bs.salcs.keys)
+        ms = MR.SCEPredictor(bs, 0.0, [0.01], bs.salc_basis.keys)
         sys = MR.to_sunny(ms; spins = 1.5)                # default placement/mode: must not throw
         @test sys isa Sunny.System
         mes, prims = primitive_energy_error(ms, 1.5, :dipole_uncorrected)

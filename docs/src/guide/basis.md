@@ -24,7 +24,7 @@ cr  = Crystal(lat,
               [0.0 0.5; 0.0 0.5; 0.0 0.5],            # 3 × n_atoms fractional positions
               [1, 1],                                 # species index per atom
               ["Fe"])                                 # label per species
-(num_atoms(cr), cr.species_labels)
+(n_atoms(cr), cr.species_labels)
 ```
 
 Periodic directions default to all three axes; pass `pbc = (true, true, false)` to a
@@ -81,7 +81,7 @@ products onto the space-group-invariant SALCs. The backend is pluggable:
 
 ```@example basis
 basis = SCEBasis(cr, interaction; backend = SpglibBackend())
-(basis.spacegroup.symbol, basis.spacegroup.number, nsalc(basis))
+(basis.spacegroup.symbol, basis.spacegroup.number, n_salcs(basis))
 ```
 
 !!! tip "Loading Spglib"

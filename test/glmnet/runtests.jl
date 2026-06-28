@@ -23,9 +23,9 @@ avg(x) = sum(x) / length(x)
     crystal = MR.Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
     inter = MR.Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false)
     basis = MR.SCEBasis(crystal, inter)          # NoSymmetry ⇒ a wide (44-column) basis
-    m = MR.nsalc(basis)
+    m = MR.n_salcs(basis)
     @test m > 10
-    keys = basis.salcs.keys
+    keys = basis.salc_basis.keys
     kiso = findfirst(k -> sort(collect(k.ls)) == [1, 1] && k.Lf == 0, keys)
     @test kiso !== nothing                       # the isotropic (Heisenberg) channel
 
@@ -82,7 +82,7 @@ avg(x) = sum(x) / length(x)
     end
 
     @testset "energy+torque co-fit flows through GLMNet" begin
-        truem = MR.SCEModel(basis, 0.4, βdense, keys)
+        truem = MR.SCEPredictor(basis, 0.4, βdense, keys)
         torqs = MR.predict_torque(truem, configs)
         dst = MR.SCEDataset(basis, configs, ydense, torqs)
         # explicit λ: both observables recovered
@@ -136,7 +136,7 @@ avg(x) = sum(x) / length(x)
     end
 
     @testset "AdaptiveLasso energy+torque co-fit flows through grouped CV" begin
-        truem = MR.SCEModel(basis, 0.4, βdense, keys)
+        truem = MR.SCEPredictor(basis, 0.4, βdense, keys)
         torqs = MR.predict_torque(truem, configs)
         dst = MR.SCEDataset(basis, configs, ydense, torqs)
         fco = MR.fit(MR.SCEFit, dst, MR.AdaptiveLasso(); torque_weight = 0.3)

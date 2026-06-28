@@ -116,7 +116,7 @@ function build_neighbor_list(crystal::Crystal, cutoff::Real, ::MinimumImage;
     rtol = Float64(tol)
     lat = crystal.lattice
     A = lat.vectors
-    nat = num_atoms(crystal)
+    nat = n_atoms(crystal)
     cart = cartesian_positions(crystal)
     brow = SVector{3,Float64}(norm(lat.reciprocal[1, :]), norm(lat.reciprocal[2, :]),
                               norm(lat.reciprocal[3, :]))
@@ -174,7 +174,7 @@ function build_neighbor_list(crystal::Crystal, cutoff::Real)::NeighborList
     cut = Float64(cutoff)
     lat = crystal.lattice
     A = lat.vectors
-    nat = num_atoms(crystal)
+    nat = n_atoms(crystal)
     # N_d = ceil(cut / spacingᵈ) = ceil(cut * ‖b_d‖); zero on non-periodic axes.
     nrange = ntuple(d -> lat.pbc[d] ? ceil(Int, cut * norm(lat.reciprocal[d, :])) : 0, 3)
     cart = cartesian_positions(crystal)

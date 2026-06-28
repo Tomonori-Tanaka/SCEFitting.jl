@@ -50,7 +50,7 @@ function _crystal_doc(c::Crystal)
     A = c.lattice.vectors
     cols = [[_jnum(A[1, j]), _jnum(A[2, j]), _jnum(A[3, j])] for j = 1:3]   # one per lattice vector
     pos = [[_jnum(c.frac_positions[1, a]), _jnum(c.frac_positions[2, a]),
-            _jnum(c.frac_positions[3, a])] for a = 1:num_atoms(c)]          # one per atom
+            _jnum(c.frac_positions[3, a])] for a = 1:n_atoms(c)]          # one per atom
     return Dict{String,Any}(
         "lattice_vectors" => cols,
         "pbc" => [c.lattice.pbc[1], c.lattice.pbc[2], c.lattice.pbc[3]],
@@ -79,15 +79,15 @@ function _basis_doc(b::SCEBasis)
         "crystal" => _crystal_doc(b.crystal),
         "symmetry" => _symmetry_doc(b.spacegroup),
         "interaction" => _interaction_doc(b.interaction),
-        "fingerprint" => string(b.salcs.fingerprint),   # UInt64 as a string (JSON numbers lose >2^53)
-        "salcs" => [_salc_doc(s) for s in b.salcs.salcs])
+        "fingerprint" => string(b.salc_basis.fingerprint),   # UInt64 as a string (JSON numbers lose >2^53)
+        "salcs" => [_salc_doc(s) for s in b.salc_basis.salcs])
 end
 
 """
     _to_doc(x) -> Dict{String,Any}
 
 Build the (backend-agnostic) serialization document for an [`SCEBasis`](@ref),
-[`SCEModel`](@ref), or [`SCEFit`](@ref). The inverse is `_basis_from_doc` /
+[`SCEPredictor`](@ref), or [`SCEFit`](@ref). The inverse is `_basis_from_doc` /
 `_model_from_doc`.
 """
 function _to_doc(b::SCEBasis)
@@ -96,7 +96,7 @@ function _to_doc(b::SCEBasis)
     return d
 end
 
-function _to_doc(m::SCEModel)
+function _to_doc(m::SCEPredictor)
     d = Dict{String,Any}("schema" => _SCHEMA_MODEL, "schema_version" => PERSIST_SCHEMA_VERSION)
     merge!(d, _basis_doc(m.basis))
     d["j0"] = _jnum(m.j0)
@@ -105,7 +105,7 @@ function _to_doc(m::SCEModel)
     return d
 end
 
-_to_doc(f::SCEFit) = _to_doc(SCEModel(f))
+_to_doc(f::SCEFit) = _to_doc(SCEPredictor(f))
 
 # ----------------------------------------------------------------------------
 # Dict → struct   (accessors work on both Dict{String,Any} and a parsed JSON object)
@@ -221,13 +221,13 @@ function _basis_from_doc(d)::SCEBasis
 end
 
 """
-    _model_from_doc(d) -> SCEModel
+    _model_from_doc(d) -> SCEPredictor
 
-Reconstruct an [`SCEModel`](@ref) from a model document, re-pairing each stored
+Reconstruct an [`SCEPredictor`](@ref) from a model document, re-pairing each stored
 coefficient to the rebuilt basis **by [`SALCKey`](@ref)** (not by position). Errors
 if any basis column lacks a coefficient or the counts disagree.
 """
-function _model_from_doc(d)::SCEModel
+function _model_from_doc(d)::SCEPredictor
     _check_schema(d, (_SCHEMA_MODEL,))
     basis = _basis_from_doc(d)
     j0 = Float64(d["j0"])
@@ -237,7 +237,7 @@ function _model_from_doc(d)::SCEModel
         haskey(coup, k) && throw(ArgumentError("duplicate coefficient for SALC key $k"))
         coup[k] = Float64(c["jphi"])
     end
-    keys = basis.salcs.keys
+    keys = basis.salc_basis.keys
     length(coup) == length(keys) ||
         throw(ArgumentError("model has $(length(coup)) coefficients for $(length(keys)) basis SALCs"))
     jphi = Vector{Float64}(undef, length(keys))
@@ -245,7 +245,7 @@ function _model_from_doc(d)::SCEModel
         haskey(coup, k) || throw(ArgumentError("no coefficient for SALC key $k in the file"))
         jphi[i] = coup[k]
     end
-    return SCEModel(basis, j0, jphi, copy(keys))
+    return SCEPredictor(basis, j0, jphi, copy(keys))
 end
 
 # ----------------------------------------------------------------------------
@@ -255,29 +255,29 @@ end
 """
     save(path_or_io, x)
 
-Serialize an [`SCEBasis`](@ref), [`SCEModel`](@ref), or [`SCEFit`](@ref) (a fit is
+Serialize an [`SCEBasis`](@ref), [`SCEPredictor`](@ref), or [`SCEFit`](@ref) (a fit is
 saved as its model) to `path_or_io` as a self-contained, human-readable TOML
 document. Not exported (the name clashes with FileIO / JLD2 / CSV); call as
 `SCEFitting.save("model.toml", model)`. Inverse: [`load`](@ref SCEFitting.load).
 """
-function save(io::IO, x::Union{SCEBasis,SCEModel,SCEFit})
+function save(io::IO, x::Union{SCEBasis,SCEPredictor,SCEFit})
     TOML.print(io, _to_doc(x))
     return nothing
 end
-save(path::AbstractString, x::Union{SCEBasis,SCEModel,SCEFit}) =
+save(path::AbstractString, x::Union{SCEBasis,SCEPredictor,SCEFit}) =
     (open(io -> save(io, x), path, "w"); nothing)
 
 """
     load(SCEBasis, path_or_io) -> SCEBasis
-    load(SCEModel, path_or_io) -> SCEModel
+    load(SCEPredictor, path_or_io) -> SCEPredictor
 
 Inverse of [`save`](@ref SCEFitting.save): rebuild a basis or model from a TOML
 document. The SALC basis is reconstructed verbatim (no re-projection); a basis can be
 loaded from a model document too (the coefficients are ignored), and a model load
 re-pairs coefficients to the basis **by key** (not by position). Not exported; call as
-`SCEFitting.load(SCEModel, "model.toml")`.
+`SCEFitting.load(SCEPredictor, "model.toml")`.
 """
 load(::Type{SCEBasis}, io::IO)::SCEBasis = _basis_from_doc(TOML.parse(io))
-load(::Type{SCEModel}, io::IO)::SCEModel = _model_from_doc(TOML.parse(io))
+load(::Type{SCEPredictor}, io::IO)::SCEPredictor = _model_from_doc(TOML.parse(io))
 load(::Type{SCEBasis}, path::AbstractString)::SCEBasis = _basis_from_doc(TOML.parsefile(path))
-load(::Type{SCEModel}, path::AbstractString)::SCEModel = _model_from_doc(TOML.parsefile(path))
+load(::Type{SCEPredictor}, path::AbstractString)::SCEPredictor = _model_from_doc(TOML.parsefile(path))

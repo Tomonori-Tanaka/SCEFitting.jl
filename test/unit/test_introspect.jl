@@ -67,17 +67,17 @@ end
 @testset "fitted-model introspection" begin
     rng = MersenneTwister(2024)
     b = _multichannel_basis()
-    keys = b.salcs.keys
-    K = nsalc(b)
+    keys = b.salc_basis.keys
+    K = n_salcs(b)
 
-    @testset "num_atoms(model)" begin
-        model = SCEModel(b, 0.0, randn(rng, K), keys)
-        @test num_atoms(model) == 2
+    @testset "n_atoms(model)" begin
+        model = SCEPredictor(b, 0.0, randn(rng, K), keys)
+        @test n_atoms(model) == 2
     end
 
     @testset "multipole_terms reproduces predict_energy − j0" begin
         j0 = 0.37
-        model = SCEModel(b, j0, 0.1 .* randn(rng, K), keys)
+        model = SCEPredictor(b, j0, 0.1 .* randn(rng, K), keys)
         terms = multipole_terms(model)
         @test !isempty(terms)
         # The raw coefficient is the fitted jϕ (no (4π)^(N/2) baked in); the body order spans
@@ -93,7 +93,7 @@ end
     @testset "zero-coefficient SALCs are dropped" begin
         jphi = zeros(K)
         jphi[1] = 0.5
-        terms = multipole_terms(SCEModel(b, 0.0, jphi, keys))
+        terms = multipole_terms(SCEPredictor(b, 0.0, jphi, keys))
         @test all(t -> t.coef == 0.5, terms)        # only the one nonzero SALC's members
     end
 
@@ -102,7 +102,7 @@ end
         # then the bilinear extraction captures the whole energy (the skipped channels exist
         # in the basis but carry a zero coefficient, so they contribute nothing).
         jphi = [keys[k].ls in ([1, 1], [2]) ? randn(rng) : 0.0 for k = 1:K]
-        model = SCEModel(b, 0.0, jphi, keys)
+        model = SCEPredictor(b, 0.0, jphi, keys)
         bt = bilinear_terms(model)
         for _ = 1:8
             e = _rand_config(rng, 2)
@@ -111,7 +111,7 @@ end
     end
 
     @testset "bilinear_terms reports the higher-order channels it drops" begin
-        model = SCEModel(b, 0.0, ones(K), keys)
+        model = SCEPredictor(b, 0.0, ones(K), keys)
         bt = bilinear_terms(model)
         @test !isempty(bt.skipped)                  # the [1,2] / [2,2] biquadratic channels
     end

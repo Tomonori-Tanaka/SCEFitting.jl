@@ -1,6 +1,6 @@
 using Test
 using SCEFitting
-using SCEFitting: _assemble_spacegroup, evaluate
+using SCEFitting: _assemble_spacegroup, evaluate_salc
 using StaticArrays
 using LinearAlgebra
 using Random
@@ -54,7 +54,7 @@ end
             for g = 1:length(sg.ops)
                 ge = act_on_config(sg, g, e)
                 for s in basis.salcs
-                    @test isapprox(evaluate(s, ge), evaluate(s, e); atol = 1e-9, rtol = 1e-8)
+                    @test isapprox(evaluate_salc(s, ge), evaluate_salc(s, e); atol = 1e-9, rtol = 1e-8)
                 end
             end
         end
@@ -65,7 +65,7 @@ end
         for _ = 1:20
             e = Matrix(rand_config(rng, 2))
             for s in basis.salcs
-                @test isapprox(evaluate(s, -e), evaluate(s, e); atol = 1e-9, rtol = 1e-8)
+                @test isapprox(evaluate_salc(s, -e), evaluate_salc(s, e); atol = 1e-9, rtol = 1e-8)
             end
         end
     end

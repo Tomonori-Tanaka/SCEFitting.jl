@@ -58,11 +58,11 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
     # channels are ls=[1,1] / ls=[2], this must equal predict_energy − j0.
     function _recon_max_err(basis; seed = 7, ntrial = 30)
         rng = MersenneTwister(seed)
-        jphi = randn(rng, nsalc(basis))
+        jphi = randn(rng, n_salcs(basis))
         j0 = 0.37
-        model = SCEModel(basis, j0, jphi, basis.salcs.keys)
+        model = SCEPredictor(basis, j0, jphi, basis.salc_basis.keys)
         terms = _sunny_supercell_terms(model)
-        nat = num_atoms(basis.crystal)
+        nat = n_atoms(basis.crystal)
         me = 0.0
         for _ = 1:ntrial
             e = _rcfg(rng, nat)
@@ -94,7 +94,7 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
         lat = Lattice([8.0 0 0; 0 8.0 0; 0 0 10.0])
         cr = Crystal(lat, [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75], [1, 1, 1, 1], ["Fe"])
         b = SCEBasis(cr, Interaction(; nbody = 2, pair_cutoff = 2.6, lmax = [1], isotropy = true))
-        model = SCEModel(b, 0.0, [0.0137], b.salcs.keys)
+        model = SCEPredictor(b, 0.0, [0.0137], b.salc_basis.keys)
         terms = _sunny_supercell_terms(model)
         for (_, M) in terms.pairs
             @test isapprox(M, (M[1, 1]) * I; atol = 1e-12)   # diagonal isotropic
@@ -105,7 +105,7 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
         b = SCEBasis(cr, Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false))
-        model = SCEModel(b, 0.0, ones(nsalc(b)), b.salcs.keys)
+        model = SCEPredictor(b, 0.0, ones(n_salcs(b)), b.salc_basis.keys)
         terms = _sunny_supercell_terms(model)
         @test !isempty(terms.skipped)                         # ls=[2,2] pairs reported
         @test all(s -> occursin("unsupported", s), terms.skipped)
@@ -125,7 +125,7 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
         basis = SCEBasis(cr, sg, salcs,
                          Interaction(; nbody = 2, pair_cutoff = 2.6, lmax = [1], isotropy = false))
         rng = MersenneTwister(3)
-        model = SCEModel(basis, 0.5, randn(rng, nsalc(basis)), basis.salcs.keys)
+        model = SCEPredictor(basis, 0.5, randn(rng, n_salcs(basis)), basis.salc_basis.keys)
 
         prim = _sunny_primitive(model)
         @test prim.clean
@@ -138,7 +138,7 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
         # uniform-config energy round-trip: supercell == ntran · (per-primitive-cell)
         terms = _sunny_supercell_terms(model)
         e0 = (v = randn(rng, 3); v / norm(v))
-        eu = repeat(e0, 1, num_atoms(cr))
+        eu = repeat(e0, 1, n_atoms(cr))
         e_prim = sum(dot(e0, M * e0) for (_, M) in prim.bonds; init = 0.0)
         @test isapprox(_reconstruct_energy(terms, eu), ntran * e_prim; atol = 1e-10)
     end
@@ -147,10 +147,10 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
         b = SCEBasis(cr, Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [1], isotropy = false))
-        model = SCEModel(b, 0.0, ones(nsalc(b)), b.salcs.keys)
+        model = SCEPredictor(b, 0.0, ones(n_salcs(b)), b.salc_basis.keys)
         prim = _sunny_primitive(model)               # NoSymmetry ⇒ only the identity translation
         @test prim.clean
-        @test length(prim.positions) == num_atoms(cr)
+        @test length(prim.positions) == n_atoms(cr)
         @test round(Int, abs(det(Matrix(prim.reshape)))) == 1
     end
 
@@ -158,7 +158,7 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
         b = SCEBasis(cr, Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [1], isotropy = true))
-        model = SCEModel(b, 0.0, zeros(nsalc(b)), b.salcs.keys)
+        model = SCEPredictor(b, 0.0, zeros(n_salcs(b)), b.salc_basis.keys)
         @test_throws ErrorException to_sunny(model; spins = 1)
     end
 end

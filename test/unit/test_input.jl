@@ -39,9 +39,9 @@ lmax = [2]
 _writetoml(s) = (p = tempname() * ".toml"; write(p, s); p)
 
 @testset "TOML input files" begin
-    @testset "read_input parses structure / interaction / symmetry" begin
-        inp = read_input(_writetoml(_INPUT_FULL))
-        @test num_atoms(inp.crystal) == 2
+    @testset "read_setup parses structure / interaction / symmetry" begin
+        inp = read_setup(_writetoml(_INPUT_FULL))
+        @test n_atoms(inp.crystal) == 2
         @test inp.crystal.species_labels == ["Fe"]
         @test inp.crystal.species == [1, 1]
         @test inp.crystal.lattice.vectors == SMatrix{3,3,Float64}(3.0 * I)
@@ -59,14 +59,14 @@ _writetoml(s) = (p = tempname() * ".toml"; write(p, s); p)
     @testset "SCEBasis(path) == building from the same Crystal/Interaction" begin
         path = _writetoml(_INPUT_FULL)
         b_file = SCEBasis(path)
-        inp = read_input(path)
+        inp = read_setup(path)
         b_manual = SCEBasis(inp.crystal, inp.interaction)
-        @test b_file.salcs.keys == b_manual.salcs.keys
-        @test nsalc(b_file) == nsalc(b_manual)
+        @test b_file.salc_basis.keys == b_manual.salc_basis.keys
+        @test n_salcs(b_file) == n_salcs(b_manual)
     end
 
     @testset "defaults for omitted keys" begin
-        inp = read_input(_writetoml(_INPUT_MINIMAL))
+        inp = read_setup(_writetoml(_INPUT_MINIMAL))
         @test inp.backend isa NoSymmetry          # no [symmetry] → NoSymmetry
         @test inp.tol == 1.0e-5                    # default tol
         @test inp.interaction.isotropy == false    # default isotropy
@@ -81,13 +81,13 @@ _writetoml(s) = (p = tempname() * ".toml"; write(p, s); p)
 
     @testset "backend name maps to the requested backend type" begin
         s = replace(_INPUT_FULL, "backend = \"none\"" => "backend = \"spglib\"")
-        inp = read_input(_writetoml(s))           # mapping only; building would need `using Spglib`
+        inp = read_setup(_writetoml(s))           # mapping only; building would need `using Spglib`
         @test inp.backend isa SpglibBackend
     end
 
     @testset "error paths" begin
         only_interaction = "[interaction]\nnbody = 1\npair_cutoff = 1.5\nlmax = [2]\n"
-        @test_throws ArgumentError read_input(_writetoml(only_interaction))   # no [structure]
+        @test_throws ArgumentError read_setup(_writetoml(only_interaction))   # no [structure]
 
         only_structure = """
         [structure]
@@ -96,25 +96,25 @@ _writetoml(s) = (p = tempname() * ".toml"; write(p, s); p)
         species = [1]
         species_labels = ["Fe"]
         """
-        @test_throws ArgumentError read_input(_writetoml(only_structure))     # no [interaction]
+        @test_throws ArgumentError read_setup(_writetoml(only_structure))     # no [interaction]
 
         # missing required key inside a section
         no_lattice = replace(_INPUT_FULL,
             "lattice = [[3.0, 0.0, 0.0], [0.0, 3.0, 0.0], [0.0, 0.0, 3.0]]\n" => "")
-        @test_throws ArgumentError read_input(_writetoml(no_lattice))
+        @test_throws ArgumentError read_setup(_writetoml(no_lattice))
 
         # lmax length ≠ number of species
         two_species = replace(_INPUT_FULL, "species_labels = [\"Fe\"]" => "species_labels = [\"Fe\", \"Pt\"]")
-        @test_throws ArgumentError read_input(_writetoml(two_species))        # lmax=[2] for 2 species
+        @test_throws ArgumentError read_setup(_writetoml(two_species))        # lmax=[2] for 2 species
 
         # unrecognized backend
         bad_backend = replace(_INPUT_FULL, "backend = \"none\"" => "backend = \"xml\"")
-        @test_throws ArgumentError read_input(_writetoml(bad_backend))
+        @test_throws ArgumentError read_setup(_writetoml(bad_backend))
 
         # malformed lattice (only 2 vectors)
         bad_lattice = replace(_INPUT_FULL,
             "lattice = [[3.0, 0.0, 0.0], [0.0, 3.0, 0.0], [0.0, 0.0, 3.0]]" =>
                 "lattice = [[3.0, 0.0, 0.0], [0.0, 3.0, 0.0]]")
-        @test_throws ArgumentError read_input(_writetoml(bad_lattice))
+        @test_throws ArgumentError read_setup(_writetoml(bad_lattice))
     end
 end

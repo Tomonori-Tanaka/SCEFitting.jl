@@ -160,7 +160,7 @@ end
         Crystal = SCEFitting.Crystal
         SpglibBackend = SCEFitting.SpglibBackend
         analyze = SCEFitting.analyze_symmetry
-        evaluate = SCEFitting.evaluate
+        evaluate_salc = SCEFitting.evaluate_salc
 
         # 4-atom chain along z (so neighboring spins differ)
         lat = Lattice(Matrix(Diagonal([8.0, 8.0, 10.0])))
@@ -187,7 +187,7 @@ end
                     ge[:, a] = R * e[:, b]
                 end
                 for s in basis.salcs
-                    @test isapprox(evaluate(s, ge), evaluate(s, e); atol = 1e-8, rtol = 1e-7)
+                    @test isapprox(evaluate_salc(s, ge), evaluate_salc(s, e); atol = 1e-8, rtol = 1e-7)
                 end
             end
         end
@@ -197,7 +197,7 @@ end
         for _ = 1:10
             e = randcfg()
             ref = sqrt(3.0) * sum(dot(e[:, m.atoms[1]], e[:, m.atoms[2]]) for m in heis.members)
-            @test isapprox(evaluate(heis, e), ref; atol = 1e-9, rtol = 1e-8)
+            @test isapprox(evaluate_salc(heis, e), ref; atol = 1e-9, rtol = 1e-8)
         end
     end
 
@@ -212,8 +212,8 @@ end
         interaction = SCEFitting.Interaction(; nbody = 2, pair_cutoff = 2.6,
                                                  lmax = [1], isotropy = true)
         basis = SCEFitting.SCEBasis(chain, interaction; backend = SpglibBackend())
-        @test length(basis.salcs) == 1          # only the nearest-neighbor Heisenberg SALC
-        heis = basis.salcs.salcs[1]
+        @test length(basis.salc_basis) == 1          # only the nearest-neighbor Heisenberg SALC
+        heis = basis.salc_basis.salcs[1]
 
         rng = MersenneTwister(3)
         cfg() = (M = Matrix{Float64}(undef, 3, 4);

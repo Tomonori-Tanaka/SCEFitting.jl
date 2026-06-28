@@ -37,16 +37,16 @@ write(input_path, input_toml)
 
 basis = SCEBasis(input_path)        # reads the [symmetry] backend/tol from the file
 println("from input.toml → space group ", basis.spacegroup.symbol,
-        " (#", basis.spacegroup.number, "), ", nsalc(basis), " SALC(s)")
+        " (#", basis.spacegroup.number, "), ", n_salcs(basis), " SALC(s)")
 
 # --- 2. fit synthetic Heisenberg data --------------------------------------------
-heis = basis.salcs.salcs[1]
+heis = salcs(basis)[1]
 J_true = 0.0137
 configs = [randcfg(4) for _ = 1:40]
 E = [J_true * 0.5 * sum(dot(c[:, m.atoms[1]], c[:, m.atoms[2]]) for m in heis.members)
      for c in configs]
 f = fit(SCEFit, SCEDataset(basis, configs, E), OLS())
-model = SCEModel(f)
+model = SCEPredictor(f)
 println("fitted J = ", round(2 * sqrt(3) * coef(f)[1]; digits = 6), "  (true ", J_true, ")")
 
 # the coefficients as a Tables.jl source — DataFrame(coeftable(f)) / CSV.write(...) also work
@@ -55,7 +55,7 @@ println("\n", coeftable(f))
 # --- 3. save → reload → predict identically --------------------------------------
 model_path = joinpath(dir, "model.toml")
 SCEFitting.save(model_path, model)
-reloaded = SCEFitting.load(SCEModel, model_path)
+reloaded = SCEFitting.load(SCEPredictor, model_path)
 
 test = [randcfg(4) for _ = 1:10]
 @assert predict_energy(reloaded, test) == predict_energy(model, test)
@@ -69,5 +69,5 @@ foreach(println, Iterators.take(eachline(model_path), 12))
 # a basis alone round-trips too
 basis_path = joinpath(dir, "basis.toml")
 SCEFitting.save(basis_path, basis)
-@assert SCEFitting.load(SCEBasis, basis_path).salcs.keys == basis.salcs.keys
+@assert SCEFitting.load(SCEBasis, basis_path).salc_basis.keys == basis.salc_basis.keys
 println("\n✓ basis round-trips as well")

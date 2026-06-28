@@ -6,7 +6,7 @@ CurrentModule = SCEFitting
 
 With a basis in hand, the second half of the workflow pairs it with DFT data, fits the
 coefficients, and reports how well the fit did. The objects are [`SCEDataset`](@ref),
-[`fit`](@ref) with a pluggable estimator, and [`SCEFit`](@ref) / [`SCEModel`](@ref).
+[`fit`](@ref) with a pluggable estimator, and [`SCEFit`](@ref) / [`SCEPredictor`](@ref).
 
 ## Datasets
 

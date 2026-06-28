@@ -47,7 +47,7 @@ basis = SCEBasis(chain, interaction; backend = SpglibBackend())
 
 # synthetic Heisenberg data E = J Σ_⟨ij⟩ e_i·e_j, then fit
 configs = [mapreduce(_ -> (v = randn(3); v / norm(v)), hcat, 1:4) for _ in 1:30]
-heis = basis.salcs.salcs[1]
+heis = salcs(basis)[1]
 J = 0.0137
 E = [J * 0.5 * sum(c[:, m.atoms[1]]' * c[:, m.atoms[2]] for m in heis.members) for c in configs]
 
@@ -61,13 +61,17 @@ and [`examples/kagome_threebody.jl`](examples/kagome_threebody.jl) (3-body / mul
 
 ### Persistence and input files
 
+`fit` returns an `SCEFit` — the heavyweight result that keeps the data and answers
+diagnostics (`r2_energy`, `residuals_energy`, …). For prediction and storage, wrap it
+in the lightweight, persistable `SCEPredictor` with `SCEPredictor(f)`.
+
 Save a fitted model (or just a basis) to a self-contained, human-readable **TOML**
 document and reload it later. Coefficients re-pair to the basis by `SALCKey`, so a
 reloaded model predicts identically:
 
 ```julia
-SCEFitting.save("model.toml", SCEModel(f))     # or save("basis.toml", basis)
-model = SCEFitting.load(SCEModel, "model.toml")
+SCEFitting.save("model.toml", SCEPredictor(f))     # or save("basis.toml", basis)
+model = SCEFitting.load(SCEPredictor, "model.toml")
 predict_energy(model, configs)
 ```
 

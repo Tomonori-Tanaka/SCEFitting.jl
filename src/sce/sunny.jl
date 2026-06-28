@@ -1,7 +1,7 @@
 """
 Sunny export — the code-agnostic core.
 
-A fitted [`SCEModel`](@ref) is a polynomial in unit spin directions of arbitrary
+A fitted [`SCEPredictor`](@ref) is a polynomial in unit spin directions of arbitrary
 body order and `l`. Sunny.jl represents only **bilinear pair exchange** (a 3×3
 matrix per bond) and **single-ion anisotropy** (a quadratic form per site), so the
 export covers exactly the two SCE channels that map onto those:
@@ -112,11 +112,11 @@ member contributes `jϕ·(4π)^(N/2)·_l2_onsite_matrix` to its atom. The energy
 `Σ eₐ'·M·e_b + Σ eₐ'·A·eₐ`, matching `predict_energy − j0` for a model with only
 these channels.
 """
-function _sunny_supercell_terms(model::SCEModel)::SunnyTerms
+function _sunny_supercell_terms(model::SCEPredictor)::SunnyTerms
     pairs = Dict{Tuple{Int,Int,SVector{3,Int}},SMatrix{3,3,Float64,9}}()
     onsites = Dict{Int,SMatrix{3,3,Float64,9}}()
     skipped = String[]
-    salcs = model.basis.salcs.salcs
+    salcs = model.basis.salc_basis.salcs
     @inbounds for k in eachindex(model.jphi)
         salc = salcs[k]
         j = model.jphi[k]
@@ -230,11 +230,11 @@ to a primitive bond `(i,j,n)`. Translation-equivalent supercell bonds collapse t
 primitive bond; `clean` records whether every offset is integral and every such group
 agrees (i.e. the model genuinely lives on the primitive cell).
 """
-function _sunny_primitive(model::SCEModel)::SunnyPrimitive
+function _sunny_primitive(model::SCEPredictor)::SunnyPrimitive
     crystal = model.basis.crystal
     sg = model.basis.spacegroup
     A = crystal.lattice.vectors
-    nat = num_atoms(crystal)
+    nat = n_atoms(crystal)
     cart = cartesian_positions(crystal)
     tol = max(sg.tol, 1e-8)
 
@@ -311,7 +311,7 @@ end
 """
     to_sunny(model; spins, g = 2, mode = :dipole, placement = :auto) -> Sunny.System
 
-Export a fitted [`SCEModel`](@ref) to a Sunny.jl `System`. **Requires `using Sunny`**
+Export a fitted [`SCEPredictor`](@ref) to a Sunny.jl `System`. **Requires `using Sunny`**
 (the export is a package extension). Only the Sunny-representable channels are
 exported — bilinear pair (`ls=[1,1]`) exchange and single-ion (`ls=[2]`) anisotropy;
 higher-order / higher-`l` SALCs are skipped and reported via `@warn`.
@@ -325,7 +325,7 @@ term (exchange is mode-independent), `:dipole_uncorrected` keeps it purely class
 dispersion) when the model maps cleanly, else falls back to the training supercell
 (`:explicit`, exact but folded); `:auto` picks primitive when clean.
 """
-function to_sunny(model::SCEModel, args...; kwargs...)
+function to_sunny(model::SCEPredictor, args...; kwargs...)
     error("to_sunny requires Sunny.jl; run `using Sunny` first " *
           "(it activates the SCEFitting Sunny export extension).")
 end

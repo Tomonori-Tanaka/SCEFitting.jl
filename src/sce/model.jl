@@ -1,8 +1,9 @@
 """
     Interaction(; nbody, pair_cutoff, lmax, isotropy = false)
 
-SCE interaction specification: maximum body order, the 2-body cutoff (Å),
-per-species maximum `l`, and whether to keep only the isotropic (`Lf = 0`) channel.
+An SCE interaction **specification** — the knobs that define the basis, not an
+interaction term itself: maximum body order, the 2-body cutoff (Å), per-species
+maximum `l`, and whether to keep only the isotropic (`Lf = 0`) channel.
 
 `pair_cutoff` may be `Inf`, meaning "every resolvable pair" — the whole
 Wigner–Seitz cell of the (super)cell — under the default [`MinimumImage`](@ref)
@@ -41,7 +42,7 @@ consistent.
 struct SCEBasis
     crystal::Crystal
     spacegroup::SpaceGroup
-    salcs::SALCBasis
+    salc_basis::SALCBasis
     interaction::Interaction
 end
 
@@ -57,12 +58,19 @@ function SCEBasis(crystal::Crystal, interaction::Interaction;
 end
 
 """
-    nsalc(basis::SCEBasis) -> Int
+    n_salcs(basis::SCEBasis) -> Int
 
 The number of SALC basis functions in `basis` — equivalently, the number of
 design-matrix columns / fitted coefficients.
 """
-nsalc(b::SCEBasis) = length(b.salcs)
+n_salcs(b::SCEBasis) = length(b.salc_basis)
+
+"""
+    salcs(basis::SCEBasis) -> Vector{SALC}
+
+The ordered SALC basis functions of `basis` (column order of the design matrix).
+"""
+salcs(b::SCEBasis) = b.salc_basis.salcs
 
 """
     SCEDataset(basis, configs, energies)
@@ -70,7 +78,7 @@ nsalc(b::SCEBasis) = length(b.salcs)
 
 Pair an [`SCEBasis`](@ref) with training data: spin configurations `configs`
 (each `3 × n_atoms`, unit columns) and their `energies`. Materializes the energy
-design matrix `X_E[config, salc] = evaluate(salc, config)`.
+design matrix `X_E[config, salc] = evaluate_salc(salc, config)`.
 
 The four-argument form additionally takes per-configuration torques (each
 `3 × n_atoms`, the DFT torque `τ_a = e_a × ∂E/∂e_a` on every atom) and builds the
@@ -116,12 +124,12 @@ end
 
 # Energy design matrix: X_E[config, salc] = Φ_salc(config).
 function _design_energy(basis::SCEBasis, cfgs::Vector{Matrix{Float64}})::Matrix{Float64}
-    salcs = basis.salcs.salcs
+    salcs = basis.salc_basis.salcs
     n = length(cfgs)
     m = length(salcs)
     X = Matrix{Float64}(undef, n, m)
     @inbounds for j = 1:m, i = 1:n   # column-major: stride-1 writes down each column
-        X[i, j] = evaluate(salcs[j], cfgs[i])
+        X[i, j] = evaluate_salc(salcs[j], cfgs[i])
     end
     return X
 end
@@ -130,7 +138,7 @@ end
 # components of τ_a = −e_a × ∂Φ/∂e_a (the physical / Landau–Lifshitz torque) stacked
 # config-major / atom-major / xyz.
 function _design_torque(basis::SCEBasis, cfgs::Vector{Matrix{Float64}})::Matrix{Float64}
-    salcs = basis.salcs.salcs
+    salcs = basis.salc_basis.salcs
     n = length(cfgs)
     m = length(salcs)
     nat = isempty(cfgs) ? 0 : size(cfgs[1], 2)
@@ -175,17 +183,20 @@ function _flatten_torques(torques::AbstractVector, cfgs::Vector{Matrix{Float64}}
 end
 
 """
-    SCEModel
+    SCEPredictor
 
-A lightweight predictor: the basis plus the fitted reference energy `j0` and SALC
-coefficients `jphi`. `keys` records each coefficient's [`SALCKey`](@ref).
+The **lightweight, persistable predictor**: the [`SCEBasis`](@ref) plus the fitted
+reference energy `j0` and SALC coefficients `jphi` (one per basis function), with
+`keys` recording each coefficient's [`SALCKey`](@ref). Unlike [`SCEFit`](@ref) it
+carries no training data, design matrices, or diagnostics — just enough to evaluate
+[`predict_energy`](@ref) / [`predict_torque`](@ref) and to round-trip through
+`SCEFitting.save` / `SCEFitting.load`.
 
-`SCEModel` is a session-scoped object: `jphi[k]` pairs with `basis.salcs.salcs[k]`
-positionally (they are built together by `SCEModel(::SCEFit)`), and `keys` is
-diagnostic metadata. A future persistence/reload workflow should re-pair `jphi` to
-a freshly built basis **by key**, not by position.
+Obtain one from a fit with `SCEPredictor(fit)`. Within a session `jphi[k]` pairs with
+`salcs(basis)[k]` positionally; on reload the coefficients are re-paired to a freshly
+built basis **by `SALCKey`** (`keys`), so a persisted model stays valid across sessions.
 """
-struct SCEModel
+struct SCEPredictor
     basis::SCEBasis
     j0::Float64
     jphi::Vector{Float64}
@@ -195,8 +206,12 @@ end
 """
     SCEFit
 
-A fitted SCE model: the dataset, fitted `j0`/`jphi`, the estimator, the
-`torque_weight` used, and the (energy) residuals.
+The **full result of [`fit`](@ref)**: the [`SCEDataset`](@ref) (with its design
+matrices), the fitted `j0`/`jphi`, the `estimator`, the `torque_weight` used, and the
+(energy) residuals. This is the heavyweight, data-bearing object you query for
+diagnostics ([`r2_energy`](@ref), [`rmse_energy`](@ref), [`residuals_energy`](@ref), …).
+For prediction and storage, convert it to the lightweight [`SCEPredictor`](@ref) with
+`SCEPredictor(fit)`.
 """
 struct SCEFit
     dataset::SCEDataset
@@ -348,11 +363,11 @@ function _reject_precomputed_pilot(e::AbstractEstimator)
 end
 
 """
-    SCEModel(f::SCEFit) -> SCEModel
+    SCEPredictor(f::SCEFit) -> SCEPredictor
 
 Extract the lightweight predictor from a fit.
 """
-SCEModel(f::SCEFit) = SCEModel(f.dataset.basis, f.j0, f.jphi, f.dataset.basis.salcs.keys)
+SCEPredictor(f::SCEFit) = SCEPredictor(f.dataset.basis, f.j0, f.jphi, f.dataset.basis.salc_basis.keys)
 
 """
     predict_energy(model, data) -> Float64 or Vector{Float64}
@@ -360,17 +375,17 @@ SCEModel(f::SCEFit) = SCEModel(f.dataset.basis, f.j0, f.jphi, f.dataset.basis.sa
 Predict the energy of a spin configuration (`3 × n_atoms` matrix) or a vector of
 configurations.
 """
-function predict_energy(model::SCEModel, config::AbstractMatrix{<:Real})::Float64
-    salcs = model.basis.salcs.salcs
+function predict_energy(model::SCEPredictor, config::AbstractMatrix{<:Real})::Float64
+    salcs = model.basis.salc_basis.salcs
     e = model.j0
     @inbounds for k in eachindex(model.jphi)
-        e += model.jphi[k] * evaluate(salcs[k], config)
+        e += model.jphi[k] * evaluate_salc(salcs[k], config)
     end
     return e
 end
-predict_energy(model::SCEModel, configs::AbstractVector)::Vector{Float64} =
+predict_energy(model::SCEPredictor, configs::AbstractVector)::Vector{Float64} =
     [predict_energy(model, c) for c in configs]
-predict_energy(f::SCEFit, data) = predict_energy(SCEModel(f), data)
+predict_energy(f::SCEFit, data) = predict_energy(SCEPredictor(f), data)
 
 """
     predict_torque(model, config) -> Matrix{Float64}
@@ -382,8 +397,8 @@ returns a vector of such matrices. This is the Landau–Lifshitz / physical torq
 derivative of the same surface [`predict_energy`](@ref) evaluates, so the two are
 consistent by construction (`τ = −e × ∇E`).
 """
-function predict_torque(model::SCEModel, config::AbstractMatrix{<:Real})::Matrix{Float64}
-    salcs = model.basis.salcs.salcs
+function predict_torque(model::SCEPredictor, config::AbstractMatrix{<:Real})::Matrix{Float64}
+    salcs = model.basis.salc_basis.salcs
     nat = size(config, 2)
     G = zeros(Float64, 3, nat)
     @inbounds for k in eachindex(model.jphi)
@@ -400,9 +415,9 @@ function predict_torque(model::SCEModel, config::AbstractMatrix{<:Real})::Matrix
     end
     return T
 end
-predict_torque(model::SCEModel, configs::AbstractVector)::Vector{Matrix{Float64}} =
+predict_torque(model::SCEPredictor, configs::AbstractVector)::Vector{Matrix{Float64}} =
     [predict_torque(model, c) for c in configs]
-predict_torque(f::SCEFit, data) = predict_torque(SCEModel(f), data)
+predict_torque(f::SCEFit, data) = predict_torque(SCEPredictor(f), data)
 
 """
     coef(fit_or_model) -> Vector{Float64}
@@ -411,7 +426,7 @@ The fitted SALC coefficients `Jϕ`, one per design-matrix column (in [`SALCKey`]
 order). The reference energy `j0` is separate; read it with [`intercept`](@ref).
 """
 coef(f::SCEFit) = f.jphi
-coef(m::SCEModel) = m.jphi
+coef(m::SCEPredictor) = m.jphi
 
 """
     intercept(fit_or_model) -> Float64
@@ -419,7 +434,7 @@ coef(m::SCEModel) = m.jphi
 The reference energy `j0` (the SCE intercept), recovered analytically in [`fit`](@ref).
 """
 intercept(f::SCEFit) = f.j0
-intercept(m::SCEModel) = m.j0
+intercept(m::SCEPredictor) = m.j0
 
 """
     nobs(f::SCEFit) -> Int

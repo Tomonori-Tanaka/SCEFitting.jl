@@ -35,7 +35,7 @@ the SCE's other DFT observable.
 The pipeline is one straight line, each stage a small, typed object:
 
 ```
-Crystal + Interaction ──▶ SCEBasis ──▶ SCEDataset ──▶ fit ──▶ SCEModel
+Crystal + Interaction ──▶ SCEBasis ──▶ SCEDataset ──▶ fit ──▶ SCEPredictor
    (geometry, range)      (symmetry,    (DFT data:     (OLS / Ridge /   (predict_energy,
                            SALC basis)   E, τ)          Lasso / …)        predict_torque,
                                                                           to_sunny, save)
@@ -48,7 +48,7 @@ Crystal + Interaction ──▶ SCEBasis ──▶ SCEDataset ──▶ fit ─�
   (and torque) design matrices.
 - **`fit`** solves for the coefficients with a pluggable estimator, optionally co-fitting
   energy and torque.
-- **`SCEModel`** predicts energies and torques, tabulates coefficients, persists to a
+- **`SCEPredictor`** predicts energies and torques, tabulates coefficients, persists to a
   human-readable TOML, and exports to [Sunny.jl](https://sunnysuite.github.io/Sunny/) for
   spin-wave theory.
 

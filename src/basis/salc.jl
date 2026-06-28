@@ -79,13 +79,13 @@ end
 Base.length(b::SALCBasis) = length(b.salcs)
 
 """
-    evaluate(salc, e) -> Float64
+    evaluate_salc(salc, e) -> Float64
 
 Evaluate `Φ(e)` for a single (super)cell spin configuration `e` (`3 × n_atoms`,
 unit columns). Periodic with the cell, so lattice shifts map back to the same
 column (`site(a, R) → a`).
 """
-function evaluate(salc::SALC, e::AbstractMatrix{<:Real})::Float64
+function evaluate_salc(salc::SALC, e::AbstractMatrix{<:Real})::Float64
     N = salc.body
     scale = (4π)^(N / 2)
     total = 0.0

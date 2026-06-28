@@ -1,13 +1,13 @@
 module SCEFittingSunnyExt
 
-# Assembles a Sunny.jl `System` from a fitted SCEModel. All the conversion math
+# Assembles a Sunny.jl `System` from a fitted SCEPredictor. All the conversion math
 # (folded tesseral tensor → Cartesian matrix, directed-member folding, the supercell
 # → primitive unfold, the energy gate) lives in the core (`src/sce/sunny.jl`); this
 # extension only places the core-computed matrices into Sunny constructs, so it stays
 # thin and the numerics are validated without Sunny.
 
-using SCEFitting: SCEModel, SunnyTerms, SunnyPrimitive, _sunny_supercell_terms,
-    _sunny_primitive, num_atoms
+using SCEFitting: SCEPredictor, SunnyTerms, SunnyPrimitive, _sunny_supercell_terms,
+    _sunny_primitive, n_atoms
 import SCEFitting: to_sunny
 using Sunny
 using StaticArrays
@@ -46,9 +46,9 @@ _onsite_operator(A::SMatrix{3,3,Float64,9}, S, factor::Float64) =
     factor * sum(A[i, j] * (S[i] * S[j] + S[j] * S[i]) / 2 for i = 1:3, j = 1:3)
 
 # The training supercell as a P1 Sunny crystal (every atom its own sublattice).
-function _build_supercell(model::SCEModel, lookup, g::Real, mode::Symbol)
+function _build_supercell(model::SCEPredictor, lookup, g::Real, mode::Symbol)
     cr = model.basis.crystal
-    nat = num_atoms(cr)
+    nat = n_atoms(cr)
     latvecs = Matrix{Float64}(cr.lattice.vectors)
     positions = [Vector{Float64}(cr.frac_positions[:, i]) for i = 1:nat]
     types = [cr.species_labels[cr.species[i]] for i = 1:nat]
@@ -93,7 +93,7 @@ function _build_primitive(prim::SunnyPrimitive, lookup, g::Real, mode::Symbol)
     return sys
 end
 
-function to_sunny(model::SCEModel; spins, g::Real = 2, mode::Symbol = :dipole,
+function to_sunny(model::SCEPredictor; spins, g::Real = 2, mode::Symbol = :dipole,
                   placement::Symbol = :auto)
     placement in (:auto, :primitive, :explicit) ||
         error("placement must be :auto, :primitive, or :explicit; got $placement")

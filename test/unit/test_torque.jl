@@ -54,9 +54,9 @@ end
     @testset "predict_torque = −e × ∇E (finite differences, anisotropic)" begin
         interaction = Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false)
         basis = SCEBasis(crystal, interaction)   # NoSymmetry (P1): exercises Lf > 0
-        m = length(basis.salcs)
+        m = length(basis.salc_basis)
         @test m > 0
-        model = SCEModel(basis, 0.0, randn(rng, m), basis.salcs.keys)
+        model = SCEPredictor(basis, 0.0, randn(rng, m), basis.salc_basis.keys)
         for _ = 1:8
             c = _randcfg(rng, 2)
             @test isapprox(predict_torque(model, c), _torque_fd(model, c); atol = 1e-5)
@@ -66,8 +66,8 @@ end
     @testset "global-rotation equivariance (isotropic model)" begin
         interaction = Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [1], isotropy = true)
         basis = SCEBasis(crystal, interaction)
-        m = length(basis.salcs)
-        model = SCEModel(basis, 0.3, randn(rng, m), basis.salcs.keys)
+        m = length(basis.salc_basis)
+        model = SCEPredictor(basis, 0.3, randn(rng, m), basis.salc_basis.keys)
         for _ = 1:5
             c = _randcfg(rng, 2)
             R = _rand_rotation(rng)
@@ -80,7 +80,7 @@ end
     @testset "energy+torque co-fit recovers an in-span model" begin
         interaction = Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false)
         basis = SCEBasis(crystal, interaction)
-        m = length(basis.salcs)
+        m = length(basis.salc_basis)
         configs = [_randcfg(rng, 2) for _ = 1:60]
 
         true_jphi = randn(rng, m)
@@ -88,7 +88,7 @@ end
         skel = SCEDataset(basis, configs, zeros(length(configs)))   # to read X_E / X_T
         energies = true_j0 .+ skel.X_E * true_jphi
         # per-config torque targets, consistent with the same model
-        model0 = SCEModel(basis, true_j0, true_jphi, basis.salcs.keys)
+        model0 = SCEPredictor(basis, true_j0, true_jphi, basis.salc_basis.keys)
         torques = [predict_torque(model0, c) for c in configs]
 
         ds = SCEDataset(basis, configs, energies, torques)
@@ -107,11 +107,11 @@ end
     @testset "pure-torque fit (weight = 1) still pins jϕ and recovers j0" begin
         interaction = Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [1], isotropy = true)
         basis = SCEBasis(crystal, interaction)
-        m = length(basis.salcs)
+        m = length(basis.salc_basis)
         configs = [_randcfg(rng, 2) for _ = 1:50]
         true_jphi = randn(rng, m)
         true_j0 = -0.9
-        model0 = SCEModel(basis, true_j0, true_jphi, basis.salcs.keys)
+        model0 = SCEPredictor(basis, true_j0, true_jphi, basis.salc_basis.keys)
         energies = [predict_energy(model0, c) for c in configs]
         torques = [predict_torque(model0, c) for c in configs]
         ds = SCEDataset(basis, configs, energies, torques)

@@ -6,7 +6,7 @@ CurrentModule = SCEFitting
 
 Every exported type and function, grouped by pipeline stage. The headline workflow is
 built from `Crystal` + `Interaction` → [`SCEBasis`](@ref) → [`SCEDataset`](@ref) →
-[`fit`](@ref) → [`SCEModel`](@ref).
+[`fit`](@ref) → [`SCEPredictor`](@ref).
 
 ```@index
 ```
@@ -16,7 +16,7 @@ built from `Crystal` + `Interaction` → [`SCEBasis`](@ref) → [`SCEDataset`](@
 ```@docs
 Lattice
 Crystal
-num_atoms
+n_atoms
 cartesian_positions
 interplanar_spacing
 ```
@@ -60,7 +60,7 @@ SALCKey
 SALC
 SALCBasis
 build_salc_basis
-evaluate
+evaluate_salc
 ```
 
 ## Interaction, basis, dataset, model
@@ -69,10 +69,11 @@ evaluate
 Interaction
 SCEBasis
 SCEDataset
-SCEModel
+SCEPredictor
 SCEFit
-nsalc
-read_input
+n_salcs
+salcs
+read_setup
 ```
 
 ## Fitting
@@ -131,7 +132,7 @@ to_sunny
 
 ## Fitted-model introspection
 
-A code-neutral view of a fitted [`SCEModel`](@ref)'s multipole terms, the stable public
+A code-neutral view of a fitted [`SCEPredictor`](@ref)'s multipole terms, the stable public
 contract downstream packages (e.g. the mean-field samplers in
 [`SCETools.jl`](https://github.com/Tomonori-Tanaka/SCETools.jl)) read instead of the
 SALC-basis internals.

@@ -33,7 +33,7 @@ files use the stdlib `TOML` (no external dependency).
 - `Lattice(vectors; pbc)` — columns are lattice vectors; `reciprocal = inv`,
   `interplanar_spacing(lat, i) = 1/‖row_i(reciprocal)‖`.
 - `Crystal(lattice, frac_positions, species, species_labels)` — fractional coords
-  wrapped to `[0,1)` on periodic axes (inner constructor); `num_atoms`,
+  wrapped to `[0,1)` on periodic axes (inner constructor); `n_atoms`,
   `cartesian_positions`.
 - `build_neighbor_list(crystal, cutoff) -> NeighborList` — cutoff-driven image
   range `N_d = ceil(cutoff·‖b_d‖)`; `NeighborPair` retains the integer lattice
@@ -89,7 +89,7 @@ files use the stdlib `TOML` (no external dependency).
   matrix read off by contraction against the orthonormal coupled tensors. Deterministic
   axis-pivoted gauge; per-ordering fold into a multi-term SALC (one `SALCTerm` per
   ordering). `SALCKey` (canonical, injective column address — `block` runs across split
-  ordering orbits) + `SALCBasis` (sorted keys + fingerprint). `evaluate(salc, e)`.
+  ordering orbits) + `SALCBasis` (sorted keys + fingerprint). `evaluate_salc(salc, e)`.
 - Validated by the ground-truth tests with non-collinear spins, **all `Lf`, all body
   orders**: space-group invariance `Φ(g·e)=Φ(e)`, time-reversal evenness, linear
   independence; projector eigenvalues exactly 0/1. Improper-op parity is handled
@@ -98,7 +98,7 @@ files use the stdlib `TOML` (no external dependency).
 
 ### fitting + SCE API (M8, M9)
 - `Interaction`, `SCEBasis`, `SCEDataset` (energy design matrix `X_E`, and the
-  torque design matrix `X_T` via the four-argument form), `SCEModel`/`SCEFit`,
+  torque design matrix `X_T` via the four-argument form), `SCEPredictor`/`SCEFit`,
   `fit(SCEFit, dataset, estimator; torque_weight)`, `refit(f, estimator; threshold)`
   (re-solve on the scaled-magnitude support of `f` — the de-biasing step after a sparse
   fit; shares `_assemble_problem` with `fit`), `predict_energy`/`predict_torque`,
@@ -114,7 +114,7 @@ files use the stdlib `TOML` (no external dependency).
 
 ### persistence + TOML input (M10)
 - **Persistence** (`sce/persist.jl`): `SCEFitting.save(path, x)` and
-  `SCEFitting.load(SCEBasis | SCEModel, path)` serialize a self-contained,
+  `SCEFitting.load(SCEBasis | SCEPredictor, path)` serialize a self-contained,
   human-readable **TOML** document — the crystal, the space-group ops, the interaction,
   and the *full* SALC basis (every member / term / folded tensor); a model adds `j0`
   and per-`SALCKey` coefficients. Reload reconstructs the basis verbatim (no
@@ -123,7 +123,7 @@ files use the stdlib `TOML` (no external dependency).
   without any serializer; TOML is stdlib (no dep) and round-trips `Float64` exactly.
   `save` / `load` are **unexported** (call qualified) to avoid clashing with
   `FileIO`/`JLD2`.
-- **TOML input** (`sce/input.jl`): `read_input(path) -> (; crystal, interaction, backend, tol, images)`
+- **TOML input** (`sce/input.jl`): `read_setup(path) -> (; crystal, interaction, backend, tol, images)`
   and `SCEBasis(path::AbstractString; backend, tol, images)` build a basis from a human-authored
   `input.toml` (`[structure]` inline crystal, `[interaction]` with optional `images`
   (`"minimum_image"` default / `"all_images"`) and `pair_cutoff = inf` for the full WS

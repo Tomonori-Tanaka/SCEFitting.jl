@@ -1,6 +1,6 @@
 using Test
 using SCEFitting
-using SCEFitting: candidate_clusters, read_input, _assemble_spacegroup, _design_energy
+using SCEFitting: candidate_clusters, read_setup, _assemble_spacegroup, _design_energy
 using StaticArrays
 using LinearAlgebra
 using Random
@@ -175,7 +175,7 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["Fe"])
         inter = Interaction(; nbody = 2, pair_cutoff = Inf, lmax = [1], isotropy = true)
-        @test nsalc(SCEBasis(cr, inter)) ≥ 1                    # default (NoSymmetry) build succeeds
+        @test n_salcs(SCEBasis(cr, inter)) ≥ 1                    # default (NoSymmetry) build succeeds
         # with the cubic sign symmetry the 8 WS-corner ties collapse to one orbit;
         # the centered energy design matrix must then have full column rank — i.e. the
         # minimum-image enumeration left no aliased, collinear pair columns behind.
@@ -188,7 +188,7 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
         randcol() = (v = randn(rng, 3); v / norm(v))
         cfgs = [hcat(randcol(), randcol()) for _ = 1:40]
         Xc = let X = _design_energy(b, cfgs); X .- sum(X; dims = 1) ./ size(X, 1) end
-        @test rank(Xc; rtol = 1e-9) == nsalc(b)
+        @test rank(Xc; rtol = 1e-9) == n_salcs(b)
     end
 
     @testset "input.toml: pair_cutoff = inf and images key" begin
@@ -208,17 +208,17 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
         """
         # default images = MinimumImage
         p1 = joinpath(dir, "mi.toml"); write(p1, body)
-        inp = read_input(p1)
+        inp = read_setup(p1)
         @test inp.interaction.pair_cutoff == Inf
         @test inp.images isa MinimumImage
         # explicit images = "all_images"
         p2 = joinpath(dir, "all.toml"); write(p2, body * "images = \"all_images\"\n")
-        @test read_input(p2).images isa AllImages
+        @test read_setup(p2).images isa AllImages
         # unknown selection errors
         p3 = joinpath(dir, "bad.toml"); write(p3, body * "images = \"nope\"\n")
-        @test_throws ArgumentError read_input(p3)
+        @test_throws ArgumentError read_setup(p3)
         # SCEBasis(path) builds (MinimumImage + Inf), keyword override to AllImages errors on Inf
-        @test nsalc(SCEBasis(p1)) ≥ 1
+        @test n_salcs(SCEBasis(p1)) ≥ 1
         @test_throws ArgumentError SCEBasis(p1; images = AllImages())
     end
 
@@ -230,6 +230,6 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
         SCEFitting.save(path, b)
         b2 = SCEFitting.load(SCEBasis, path)
         @test b2.interaction.pair_cutoff == Inf
-        @test nsalc(b2) == nsalc(b)
+        @test n_salcs(b2) == n_salcs(b)
     end
 end

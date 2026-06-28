@@ -62,7 +62,7 @@ function candidate_clusters(crystal::Crystal, neighbors::NeighborList,
                             selection::AbstractImageSelection =
                                 MinimumImage())::Dict{Int,Vector{ClusterMember}}
     nbody >= 1 || throw(ArgumentError("nbody must be ≥ 1"))
-    nat = num_atoms(crystal)
+    nat = n_atoms(crystal)
     z = SVector{3,Int}(0, 0, 0)
     out = Dict{Int,Vector{ClusterMember}}()
     out[1] = [ClusterMember([a], [z]) for a = 1:nat]

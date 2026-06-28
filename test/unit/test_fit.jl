@@ -19,7 +19,7 @@ end
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
     interaction = Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = true)
     basis = SCEBasis(crystal, interaction)          # NoSymmetry backend (no Spglib needed)
-    m = length(basis.salcs)
+    m = length(basis.salc_basis)
     @test m > 0
 
     rng = MersenneTwister(1)
@@ -81,7 +81,7 @@ end
     # isotropy = false ⇒ a wide (44-column) basis, so concentration / selection is meaningful
     interaction = Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false)
     basis = SCEBasis(crystal, interaction)
-    m = length(basis.salcs)
+    m = length(basis.salc_basis)
     @test m > 10
 
     rng = MersenneTwister(11)
@@ -167,7 +167,7 @@ end
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
     interaction = Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false)
     basis = SCEBasis(crystal, interaction)
-    m = length(basis.salcs)
+    m = length(basis.salc_basis)
     @test m > 10
 
     rng = MersenneTwister(11)
@@ -179,7 +179,7 @@ end
     beta = zeros(m); beta[ktrue] .= [1.0, -0.7]
     y = 0.4 .+ ds0.X_E * beta .+ 0.005 .* randn(rng, length(configs))
     ds = SCEDataset(basis, configs, y)
-    truem = SCEModel(basis, 0.4, beta, basis.salcs.keys)
+    truem = SCEPredictor(basis, 0.4, beta, basis.salc_basis.keys)
     dst = SCEDataset(basis, configs, 0.4 .+ ds0.X_E * beta, predict_torque(truem, configs))
 
     @testset "energy accessors: dof, residuals, rss, and metric consistency" begin

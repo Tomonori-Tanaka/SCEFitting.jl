@@ -10,7 +10,7 @@
 
 using Test
 using SCEFitting
-using SCEFitting: candidate_clusters, build_clusters, num_atoms, cartesian_positions,
+using SCEFitting: candidate_clusters, build_clusters, n_atoms, cartesian_positions,
                       _assemble_spacegroup, _site_image, ClusterMember
 using StaticArrays
 using LinearAlgebra
@@ -21,7 +21,7 @@ using LinearAlgebra
 # plainly as possible — exactly the definition the production code must realize.
 function _wsnb_brute(cr, cutoff, N; rtol = 1e-8, box = 3)
     A = SMatrix{3,3,Float64}(cr.lattice.vectors)
-    nat = num_atoms(cr)
+    nat = n_atoms(cr)
     cart = cartesian_positions(cr)
     pbc = cr.lattice.pbc
     rng = ntuple(d -> pbc[d] ? box : 0, 3)
@@ -133,7 +133,7 @@ _wsnb_siteset(m) = sort([(m.atoms[k], m.shifts[k][1], m.shifts[k][2], m.shifts[k
         for (nm, cr) in cases, cutoff in (Inf, 2.0, 1.6)
             cand = candidate_clusters(cr, build_neighbor_list(cr, cutoff, MinimumImage()),
                                       4; selection = MinimumImage())
-            for N = 2:min(4, num_atoms(cr))
+            for N = 2:min(4, n_atoms(cr))
                 prod = get(cand, N, ClusterMember[])
                 @test _wsnb_prodset(prod) == _wsnb_brute(cr, cutoff, N)   # exact counting
                 @test _wsnb_edges_minimage(cr, prod)                     # no spurious edges
@@ -172,7 +172,7 @@ _wsnb_siteset(m) = sort([(m.atoms[k], m.shifts[k][1], m.shifts[k][2], m.shifts[k
         for cr in (faces, fcc)
             sg = _wsnb_cubic_signs(cr)
             nl = build_neighbor_list(cr, Inf, MinimumImage())
-            cs = build_clusters(cr, nl, sg; nbody = num_atoms(cr), selection = MinimumImage())
+            cs = build_clusters(cr, nl, sg; nbody = n_atoms(cr), selection = MinimumImage())
             for (body, orbits) in cs.by_body
                 body >= 2 || continue
                 ncand = length(get(candidate_clusters(cr, nl, body;

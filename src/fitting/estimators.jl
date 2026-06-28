@@ -130,7 +130,7 @@ consistent with [`ElasticNet`](@ref) / [`Lasso`](@ref) here (set `standardize = 
 for the textbook Zou form).
 
 `pilot = OLS()` matches Zou 2006. For a rank-deficient or near-collinear design (e.g.
-`nsalc ≥ nconfig` at `torque_weight = 0`) prefer `pilot = Ridge(lambda = small)`: the
+`n_salcs ≥ nconfig` at `torque_weight = 0`) prefer `pilot = Ridge(lambda = small)`: the
 OLS minimum-norm solution puts ~1e-10 noise in the null-space directions, which is
 not floored by `epsilon = eps(Float64)` and miscalibrates those weights. Any pilot is
 allowed, including a cross-validating [`ElasticNet`](@ref) or a [`PrecomputedPilot`](@ref)

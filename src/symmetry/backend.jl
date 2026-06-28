@@ -79,7 +79,7 @@ end
 # map_sym[iat, op] = the atom that iat maps to under (W|t), matched by minimum-image
 # fractional distance within `tol` and the same species.
 function _build_map_sym(crystal::Crystal, ops::Vector{SymOp}, tol::Real)::Matrix{Int}
-    nat = num_atoms(crystal)
+    nat = n_atoms(crystal)
     x = crystal.frac_positions
     species = crystal.species
     tol2 = tol * tol

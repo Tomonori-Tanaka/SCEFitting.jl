@@ -35,7 +35,7 @@ chain = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
 interaction = Interaction(; nbody = 2, pair_cutoff = 2.6, lmax = [1], isotropy = true)
 basis       = SCEBasis(chain, interaction; backend = SpglibBackend())
 
-(space_group = basis.spacegroup.symbol, n_salc = nsalc(basis))
+(space_group = basis.spacegroup.symbol, n_salc = n_salcs(basis))
 ```
 
 ### The lattice and its unit cell
@@ -104,7 +104,7 @@ We generate energies from a known coupling ``J_\text{true}`` over random spin
 configurations, then fit with ordinary least squares.
 
 ```@example heis
-heis    = basis.salcs.salcs[1]              # the Heisenberg SALC
+heis    = salcs(basis)[1]              # the Heisenberg SALC
 J_true  = 0.0137
 configs = [randcfg(4) for _ = 1:40]
 E = [J_true * 0.5 * sum(dot(c[:, m.atoms[1]], c[:, m.atoms[2]]) for m in heis.members)

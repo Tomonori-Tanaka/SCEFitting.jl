@@ -148,7 +148,7 @@ permutation does two things a per-multiplet projector cannot express:
    `(1,1,2)`, `(1,2,1)`, `(2,1,1)` that no single ordering contains.
 
 So a SALC is a sum over orderings, each with its own per-site `ls` — a
-**multi-term** object (`SALCTerm`); `evaluate` and the torque gradient loop over
+**multi-term** object (`SALCTerm`); `evaluate_salc` and the torque gradient loop over
 terms. When the site permutations are a *proper* subgroup of `Sₙ`, a degenerate
 multiset can split into more than one ordering orbit (e.g. a mirror-only triangle
 puts `l = 2` on the apex vs. on a base site — two distinct SALCs that share the
@@ -191,7 +191,7 @@ treat the torque design matrix as an independently-derived object (a place a sig
 or normalization can silently drift out of step with the energy kernel), the
 rebuild builds the per-site gradient `accumulate_grad!` from the *same*
 `μ = idx − ls − 1` mapping, `ls`, `folded`, and `(4π)^(N/2)` scale as the energy
-kernel `evaluate` — only the innermost `Zₗᵢμᵢ` of each product is swapped for
+kernel `evaluate_salc` — only the innermost `Zₗᵢμᵢ` of each product is swapped for
 `∇Zₗᵢμᵢ` (product rule, summed over the cluster's sites). The consequence is that
 `predict_torque` is *by construction* the analytic gradient of the surface
 `predict_energy` evaluates, and the gate is exactly that: an on-sphere
@@ -201,7 +201,7 @@ would catch a self-consistent wrong convention that every gauge-invariant
 comparison misses. (Magesty's reverse-mode, cluster-major gradient accumulator is
 an optimization the v0 deliberately forgoes: the simple `O(N²)`-per-multi-index
 leave-one-out product is clearer and fast enough for 2-body, and shares its inner
-loop with `evaluate` so the two cannot diverge.)
+loop with `evaluate_salc` so the two cannot diverge.)
 
 The co-fit follows Magesty: minimize `L = (1−w)·MSE_E + w·MSE_T` by whitening each
 block (`√((1−w)/n_E)`, `√(w/n_T)`), with `j0` profiled out of the energy block
@@ -247,7 +247,7 @@ Turning the fitted coefficients into a labeled table is the **library's** job, n
 caller's: only the package knows how to map internal storage (a `SALCKey` plus the
 position of its coefficient in the `jphi` vector) to meaningful rows
 (`body`, `orbit_id`, `ls`, `Lf`, `block`, `J`) — forcing a user to reach into
-`f.dataset.basis.salcs.keys` would leak that. So `coeftable(fit | model)` returns an
+`f.dataset.basis.salc_basis.keys` would leak that. So `coeftable(fit | model)` returns an
 `SCECoefficients` that implements the **Tables.jl** interface: it is a *data source*
 that drops into whatever *sink* the caller chooses (`DataFrame`, `CSV.write`,
 `Arrow.write`). The package depends only on the lightweight Tables.jl contract, never on

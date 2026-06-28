@@ -16,8 +16,8 @@ self-contained, human-readable **TOML** document. (They are intentionally *not* 
 the names clash with FileIO / JLD2 / CSV — so qualify them.)
 
 ```julia
-SCEFitting.save("model.toml", SCEModel(f))      # or save("basis.toml", basis)
-model = SCEFitting.load(SCEModel, "model.toml")
+SCEFitting.save("model.toml", SCEPredictor(f))      # or save("basis.toml", basis)
+model = SCEFitting.load(SCEPredictor, "model.toml")
 predict_energy(model, configs)
 ```
 
@@ -58,14 +58,26 @@ tol     = 1.0e-5
 basis = SCEBasis("input.toml")     # reads [symmetry] backend/tol from the file
 ```
 
-[`read_input`](@ref) returns the parsed setup (including the image selection) if you want
+[`read_setup`](@ref) returns the parsed setup (including the image selection) if you want
 to inspect it before building.
 
 ## Tabular coefficients
 
 [`coeftable`](@ref) returns an [`SCECoefficients`](@ref) — a **Tables.jl** source with one
-row per SALC (`body`, `orbit_id`, `ls`, `Lf`, `block`, `J`). It drops straight into any
-table or IO package:
+row per SALC. The columns are read straight off each [`SALCKey`](@ref) (the stable
+design-matrix-column identity), plus the fitted coefficient:
+
+| Column | Meaning |
+|---|---|
+| `body` | body order ``N`` of the cluster (2 = pair, 3 = triplet, …) |
+| `orbit_id` | index of the cluster symmetry orbit at that body order |
+| `ls` | per-site angular momenta ``(l_1,\dots,l_N)``, as a comma-joined string |
+| `Lf` | final coupled angular momentum ``L_f`` of the invariant |
+| `block` | disambiguates independent ``l``-orderings / coupling paths sharing the same `(body, orbit_id, ls, Lf)` |
+| `J` | the fitted coefficient ``j_\varphi`` for this SALC (DFT energy unit, e.g. eV) |
+
+The rows are in design-matrix column order, the same order as [`coef`](@ref) and
+`basis.salc_basis.keys`. It drops straight into any table or IO package:
 
 ```julia
 using DataFrames

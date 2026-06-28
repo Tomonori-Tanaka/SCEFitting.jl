@@ -42,7 +42,7 @@ end
 
 """
     coeftable(f::SCEFit) -> SCECoefficients
-    coeftable(m::SCEModel) -> SCECoefficients
+    coeftable(m::SCEPredictor) -> SCECoefficients
 
 A Tables.jl-compatible table of the fitted coefficients — one row per SALC with
 columns `body`, `orbit_id`, `ls` (the sorted `l`-multiset as a string, e.g.
@@ -50,8 +50,8 @@ columns `body`, `orbit_id`, `ls` (the sorted `l`-multiset as a string, e.g.
 available via [`intercept`](@ref). Example: `using DataFrames; DataFrame(coeftable(f))`.
 """
 coeftable(f::SCEFit)::SCECoefficients =
-    SCECoefficients(copy(f.dataset.basis.salcs.keys), copy(f.jphi), f.j0)
-coeftable(m::SCEModel)::SCECoefficients =
+    SCECoefficients(copy(f.dataset.basis.salc_basis.keys), copy(f.jphi), f.j0)
+coeftable(m::SCEPredictor)::SCECoefficients =
     SCECoefficients(copy(m.keys), copy(m.jphi), m.j0)
 # `copy` duplicates the `jphi` and key vectors so the table is independent of later
 # refits; the `SALCKey`s themselves are shared (they are treated as immutable — used

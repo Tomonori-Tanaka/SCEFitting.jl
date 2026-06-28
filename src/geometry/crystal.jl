@@ -46,11 +46,11 @@ struct Crystal
 end
 
 """
-    num_atoms(crystal) -> Int
+    n_atoms(crystal) -> Int
 
 Number of atoms in the crystal basis.
 """
-num_atoms(crystal::Crystal)::Int = size(crystal.frac_positions, 2)
+n_atoms(crystal::Crystal)::Int = size(crystal.frac_positions, 2)
 
 """
     cartesian_positions(crystal) -> Matrix{Float64}

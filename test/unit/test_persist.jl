@@ -18,9 +18,9 @@ end
 
 # Deep, bit-exact structural equality of two bases' SALC content.
 function _basis_identical(a::SCEBasis, b::SCEBasis)
-    a.salcs.keys == b.salcs.keys || return false
-    length(a.salcs.salcs) == length(b.salcs.salcs) || return false
-    for (sa, sb) in zip(a.salcs.salcs, b.salcs.salcs)
+    a.salc_basis.keys == b.salc_basis.keys || return false
+    length(a.salc_basis.salcs) == length(b.salc_basis.salcs) || return false
+    for (sa, sb) in zip(a.salc_basis.salcs, b.salc_basis.salcs)
         (sa.key == sb.key && sa.body == sb.body && sa.ls == sb.ls && sa.Lf == sb.Lf) || return false
         length(sa.members) == length(sb.members) || return false
         for (ma, mb) in zip(sa.members, sb.members)
@@ -40,14 +40,14 @@ end
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
     interaction = Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false)
     basis = SCEBasis(crystal, interaction)   # NoSymmetry (P1); small but exercises Lf > 0
-    m = length(basis.salcs)
+    m = length(basis.salc_basis)
     @test m > 0
-    model = SCEModel(basis, 0.37, randn(rng, m), basis.salcs.keys)
+    model = SCEPredictor(basis, 0.37, randn(rng, m), basis.salc_basis.keys)
     testcfgs = [_pcfg(rng, 2) for _ = 1:6]
 
     @testset "model round-trip via the format-agnostic document (no file)" begin
         m2 = MR._model_from_doc(MR._to_doc(model))
-        @test m2.basis.salcs.keys == model.basis.salcs.keys
+        @test m2.basis.salc_basis.keys == model.basis.salc_basis.keys
         @test m2.j0 === model.j0
         @test m2.jphi == model.jphi                       # bit-exact
         @test _basis_identical(m2.basis, model.basis)
@@ -59,7 +59,7 @@ end
         path = tempname() * ".toml"
         MR.save(path, model)
         @test isfile(path)
-        m2 = MR.load(SCEModel, path)
+        m2 = MR.load(SCEPredictor, path)
         @test m2.j0 === model.j0
         @test m2.jphi == model.jphi
         @test _basis_identical(m2.basis, model.basis)
@@ -75,7 +75,7 @@ end
         MR.save(path, basis)
         b2 = MR.load(SCEBasis, path)
         @test _basis_identical(b2, basis)
-        @test b2.salcs.fingerprint == basis.salcs.fingerprint   # recomputed, same session
+        @test b2.salc_basis.fingerprint == basis.salc_basis.fingerprint   # recomputed, same session
         @test b2.interaction.nbody == basis.interaction.nbody
         @test b2.interaction.lmax == basis.interaction.lmax
         @test b2.crystal.frac_positions == basis.crystal.frac_positions
@@ -84,15 +84,15 @@ end
 
     @testset "empty basis (0 SALCs) round-trips" begin
         eb = SCEBasis(crystal, Interaction(; nbody = 1, pair_cutoff = 0.1, lmax = [0]))
-        @test length(eb.salcs) == 0
+        @test length(eb.salc_basis) == 0
         path = tempname() * ".toml"
         MR.save(path, eb)
         eb2 = MR.load(SCEBasis, path)
-        @test length(eb2.salcs) == 0
-        @test eb2.salcs.keys == eb.salcs.keys
-        em = SCEModel(eb, 1.25, Float64[], eb.salcs.keys)   # 0 coefficients, nonzero j0
+        @test length(eb2.salc_basis) == 0
+        @test eb2.salc_basis.keys == eb.salc_basis.keys
+        em = SCEPredictor(eb, 1.25, Float64[], eb.salc_basis.keys)   # 0 coefficients, nonzero j0
         MR.save(path, em)
-        em2 = MR.load(SCEModel, path)
+        em2 = MR.load(SCEPredictor, path)
         @test em2.j0 === 1.25
         @test isempty(em2.jphi)
         @test predict_energy(em2, _pcfg(rng, 2)) === 1.25
@@ -106,7 +106,7 @@ end
         f = fit(SCEFit, ds, OLS())
         path = tempname() * ".toml"
         MR.save(path, f)                       # SCEFit saved as its model
-        m2 = MR.load(SCEModel, path)
+        m2 = MR.load(SCEPredictor, path)
         @test m2.j0 === f.j0
         @test m2.jphi == f.jphi
         @test predict_energy(m2, testcfgs) == predict_energy(f, testcfgs)

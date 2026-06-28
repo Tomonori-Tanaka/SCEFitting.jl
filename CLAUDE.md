@@ -90,7 +90,7 @@ Easy to break silently — confirm before touching the algorithm.
   tolerance is relative (`_SAME_DIST_RTOL`) on both sides so a degenerate WS-boundary
   shell is never split. The minimum-image search box is adaptive — change it and re-check
   the skewed-cell test. `images` is **not** persisted (the full SALC basis is stored and
-  reloaded verbatim), so only `read_input`/`SCEBasis` carry it. **At `N ≥ 3` the clique
+  reloaded verbatim), so only `read_setup`/`SCEBasis` carry it. **At `N ≥ 3` the clique
   check is on the actual chosen images of *every* pair (not just the anchor edges): a
   cluster is admitted only when all `C(N,2)` edges sit at their atom-pair minimum image
   simultaneously** (the compact-cluster criterion). Having each pair individually
@@ -111,14 +111,14 @@ Easy to break silently — confirm before touching the algorithm.
   not by construction order. The key must stay **injective**: `block` runs across all
   canonical `l`-orderings that share one sorted `ls` label (a proper-subgroup site
   stabilizer splits a degenerate multiset into several ordering orbits — see
-  `test/unit/test_nbody.jl`). `SCEModel` re-pairs `jphi` to a basis **by key** on any
+  `test/unit/test_nbody.jl`). `SCEPredictor` re-pairs `jphi` to a basis **by key** on any
   reload (positionally paired only within a session); `fingerprint = hash(sorted keys)`
   guards against cross-basis confusion. This reload is realized by persistence
-  (`SCEFitting.load(SCEModel, …)` rebuilds `jphi` in basis-key order from the
+  (`SCEFitting.load(SCEPredictor, …)` rebuilds `jphi` in basis-key order from the
   per-`SALCKey` coefficients).
 - **Persistence schema ↔ the serialized structs** (`sce/persist.jl`): `_to_doc` /
   `_from_doc` mirror the fields of `Crystal` / `Lattice` / `SpaceGroup` / `Interaction`
-  / `SALCKey` / `SALCTerm` / `SALCMember` / `SALC` / `SCEBasis` / `SCEModel`. Add or
+  / `SALCKey` / `SALCTerm` / `SALCMember` / `SALC` / `SCEBasis` / `SCEPredictor`. Add or
   rename a field on any of these and both halves (and `test/unit/test_persist.jl`'s
   round-trip) must follow; the space group is rebuilt via `_assemble_spacegroup` from
   the stored fractional ops, and the `UInt64` fingerprint is stored as a string and
@@ -127,7 +127,7 @@ Easy to break silently — confirm before touching the algorithm.
   + symmetry), not the SALCs.
 - **`coeftable` columns ↔ `SALCKey` fields** (`sce/coeftable.jl`): each result row is
   read straight off a `SALCKey` (`body` / `orbit_id` / `ls`→comma string / `Lf` /
-  `block`) plus `jphi`; the `J` column pairs with `basis.salcs.keys` **positionally**
+  `block`) plus `jphi`; the `J` column pairs with `basis.salc_basis.keys` **positionally**
   (same order as the design matrix). Add or rename a `SALCKey` field → update the row
   builder, the `Tables.Schema`, and `test/unit/test_coeftable.jl`.
 - **DFT training-torque target ↔ the model torque convention** (`io/dftsource.jl`): the
@@ -154,7 +154,7 @@ Easy to break silently — confirm before touching the algorithm.
   formulas and the energy gate move together.
 - **Fitted-model introspection ↔ the per-term scale convention** (`sce/introspect.jl`,
   `test/unit/test_introspect.jl`): `multipole_terms` is the **public, stable** view downstream
-  packages (the `SCETools.jl` mean-field samplers) read instead of `model.basis.salcs.salcs` /
+  packages (the `SCETools.jl` mean-field samplers) read instead of `model.basis.salc_basis.salcs` /
   `SALCMember` / `SALCTerm`. It returns the **raw** fitted `jϕ` as `coef` and leaves the per-N
   scale `(4π)^(body/2)` to the consumer — the scale lives in exactly one place (the
   reconstruction gate `_energy_from_terms`), so do **not** also apply it inside

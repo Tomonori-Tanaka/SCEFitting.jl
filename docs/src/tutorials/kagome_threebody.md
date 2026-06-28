@@ -29,7 +29,7 @@ kagome = Crystal(lat, frac, [1, 1, 1], ["Fe"])
 interaction = Interaction(; nbody = 3, pair_cutoff = 1.2, lmax = [2])   # up to 3-body, l ≤ 2
 basis = SCEBasis(kagome, interaction; backend = SpglibBackend())
 
-(space_group = basis.spacegroup.symbol, n_salc = nsalc(basis))
+(space_group = basis.spacegroup.symbol, n_salc = n_salcs(basis))
 ```
 
 ### The lattice and its unit cell
@@ -107,7 +107,7 @@ The ``l = (1,1,2)``, ``L_f = 0`` three-body channel combines the distinct ``l``-
 into one SALC, stored as several *terms* per member:
 
 ```@example kagome
-s112 = first(s for s in basis.salcs.salcs
+s112 = first(s for s in salcs(basis)
              if s.key.body == 3 && s.ls == [1, 1, 2] && s.Lf == 0)
 length(s112.members[1].terms)        # number of l-orderings folded into this one SALC
 ```
@@ -123,14 +123,14 @@ We draw random "true" couplings, generate in-span energies and the corresponding
 and recover the couplings with an energy + torque co-fit.
 
 ```@example kagome
-m       = nsalc(basis)
+m       = n_salcs(basis)
 configs = [randcfg(3) for _ = 1:200]
 skel    = SCEDataset(basis, configs, zeros(length(configs)))   # for its design matrix
 J_true  = randn(rng, m)
 j0_true = 0.5
 energies = j0_true .+ skel.X_E * J_true
 
-model0  = SCEModel(basis, j0_true, J_true, basis.salcs.keys)
+model0  = SCEPredictor(basis, j0_true, J_true, basis.salc_basis.keys)
 torques = [predict_torque(model0, c) for c in configs]
 
 f = fit(SCEFit, SCEDataset(basis, configs, energies, torques), OLS(); torque_weight = 0.3)
@@ -142,7 +142,7 @@ f = fit(SCEFit, SCEDataset(basis, configs, energies, torques), OLS(); torque_wei
 Both observables are reproduced and every one of the ``m`` couplings — across all body
 orders, `l`-channels, and `Lf` — is recovered to numerical precision. The multi-term
 channel is fit on exactly the same footing as the bilinear ones, because
-[`evaluate`](@ref) and the torque-gradient kernel both loop over a SALC's terms.
+[`evaluate_salc`](@ref) and the torque-gradient kernel both loop over a SALC's terms.
 
 ## Notes
 

@@ -62,14 +62,14 @@ include("sce/input.jl")
 # only ever sees `SpinDatum` / `SCEDataset`.
 include("io/dftsource.jl")
 
-export Lattice, Crystal, num_atoms, cartesian_positions, interplanar_spacing
+export Lattice, Crystal, n_atoms, cartesian_positions, interplanar_spacing
 export NeighborPair, NeighborList, build_neighbor_list
 export AbstractImageSelection, MinimumImage, AllImages
 export SymOp, SpaceGroup, AbstractSymmetryBackend, NoSymmetry, SpglibBackend,
     analyze_symmetry, n_ops
 export ClusterMember, ClusterOrbit, ClusterSet, build_clusters
-export SALCKey, SALC, SALCBasis, build_salc_basis, evaluate
-export Interaction, SCEBasis, SCEDataset, SCEModel, SCEFit, fit, refit, nsalc, read_input
+export SALCKey, SALC, SALCBasis, build_salc_basis, evaluate_salc, salcs
+export Interaction, SCEBasis, SCEDataset, SCEPredictor, SCEFit, fit, refit, n_salcs, read_setup
 export predict_energy, predict_torque, has_torque
 export AbstractEstimator, OLS, Ridge, ElasticNet, Lasso, AdaptiveLasso, AdaptiveRidge,
     PrecomputedPilot, solve_coefficients

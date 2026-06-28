@@ -6,6 +6,30 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — public API naming consistency (BREAKING)
+
+- A naming-and-usability pass renamed several exported symbols for consistency. All are
+  **clean renames** (no deprecation aliases); update call sites accordingly:
+  - **Count accessors** unified to an `n_*` prefix: `num_atoms` → `n_atoms`,
+    `nsalc` → `n_salcs`. (`nobs` / `dof` are StatsAPI names and are unchanged.)
+  - **SALC access** de-stuttered: the `SCEBasis` field `.salcs` (a `SALCBasis`) is renamed
+    to `.salc_basis`, and a new exported accessor `salcs(basis)::Vector{SALC}` returns the
+    basis functions directly — write `salcs(basis)[k]` instead of the old
+    `basis.salcs.salcs[k]`.
+  - **Predictor type** `SCEModel` → **`SCEPredictor`** (the lightweight, persistable
+    predictor): the type, its constructor `SCEPredictor(fit)`, and `load(SCEPredictor, …)`.
+  - **Setup reader** `read_input` → `read_setup` (returns the parsed crystal + interaction +
+    symmetry setup; pairs with `read_configs` for training data).
+  - **SALC kernel** `evaluate` → `evaluate_salc` (a less generic, collision-resistant name
+    for the exported invariant evaluator).
+- The persisted-model/basis **TOML schema is unaffected** (the on-disk tags `sce-basis` /
+  `sce-model` and all doc keys are unchanged), so model and basis files written by an
+  earlier build still load.
+- Docs additions: the `SCEFit` (heavyweight, data-bearing) vs `SCEPredictor` (lightweight,
+  persistable) roles are now contrasted in their docstrings, the README, and Getting
+  Started; the `coeftable` columns (`body` / `orbit_id` / `ls` / `Lf` / `block` / `J`) gained
+  a legend in the I/O guide.
+
 ### Added — lattice figures in the tutorials
 
 - The Heisenberg-chain and kagome three-body tutorials now open with a generated lattice

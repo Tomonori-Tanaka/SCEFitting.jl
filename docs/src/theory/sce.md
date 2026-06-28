@@ -79,7 +79,7 @@ coefficient tensor; its value on a configuration is
 
 (The inner *terms* sum is over `l`-orderings and is a single term except for the
 unequal-`l`, permutation-equivalent case at ``N \ge 3``; see
-[Architecture](architecture.md#Combined-space-projection).) [`evaluate`](@ref) implements
+[Architecture](architecture.md#Combined-space-projection).) [`evaluate_salc`](@ref) implements
 this kernel.
 
 ## The design matrix and the fit

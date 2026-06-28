@@ -100,7 +100,7 @@ function _image_selection_from_name(name)::AbstractImageSelection
 end
 
 """
-    read_input(path) -> (; crystal, interaction, backend, tol, images)
+    read_setup(path) -> (; crystal, interaction, backend, tol, images)
 
 Parse a human-authored TOML input file (schema in the file-level docstring of
 `src/sce/input.jl`) into the in-memory `crystal::Crystal`, `interaction::Interaction`,
@@ -109,7 +109,7 @@ selection `images::AbstractImageSelection`. Training data and the estimator are
 **not** part of the file (see [`SCEDataset`](@ref) / [`fit`](@ref)). See also
 `SCEBasis(path)`.
 """
-function read_input(path::AbstractString)::@NamedTuple{crystal::Crystal,
+function read_setup(path::AbstractString)::@NamedTuple{crystal::Crystal,
                                                        interaction::Interaction,
                                                        backend::AbstractSymmetryBackend,
                                                        tol::Float64,
@@ -136,7 +136,7 @@ end
     SCEBasis(path::AbstractString; backend = nothing, tol = nothing, images = nothing)
         -> SCEBasis
 
-Build an [`SCEBasis`](@ref) directly from a TOML input file ([`read_input`](@ref)).
+Build an [`SCEBasis`](@ref) directly from a TOML input file ([`read_setup`](@ref)).
 The file's `[symmetry]` backend/tol and `[interaction].images` are used unless
 overridden by the keyword arguments (e.g. `backend = SpglibBackend()` forces Spglib
 regardless of the file). Using the Spglib backend requires `using Spglib`.
@@ -145,7 +145,7 @@ function SCEBasis(path::AbstractString;
                   backend::Union{Nothing,AbstractSymmetryBackend} = nothing,
                   tol::Union{Nothing,Real} = nothing,
                   images::Union{Nothing,AbstractImageSelection} = nothing)::SCEBasis
-    inp = read_input(path)
+    inp = read_setup(path)
     be = backend === nothing ? inp.backend : backend
     tl = tol === nothing ? inp.tol : Float64(tol)
     im = images === nothing ? inp.images : images
