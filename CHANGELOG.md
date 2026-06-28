@@ -6,6 +6,19 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — lattice figures in the tutorials
+
+- The Heisenberg-chain and kagome three-body tutorials now open with a generated lattice
+  figure (CairoMakie) so the system is shown, not just described. Each figure draws the
+  **unit (calculation) cell** and the periodic connectivity from the **actual** computed
+  geometry — sites from `cartesian_positions`, bonds from `build_neighbor_list`, and the
+  highlighted kagome triangle read back from `build_clusters` (its sites and periodic
+  `shifts`). The chain figure shows the four sites closing into a ring (the dashed
+  ``1\text{–}4`` bond across the cell boundary); the kagome figure shows the cell's three
+  sites and a 3-body cluster that borrows two of its sites as periodic images from the
+  neighbouring cell. The pictures cannot drift from what the basis is built on. `CairoMakie`
+  is a `docs/` dependency only; the package itself gains no plotting dep.
+
 ### Changed — package renamed `MagestyRebuild` → `SCEFitting`
 
 - The package, its module, and the repository directory were renamed from

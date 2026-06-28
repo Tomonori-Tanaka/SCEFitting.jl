@@ -38,6 +38,63 @@ basis       = SCEBasis(chain, interaction; backend = SpglibBackend())
 (space_group = basis.spacegroup.symbol, n_salc = nsalc(basis))
 ```
 
+### The lattice and its unit cell
+
+The figure is drawn straight from the `chain` crystal and its neighbor list — the same
+geometry the basis is built on, so it cannot drift from what is computed. Sites are the
+[`cartesian_positions`](@ref); bonds are the [`build_neighbor_list`](@ref) pairs; the shaded
+strip is the **unit (calculation) cell** of length ``c``.
+
+```@example heis
+using CairoMakie
+CairoMakie.activate!(type = "png")
+
+cart = cartesian_positions(chain)                                  # 3 × 4, sites along z
+nl   = build_neighbor_list(chain, interaction.pair_cutoff, MinimumImage())
+z    = cart[3, :]
+cell = chain.lattice.vectors[3, 3]                                 # c = 10 Å, the calculation cell
+
+fig = Figure(size = (820, 300))
+ax  = Axis(fig[1, 1]; aspect = DataAspect(),
+           title = "Heisenberg chain — 4 sites in one cell, closed into a ring by PBC")
+hidedecorations!(ax); hidespines!(ax)
+
+vspan!(ax, 0, cell; color = (:gray, 0.08))                         # the unit (calculation) cell
+vlines!(ax, [0, cell]; color = (:gray, 0.55), linestyle = :dot)
+text!(ax, cell / 2, -0.52; text = "unit cell (calculation cell), c = $(round(Int, cell)) Å",
+      align = (:center, :top), color = :gray25, fontsize = 13)
+
+intra = unique([minmax(p.i, p.j) for p in nl.pairs if p.shift[3] == 0])
+wrap  = unique([minmax(p.i, p.j) for p in nl.pairs if p.shift[3] != 0])
+for (i, j) in intra                                                # nearest-neighbor bonds in-cell
+    lines!(ax, [z[i], z[j]], [0.0, 0.0]; color = :gray25, linewidth = 4)
+end
+for (i, j) in wrap                                                 # bond that closes across the boundary
+    cx, rx, ry = (z[i] + z[j]) / 2, abs(z[j] - z[i]) / 2, 1.15
+    ts = range(0, π; length = 80)
+    lines!(ax, cx .+ rx .* cos.(ts), ry .* sin.(ts);
+           color = :darkorange, linewidth = 3, linestyle = :dash)
+    text!(ax, cx, ry + 0.05; text = "periodic bond  $(i)–$(j)",
+          align = (:center, :bottom), color = :darkorange, fontsize = 13)
+end
+
+scatter!(ax, z, zeros(4); markersize = 30, color = :crimson)
+for s in 1:4
+    text!(ax, z[s], 0.0; text = string(s), align = (:center, :center),
+          color = :white, fontsize = 16)
+end
+text!(ax, (z[1] + z[2]) / 2, 0.13; text = "2.5 Å", align = (:center, :bottom),
+      color = :gray25, fontsize = 12)
+xlims!(ax, -1.3, cell + 1.3); ylims!(ax, -0.78, 1.62)
+fig
+```
+
+The four sites live in one calculation cell of length ``c = 10`` Å. Solid bonds are the
+in-cell nearest-neighbor pairs ``1\text{–}2\text{–}3\text{–}4``; the dashed arc is the bond
+that closes the chain across the periodic boundary, so **site 1 and site 4 are nearest
+neighbors too** and every site has exactly two. All four bonds are equivalent under the
+chain's space group, so they collapse to one invariant.
+
 There is a single SALC: the nearest-neighbor Heisenberg invariant
 ``\sum_{\langle ij\rangle}\hat{\boldsymbol e}_i\cdot\hat{\boldsymbol e}_j``.
 
