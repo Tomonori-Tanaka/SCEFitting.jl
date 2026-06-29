@@ -106,7 +106,15 @@ Easy to break silently — confirm before touching the algorithm.
   member transport (`_transport_term`) must use the *same* rotation direction and
   axis-relabel convention (`invperm(perm)`); the eigenvalue-exactly-0/1 idempotency
   assertion and the invariance test are the gates. At `N ≥ 3` also confirm SALCs are
-  linearly independent (design-matrix rank = #SALC).
+  linearly independent (design-matrix rank = #SALC). **The orbit loop in
+  `build_salc_basis` is threaded** (`Threads.@threads`, one task per orbit via
+  `_orbit_salcs`): orbits are independent and the output is sorted by `SALCKey`, so the
+  basis is byte-for-byte thread-count-independent. The precondition is that the Wigner-D
+  cache is **precomputed serially** (`_build_wig_cache`, full bounded `(l, g)` grid) and
+  **read-only** inside the loop — `_wig` is a pure lookup, never a `get!`. Any new shared
+  mutable state in the per-orbit path (or a lazily-filled cache) reintroduces a race;
+  keep it task-local. Gate: `test/unit/test_salc.jl` "build is deterministic / thread-safe"
+  plus the oracle, run under `julia -t N>1`.
 - **Design-matrix columns are identified by `SALCKey`** (`SALCBasis.keys`, sorted),
   not by construction order. The key must stay **injective**: `block` runs across all
   canonical `l`-orderings that share one sorted `ls` label (a proper-subgroup site

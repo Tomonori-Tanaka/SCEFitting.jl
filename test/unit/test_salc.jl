@@ -81,4 +81,26 @@ end
         @test all(s -> s.Lf == 0, iso.salcs)
         @test length(iso) > 0
     end
+
+    @testset "build is deterministic / thread-safe" begin
+        # `build_salc_basis` processes orbits in parallel (`Threads.@threads`), writing
+        # disjoint per-orbit results then sorting by key, so the output is byte-for-byte
+        # independent of thread count and of the parallel completion order. A rebuild
+        # must reproduce keys *and* the folded tensors exactly; run the suite with
+        # `julia -t N>1` to exercise the threaded path (a shared-state race fails here).
+        b2 = build_salc_basis(crystal, sg, clusters; lmax_by_species = [2])
+        @test b2.keys == basis.keys
+        @test b2.fingerprint == basis.fingerprint
+        @test length(b2) == length(basis)
+        for (s1, s2) in zip(basis.salcs, b2.salcs)
+            @test s1.key == s2.key
+            @test length(s1.members) == length(s2.members)
+            for (m1, m2) in zip(s1.members, s2.members)
+                for (t1, t2) in zip(m1.terms, m2.terms)
+                    @test t1.ls == t2.ls
+                    @test t1.folded == t2.folded     # exact equality, not isapprox
+                end
+            end
+        end
+    end
 end

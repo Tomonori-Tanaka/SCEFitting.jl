@@ -6,6 +6,21 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — thread-parallel SALC basis construction
+
+- `build_salc_basis` now builds the cluster orbits in parallel (`Threads.@threads` over a
+  flat orbit work list), each orbit producing its SALCs independently into a disjoint slot;
+  the results are concatenated and sorted by `SALCKey` as before. The output is **byte-for-byte
+  identical at any thread count** (verified: fingerprint *and* full folded-tensor content hash
+  match across 1/4/8 threads) — orbits are independent and the final key-sort fixes the order.
+- To make this race-free, the Wigner-D cache (`(l, g) → wignerD_real`) is now **precomputed
+  serially** over the full, bounded `(l ≤ lmax, g ≤ n_ops)` grid and is **read-only** during
+  the threaded loop (the previous lazy `get!` on a shared `Dict` would have raced). Speedup is
+  allocation/GC-bound (the build is allocation-heavy): ~2.1× on 4 threads, ~2.4× on 8 for a
+  128-atom FeRh 3-body basis (100 SALCs). Serial (1 thread) is unchanged.
+- `test/unit/test_salc.jl` gains a determinism/thread-safety regression test (a rebuild must
+  reproduce keys and folded tensors exactly).
+
 ### Added — thread-parallel design-matrix assembly and batch prediction
 
 - The two design-matrix builders (`_design_energy`, `_design_torque`) and the vector

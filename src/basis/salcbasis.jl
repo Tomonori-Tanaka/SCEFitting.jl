@@ -147,14 +147,21 @@ _mfslice(T::AbstractArray, Mf::Int) = Array(selectdim(T, ndims(T), Mf))
 
 _frob(A::AbstractArray, B::AbstractArray) = sum(A .* B)
 
-# Real Wigner-D matrix `D^l(R_g)`, memoized by `(l, g)` for the whole basis build
-# (it depends only on the operation and `l`, but is needed once per stabilizer column
-# and once per transported member/term — recomputing it dominated the cost).
+# Real Wigner-D matrix `D^l(R_g)`, keyed by `(l, g)` for the whole basis build (it
+# depends only on the operation and `l`, but is needed once per stabilizer column and
+# once per transported member/term — recomputing it dominated the cost). The full
+# `(l, g)` grid is bounded (`l ≤ lmax`, `g ≤ n_ops`) and cheap, so it is precomputed
+# **serially** up front; the cache is then **read-only** during the threaded orbit
+# loop (a concurrent `get!` on a shared `Dict` would race and corrupt it).
 const _WigCache = Dict{Tuple{Int,Int},Matrix{Float64}}
-_wig(cache::_WigCache, sg::SpaceGroup, l::Int, g::Int) =
-    get!(cache, (l, g)) do
-        AngularMomentum.wignerD_real(l, sg.ops[g].rotation_cart)
+function _build_wig_cache(sg::SpaceGroup, maxl::Int)::_WigCache
+    cache = _WigCache()
+    for l = 1:maxl, g = 1:n_ops(sg)
+        cache[(l, g)] = AngularMomentum.wignerD_real(l, sg.ops[g].rotation_cart)
     end
+    return cache
+end
+_wig(cache::_WigCache, l::Int, g::Int) = cache[(l, g)]   # read-only lookup
 
 # Project the combined (ordering, path, Mf) space onto stabilizer invariants for a
 # fixed final `Lf`, gauge-fix, and fold each invariant into per-ordering tensors.
@@ -184,7 +191,7 @@ function _project_and_fold(crystal::Crystal, sg::SpaceGroup, stab::Vector{Tuple{
             o = orderings[oi]
             v = _mfslice(tens[oi][p], Mf)
             for i = 1:N
-                v = AngularMomentum.nmode_mul(v, _wig(wcache, sg, o[i], g), i)
+                v = AngularMomentum.nmode_mul(v, _wig(wcache, o[i], g), i)
             end
             # U_g sends rep axis i → position π(i)=perm[i], i.e. permutedims by π⁻¹.
             q = invperm(perm)
@@ -270,7 +277,7 @@ function _transport_term(o::Vector{Int}, F::Array{Float64}, sg::SpaceGroup, g::I
     N = length(o)
     T = F
     for i = 1:N
-        T = AngularMomentum.nmode_mul(T, _wig(wcache, sg, o[i], g), i)
+        T = AngularMomentum.nmode_mul(T, _wig(wcache, o[i], g), i)
     end
     q = invperm(perm)                       # member axis j ← rep axis q[j]
     G = Array{Float64}(permutedims(T, q))
@@ -298,54 +305,79 @@ including those that mix coupling paths (`N ≥ 3`) or `l`-orderings on
 symmetry-equivalent sites (e.g. `l=(1,1,2)`, `Lf>0` on an equilateral triangle) —
 are validated by the ground-truth invariance test `Φ(g·e)=Φ(e)` (non-collinear
 spins, all `Lf`) and time-reversal evenness `Φ(−e)=Φ(e)`.
+
+The orbits are built in parallel over `Threads.nthreads()` (set `julia -t` /
+`JULIA_NUM_THREADS`); each orbit is independent and the result is sorted by
+`SALCKey`, so it is byte-for-byte identical at any thread count.
 """
+# All SALCs of one cluster orbit. Self-contained (its `blockcount` and output are
+# orbit-local; `wcache` is read-only), so orbits are processed independently — the
+# unit of parallelism in `build_salc_basis`.
+function _orbit_salcs(crystal::Crystal, spacegroup::SpaceGroup, N::Int, orbit_id::Int,
+                      O::ClusterOrbit, lmax::Vector{Int}, isotropy::Bool,
+                      wcache::_WigCache)::Vector{SALC}
+    out = SALC[]
+    rep = O.representative
+    stab = _stabilizer(crystal, spacegroup, rep)
+    perms = unique([perm for (_, perm) in stab])
+    conns = _connect_all(crystal, spacegroup, rep, O.members)
+    # `block` runs across ALL canonical l-tuples sharing one sorted label so the key
+    # stays injective: when the site permutations are a proper subgroup of Sₙ they
+    # split a degenerate multiset's arrangements into several orbits (e.g. (1,1,2) and
+    # (2,1,1) on a mirror-only triangle put l=2 on inequivalent sites), all sharing
+    # `ls = sort(t)` but giving distinct SALCs.
+    blockcount = Dict{Tuple{Vector{Int},Int},Int}()
+    for t in _enumerate_ls(N, O.species, lmax, perms)
+        orderings = unique([t[p] for p in perms])
+        Lfset = sort(unique(cb.Lf for cb in coupled_bases(t; isotropy = isotropy)))
+        lab = sort(collect(t))
+        for Lf in Lfset
+            blocks = _project_and_fold(crystal, spacegroup, stab, orderings, Lf, wcache)
+            for terms_rep in blocks
+                isempty(terms_rep) && continue
+                members = SALCMember[]
+                anynz = false
+                for (m, (g, perm)) in zip(O.members, conns)
+                    mterms = SALCTerm[]
+                    for (o, F) in terms_rep
+                        mls, G = _transport_term(o, F, spacegroup, g, perm, wcache)
+                        norm(G) > 1e-10 && (anynz = true)
+                        push!(mterms, SALCTerm(mls, G))
+                    end
+                    push!(members, SALCMember(m.atoms, m.shifts, mterms))
+                end
+                anynz || continue
+                block = get(blockcount, (lab, Lf), 0) + 1
+                blockcount[(lab, Lf)] = block
+                key = SALCKey(N, orbit_id, lab, Lf, block)
+                push!(out, SALC(key, N, lab, Lf, members))
+            end
+        end
+    end
+    return out
+end
+
 function build_salc_basis(crystal::Crystal, spacegroup::SpaceGroup, clusters::ClusterSet;
                           lmax_by_species::AbstractVector{<:Integer},
                           isotropy::Bool = false)::SALCBasis
     lmax = collect(Int, lmax_by_species)
-    salcs = SALC[]
-    wcache = _WigCache()                     # (l, g) → wignerD_real, shared across the build
+    # Precompute the Wigner-D cache serially so it is read-only (race-free) below.
+    wcache = _build_wig_cache(spacegroup, isempty(lmax) ? 0 : maximum(lmax))
+    # Flatten the orbits into one work list, keeping `(N, orbit_id)` for the SALC keys.
+    # Orbits are independent; the final `sort!` by key makes the result identical at any
+    # thread count, so the parallel order is irrelevant.
+    work = Tuple{Int,Int,ClusterOrbit}[]
     for N in sort(collect(keys(clusters.by_body)))
         for (orbit_id, O) in enumerate(clusters.by_body[N])
-            rep = O.representative
-            stab = _stabilizer(crystal, spacegroup, rep)
-            perms = unique([perm for (_, perm) in stab])
-            conns = _connect_all(crystal, spacegroup, rep, O.members)
-            # `block` runs across ALL canonical l-tuples sharing one sorted label so
-            # the key stays injective: when the site permutations are a proper subgroup
-            # of Sₙ they split a degenerate multiset's arrangements into several orbits
-            # (e.g. (1,1,2) and (2,1,1) on a mirror-only triangle put l=2 on
-            # inequivalent sites), all sharing `ls = sort(t)` but giving distinct SALCs.
-            blockcount = Dict{Tuple{Vector{Int},Int},Int}()
-            for t in _enumerate_ls(N, O.species, lmax, perms)
-                orderings = unique([t[p] for p in perms])
-                Lfset = sort(unique(cb.Lf for cb in coupled_bases(t; isotropy = isotropy)))
-                lab = sort(collect(t))
-                for Lf in Lfset
-                    blocks = _project_and_fold(crystal, spacegroup, stab, orderings, Lf, wcache)
-                    for terms_rep in blocks
-                        isempty(terms_rep) && continue
-                        members = SALCMember[]
-                        anynz = false
-                        for (m, (g, perm)) in zip(O.members, conns)
-                            mterms = SALCTerm[]
-                            for (o, F) in terms_rep
-                                mls, G = _transport_term(o, F, spacegroup, g, perm, wcache)
-                                norm(G) > 1e-10 && (anynz = true)
-                                push!(mterms, SALCTerm(mls, G))
-                            end
-                            push!(members, SALCMember(m.atoms, m.shifts, mterms))
-                        end
-                        anynz || continue
-                        block = get(blockcount, (lab, Lf), 0) + 1
-                        blockcount[(lab, Lf)] = block
-                        key = SALCKey(N, orbit_id, lab, Lf, block)
-                        push!(salcs, SALC(key, N, lab, Lf, members))
-                    end
-                end
-            end
+            push!(work, (N, orbit_id, O))
         end
     end
+    parts = Vector{Vector{SALC}}(undef, length(work))
+    Threads.@threads for w in eachindex(work)
+        (N, orbit_id, O) = work[w]
+        parts[w] = _orbit_salcs(crystal, spacegroup, N, orbit_id, O, lmax, isotropy, wcache)
+    end
+    salcs = isempty(parts) ? SALC[] : reduce(vcat, parts)
     sort!(salcs; by = s -> s.key)
     keyvec = SALCKey[s.key for s in salcs]
     return SALCBasis(salcs, keyvec, hash(keyvec))
