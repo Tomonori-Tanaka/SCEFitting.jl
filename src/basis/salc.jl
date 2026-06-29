@@ -86,28 +86,52 @@ unit columns). Periodic with the cell, so lattice shifts map back to the same
 column (`site(a, R) → a`).
 """
 function evaluate_salc(salc::SALC, e::AbstractMatrix{<:Real})::Float64
-    N = salc.body
-    scale = (4π)^(N / 2)
+    scale = (4π)^(salc.body / 2)
     total = 0.0
     @inbounds for m in salc.members
         atoms = m.atoms
         for t in m.terms
-            ls = t.ls
-            for idx in CartesianIndices(t.folded)
-                w = t.folded[idx]
-                w == 0.0 && continue
-                for i = 1:N
-                    μ = idx[i] - ls[i] - 1
-                    u = SVector{3,Float64}(e[1, atoms[i]], e[2, atoms[i]], e[3, atoms[i]])
-                    # μ is in range by the tensor bounds and u is a unit column by the
-                    # config contract, so the unchecked variant is safe here.
-                    w *= Harmonics.Zlm_unsafe(ls[i], μ, u)
-                end
-                total += w
-            end
+            total += _eval_term(t.folded, t.ls, atoms, e)
         end
     end
     return scale * total
+end
+
+# Per-term kernel behind a function barrier: `SALCTerm.folded` is stored as the
+# abstract `Array{Float64}` (rank not in the type), so the multi-index loop is
+# type-unstable when written inline. Dispatching here specializes on the concrete
+# rank `D` (== body order) — same values and the same multiply/accumulate order, so
+# the result is bit-identical to the inlined loop.
+@inline function _eval_term(folded::Array{Float64,D}, ls, atoms,
+                            e::AbstractMatrix{<:Real}) where {D}
+    # Per-site harmonic tables. The site direction `u_i` is fixed for this term, so
+    # `Z_{lsᵢ,μ}` depends only on `(i, μ)`; tabulate it once over `μ ∈ -lsᵢ:lsᵢ` (the
+    # tensor axis index is `idx[i] = μ+lsᵢ+1`) instead of recomputing inside the
+    # nonzero multi-index loop, where each call hit `dnPl` and dominated the design-
+    # matrix cost. Same values, same multiply order ⇒ bit-identical. `u_i` is a unit
+    # column by the config contract, so the unchecked harmonic is safe.
+    tabs = _site_ztables(Val(D), ls, atoms, e)
+    acc = 0.0
+    @inbounds for idx in CartesianIndices(folded)
+        w = folded[idx]
+        w == 0.0 && continue
+        for i = 1:D
+            w *= tabs[i][idx[i]]
+        end
+        acc += w
+    end
+    return acc
+end
+
+# Tuple of per-site harmonic tables `tabs[i][μ+lsᵢ+1] = Z_{lsᵢ,μ}(u_i)`. `Val(D)`
+# keeps the tuple length a compile-time constant (type-stable).
+@inline function _site_ztables(::Val{D}, ls, atoms, e::AbstractMatrix{<:Real}) where {D}
+    ntuple(Val(D)) do i
+        a = atoms[i]
+        u = SVector{3,Float64}(e[1, a], e[2, a], e[3, a])
+        li = ls[i]
+        Float64[Harmonics.Zlm_unsafe(li, μ, u) for μ = -li:li]
+    end
 end
 
 """
@@ -129,36 +153,53 @@ gradient; the radial part it drops would cancel in `e × ∇Φ` anyway.
 function accumulate_grad!(G::AbstractMatrix{Float64}, salc::SALC,
                           e::AbstractMatrix{<:Real}, weight::Real)
     weight == 0.0 && return G
-    N = salc.body
-    scale = weight * (4π)^(N / 2)
+    scale = weight * (4π)^(salc.body / 2)
     @inbounds for m in salc.members
         atoms = m.atoms
         for t in m.terms
-            ls = t.ls
-            for idx in CartesianIndices(t.folded)
-                w = scale * t.folded[idx]
-                w == 0.0 && continue
-                for i = 1:N
-                    # leave-one-out product of the other sites' harmonics
-                    p = 1.0
-                    for k = 1:N
-                        k == i && continue
-                        μk = idx[k] - ls[k] - 1
-                        uk = SVector{3,Float64}(e[1, atoms[k]], e[2, atoms[k]], e[3, atoms[k]])
-                        p *= Harmonics.Zlm_unsafe(ls[k], μk, uk)
-                    end
-                    p == 0.0 && continue
-                    μi = idx[i] - ls[i] - 1
-                    ui = SVector{3,Float64}(e[1, atoms[i]], e[2, atoms[i]], e[3, atoms[i]])
-                    gi = Harmonics.grad_Zlm_unsafe(ls[i], μi, ui)
-                    c = w * p
-                    a = atoms[i]
-                    G[1, a] += c * gi[1]
-                    G[2, a] += c * gi[2]
-                    G[3, a] += c * gi[3]
-                end
-            end
+            _accum_grad_term!(G, t.folded, t.ls, atoms, e, scale)
         end
     end
     return G
+end
+
+# Gradient counterpart of `_eval_term`: a function barrier specializing on the
+# concrete rank `D`. The site harmonics `Z` and gradients `∇Z` are tabulated per
+# site (same rationale as `_eval_term`: `u_i` is fixed for the term, so each entry
+# depends only on `(i, μ)`), then the product-rule expansion reads them back. Same
+# expansion, same evaluation order ⇒ the accumulated gradient is bit-identical.
+@inline function _accum_grad_term!(G::AbstractMatrix{Float64}, folded::Array{Float64,D},
+                                   ls, atoms, e::AbstractMatrix{<:Real}, scale::Float64) where {D}
+    ztab = _site_ztables(Val(D), ls, atoms, e)
+    gtab = _site_gtables(Val(D), ls, atoms, e)
+    @inbounds for idx in CartesianIndices(folded)
+        w = scale * folded[idx]
+        w == 0.0 && continue
+        for i = 1:D
+            # leave-one-out product of the other sites' harmonics
+            p = 1.0
+            for k = 1:D
+                k == i && continue
+                p *= ztab[k][idx[k]]
+            end
+            p == 0.0 && continue
+            gi = gtab[i][idx[i]]
+            c = w * p
+            a = atoms[i]
+            G[1, a] += c * gi[1]
+            G[2, a] += c * gi[2]
+            G[3, a] += c * gi[3]
+        end
+    end
+    return G
+end
+
+# Tuple of per-site gradient tables `gtab[i][μ+lsᵢ+1] = ∇Z_{lsᵢ,μ}(u_i)`.
+@inline function _site_gtables(::Val{D}, ls, atoms, e::AbstractMatrix{<:Real}) where {D}
+    ntuple(Val(D)) do i
+        a = atoms[i]
+        u = SVector{3,Float64}(e[1, a], e[2, a], e[3, a])
+        li = ls[i]
+        SVector{3,Float64}[Harmonics.grad_Zlm_unsafe(li, μ, u) for μ = -li:li]
+    end
 end

@@ -142,8 +142,10 @@ function _connect_all(crystal::Crystal, sg::SpaceGroup, rep::ClusterMember,
     return conns
 end
 
-# The Mf-th multiplet slice of a coupled tensor (rank N+1 → rank N).
-_mfslice(T::AbstractArray, Mf::Int) = Array(selectdim(T, ndims(T), Mf))
+# The Mf-th multiplet slice of a coupled tensor (rank N+1 → rank N), as a view: the
+# last axis is column-major-contiguous, so this is a strided view with no copy. Every
+# consumer (`nmode_mul`, `_frob`, the fold broadcast) reads it without mutating.
+_mfslice(T::AbstractArray, Mf::Int) = selectdim(T, ndims(T), Mf)
 
 _frob(A::AbstractArray, B::AbstractArray) = sum(A .* B)
 
@@ -167,12 +169,14 @@ _wig(cache::_WigCache, l::Int, g::Int) = cache[(l, g)]   # read-only lookup
 # fixed final `Lf`, gauge-fix, and fold each invariant into per-ordering tensors.
 # Returns a list of blocks; each block is `Vector{(ls, folded)}` (the rep terms).
 function _project_and_fold(stab::Vector{Tuple{Int,Vector{Int}}},
-                           orderings::Vector{Vector{Int}}, Lf::Int, wcache::_WigCache)
+                           orderings::Vector{Vector{Int}}, cbs::Vector, Lf::Int,
+                           wcache::_WigCache)
     N = length(orderings[1])
-    # coupled tensors of this Lf, per ordering
+    # coupled tensors of this Lf, per ordering — selected from the prebuilt `cbs`
+    # (built once per ordering in `_orbit_salcs`, not recomputed for each Lf).
     tens = [Array{Float64}[] for _ in orderings]
-    for (oi, o) in enumerate(orderings)
-        for cb in coupled_bases(o)
+    for oi in eachindex(orderings)
+        for cb in cbs[oi]
             cb.Lf == Lf && push!(tens[oi], cb.tensor)
         end
     end
@@ -308,10 +312,16 @@ function _orbit_salcs(crystal::Crystal, spacegroup::SpaceGroup, N::Int, orbit_id
     blockcount = Dict{Tuple{Vector{Int},Int},Int}()
     for t in _enumerate_ls(N, O.species, lmax, perms)
         orderings = unique([t[p] for p in perms])
-        Lfset = sort(unique(cb.Lf for cb in coupled_bases(t; isotropy = isotropy)))
+        # Build the coupled bases for each ordering once. They are reused across every
+        # `Lf`; rebuilding them inside `_project_and_fold` per `Lf` recomputed the whole
+        # chained-CG construction `|Lfset|` times. The `Lf` set is the CG decomposition
+        # of the `l`-multiset (permutation-invariant), so the union over orderings equals
+        # the previous `coupled_bases(t)` set.
+        cbs = [coupled_bases(o; isotropy = isotropy) for o in orderings]
+        Lfset = sort(unique(cb.Lf for cbo in cbs for cb in cbo))
         lab = sort(collect(t))
         for Lf in Lfset
-            blocks = _project_and_fold(stab, orderings, Lf, wcache)
+            blocks = _project_and_fold(stab, orderings, cbs, Lf, wcache)
             for terms_rep in blocks
                 isempty(terms_rep) && continue
                 members = SALCMember[]

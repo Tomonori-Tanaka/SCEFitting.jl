@@ -6,6 +6,23 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Performance — design-matrix / prediction hot path (bit-identical)
+
+- `evaluate_salc` and `accumulate_grad!` now tabulate the per-site tesseral harmonics
+  `Z_{lᵢμ}` (and `∇Z`) once per term and read them back in the multi-index loop, instead
+  of recomputing them — and the expensive `dnPl` Legendre call inside — for every nonzero
+  tensor entry. The per-term kernels sit behind a function barrier that specializes on the
+  concrete tensor rank (`SALCTerm.folded` is stored as the rank-erased `Array{Float64}`),
+  so the loop is type-stable. Same values and the same multiply/accumulate order ⇒ the
+  output is **bit-for-bit identical** (verified against the Magesty oracle). Measured on a
+  16-atom bcc 3-body, `lmax=2` basis × 200 configs (single thread): energy design matrix
+  ~3.4× faster / 3.4× less allocation, torque design matrix ~5.1× faster / 4.8× less
+  allocation. The same kernels back `predict_energy` / `predict_torque`.
+- `build_salc_basis`: the coupled bases for each ordering are now built once and reused
+  across every final `Lf` (the inner projection rebuilt the full chained-CG construction
+  per `Lf`), and `_mfslice` returns a view instead of copying the multiplet slice. Both are
+  bit-identical; modest build-time allocation reduction.
+
 ### Fixed
 
 - `build_salc_basis`'s docstring had detached and bound to the internal `_orbit_salcs`
