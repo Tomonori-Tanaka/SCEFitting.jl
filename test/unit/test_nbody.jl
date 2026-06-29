@@ -80,6 +80,23 @@ function _triangle_cs(; L = 8.0)
     return crystal, _assemble_spacegroup(crystal, rots, trans, "Cs", 0; tol = 1e-6)
 end
 
+# Two-species isosceles triangle: apex (atom 1) is species 2, the mirror-equivalent
+# base pair (atoms 2,3) is species 1. With `lmax_by_species = [2, 1]` the base sites
+# enumerate l ∈ {1,2} while the apex is capped at l = 1, so `maxl = maximum(lmax) = 2`
+# but not every site reaches it — the exact configuration that stresses the Wigner
+# cache bound, and (base↔base mixing) the per-orbit `blockcount` / multi-term path.
+function _triangle_cs2(; L = 8.0)
+    c = SVector{3,Float64}(0.5, 0.5, 0.5)
+    offs = [SVector{3,Float64}(0.0, 1.5, 0.0), SVector{3,Float64}(-1.0, 0.0, 0.0),
+            SVector{3,Float64}(1.0, 0.0, 0.0)]
+    frac = hcat([c + o / L for o in offs]...)
+    crystal = Crystal(Lattice(Matrix(L * I(3))), frac, [2, 1, 1], ["Fe", "Co"])
+    σ = SMatrix{3,3,Float64}([-1.0 0 0; 0 1 0; 0 0 1])
+    rots = [SMatrix{3,3,Float64}(I), σ]
+    trans = [(SMatrix{3,3,Float64}(I) - R) * c for R in rots]
+    return crystal, _assemble_spacegroup(crystal, rots, trans, "Cs", 0; tol = 1e-6)
+end
+
 @testset "N-body (3-body triangle)" begin
     crystal, sg = _triangle_c3v()
     nl = build_neighbor_list(crystal, 2.2)        # triangle side r√3 ≈ 2.08
@@ -173,6 +190,39 @@ end
         # torque is the exact gradient of the fitted energy surface (multi-term path)
         for c in configs[1:5]
             @test isapprox(predict_torque(f, c), _torque_fd3(SCEPredictor(f), c); atol = 1e-5)
+        end
+    end
+
+    @testset "build is deterministic / thread-safe (3-body, multi-species)" begin
+        # The orbit loop in `build_salc_basis` runs under `Threads.@threads`; a rebuild
+        # must reproduce keys *and* folded tensors byte-for-byte at any thread count.
+        # This 3-body, two-species, multi-term orbit (`lmax_by_species = [2, 1]`, base↔
+        # base degenerate-multiset split) is the path where the Wigner cache bound and
+        # the per-orbit `blockcount` matter most — run with `julia -t N>1` to exercise
+        # the parallel completion order (a shared-state race fails the exact checks).
+        Threads.nthreads() == 1 &&
+            @warn "determinism test runs serial; launch `julia -t N>1` to exercise the threaded path"
+        xtal, sgcs = _triangle_cs2()
+        nl = build_neighbor_list(xtal, 2.2)
+        cl = build_clusters(xtal, nl, sgcs; nbody = 3)
+        b1 = build_salc_basis(xtal, sgcs, cl; lmax_by_species = [2, 1])
+        b2 = build_salc_basis(xtal, sgcs, cl; lmax_by_species = [2, 1])
+        @test length(b1) > 0
+        @test issorted(b1.keys)
+        @test allunique(b1.keys)
+        @test any(s -> s.Lf > 0, b1.salcs)         # anisotropic channels present
+        @test b2.keys == b1.keys
+        @test b2.fingerprint == b1.fingerprint
+        @test length(b2) == length(b1)
+        for (s1, s2) in zip(b1.salcs, b2.salcs)
+            @test s1.key == s2.key
+            @test length(s1.members) == length(s2.members)
+            for (m1, m2) in zip(s1.members, s2.members)
+                for (t1, t2) in zip(m1.terms, m2.terms)
+                    @test t1.ls == t2.ls
+                    @test t1.folded == t2.folded   # exact equality, not isapprox
+                end
+            end
         end
     end
 end

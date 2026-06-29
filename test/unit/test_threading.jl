@@ -20,6 +20,8 @@ end
 
 @testset "threaded assembly / prediction equals serial" begin
     @info "running with $(Threads.nthreads()) thread(s)"
+    Threads.nthreads() == 1 &&
+        @warn "threading tests run serial; launch `julia -t N>1` to exercise the parallel path"
 
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])

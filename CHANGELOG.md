@@ -19,7 +19,17 @@ release, so everything lives under *Unreleased*.
   allocation/GC-bound (the build is allocation-heavy): ~2.1× on 4 threads, ~2.4× on 8 for a
   128-atom FeRh 3-body basis (100 SALCs). Serial (1 thread) is unchanged.
 - `test/unit/test_salc.jl` gains a determinism/thread-safety regression test (a rebuild must
-  reproduce keys and folded tensors exactly).
+  reproduce keys and folded tensors exactly), and `test/unit/test_nbody.jl` extends it to a
+  **3-body, two-species, multi-term** orbit (`lmax_by_species = [2, 1]`, degenerate-multiset
+  split) — the path where the Wigner cache bound and per-orbit `blockcount` matter most. The
+  determinism / threading tests now `@warn` when run on a single thread (the threaded path is
+  only exercised under `julia -t N>1`).
+
+### Changed
+
+- Internal cleanup following the threading refactor: dropped the now-dead `crystal` / `sg`
+  parameters from `_project_and_fold` / `_transport_term` (unreferenced since the Wigner-D
+  cache became a read-only `(l, g)` lookup). No behavior change.
 
 ### Added — thread-parallel design-matrix assembly and batch prediction
 

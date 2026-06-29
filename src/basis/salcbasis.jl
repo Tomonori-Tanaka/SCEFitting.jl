@@ -166,7 +166,7 @@ _wig(cache::_WigCache, l::Int, g::Int) = cache[(l, g)]   # read-only lookup
 # Project the combined (ordering, path, Mf) space onto stabilizer invariants for a
 # fixed final `Lf`, gauge-fix, and fold each invariant into per-ordering tensors.
 # Returns a list of blocks; each block is `Vector{(ls, folded)}` (the rep terms).
-function _project_and_fold(crystal::Crystal, sg::SpaceGroup, stab::Vector{Tuple{Int,Vector{Int}}},
+function _project_and_fold(stab::Vector{Tuple{Int,Vector{Int}}},
                            orderings::Vector{Vector{Int}}, Lf::Int, wcache::_WigCache)
     N = length(orderings[1])
     # coupled tensors of this Lf, per ordering
@@ -208,6 +208,8 @@ function _project_and_fold(crystal::Crystal, sg::SpaceGroup, stab::Vector{Tuple{
     end
     P ./= length(stab)
     P .= (P .+ P') ./ 2
+    # `D` is tiny (a few dozen), so OpenBLAS runs this `eigen` serially even though
+    # we are inside `Threads.@threads`; no Julia↔BLAS thread oversubscription in practice.
     F = eigen(Symmetric(P))
     all(λ -> abs(λ) < 1e-6 || abs(λ - 1) < 1e-6, F.values) ||
         error("SALC projector is not idempotent (eigenvalues $(F.values)); convention bug")
@@ -272,7 +274,7 @@ end
 # Transport a rep term `(o, F)` to a member connected by `(g, perm)`: rotate each
 # site axis by `wignerD_real(o_i, R_g)`, then relabel rep site i → member site
 # perm[i]. Returns the member-ordered `(ls, folded)`.
-function _transport_term(o::Vector{Int}, F::Array{Float64}, sg::SpaceGroup, g::Int,
+function _transport_term(o::Vector{Int}, F::Array{Float64}, g::Int,
                          perm::Vector{Int}, wcache::_WigCache)
     N = length(o)
     T = F
@@ -332,7 +334,7 @@ function _orbit_salcs(crystal::Crystal, spacegroup::SpaceGroup, N::Int, orbit_id
         Lfset = sort(unique(cb.Lf for cb in coupled_bases(t; isotropy = isotropy)))
         lab = sort(collect(t))
         for Lf in Lfset
-            blocks = _project_and_fold(crystal, spacegroup, stab, orderings, Lf, wcache)
+            blocks = _project_and_fold(stab, orderings, Lf, wcache)
             for terms_rep in blocks
                 isempty(terms_rep) && continue
                 members = SALCMember[]
@@ -340,7 +342,7 @@ function _orbit_salcs(crystal::Crystal, spacegroup::SpaceGroup, N::Int, orbit_id
                 for (m, (g, perm)) in zip(O.members, conns)
                     mterms = SALCTerm[]
                     for (o, F) in terms_rep
-                        mls, G = _transport_term(o, F, spacegroup, g, perm, wcache)
+                        mls, G = _transport_term(o, F, g, perm, wcache)
                         norm(G) > 1e-10 && (anynz = true)
                         push!(mterms, SALCTerm(mls, G))
                     end

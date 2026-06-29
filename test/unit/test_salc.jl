@@ -88,6 +88,8 @@ end
         # independent of thread count and of the parallel completion order. A rebuild
         # must reproduce keys *and* the folded tensors exactly; run the suite with
         # `julia -t N>1` to exercise the threaded path (a shared-state race fails here).
+        Threads.nthreads() == 1 &&
+            @warn "determinism test runs serial; launch `julia -t N>1` to exercise the threaded path"
         b2 = build_salc_basis(crystal, sg, clusters; lmax_by_species = [2])
         @test b2.keys == basis.keys
         @test b2.fingerprint == basis.fingerprint
