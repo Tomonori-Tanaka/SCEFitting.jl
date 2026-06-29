@@ -31,6 +31,7 @@ makedocs(;
             "tutorials/index.md",
             "tutorials/heisenberg_chain.md",
             "tutorials/kagome_threebody.md",
+            "tutorials/case1_bcc_fe.md",
         ],
         "Theory" => [
             "theory/index.md",

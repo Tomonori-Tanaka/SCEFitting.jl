@@ -6,6 +6,43 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — `to_sunny` spin scaling routes (`:moment` / `:coupling`)
+
+- `to_sunny` gains a `scaling` keyword so it can export a **non-half-integer** effective spin
+  (e.g. the itinerant ``S_{\text{eff}} = m/(g\mu_B) \approx 1.1`` of bcc Fe), which Sunny's
+  `Moment` (half-integer only) cannot carry directly:
+  - `:moment` — put `S_eff` into the `Moment` and rescale exchange by `1/(SₐS_b)`; static
+    energy *and* dispersion exact, but `S_eff` must be a half-integer (the previous, only
+    behavior).
+  - `:coupling` — keep `Moment` at a placeholder `s₀ = 1` and fold `S_eff` into the couplings
+    (`J = M/(s₀√(SᵢSⱼ))`, single-ion `1/(s₀ Sᵢ)`); works for **any** positive `S_eff`. Only
+    the magnon *dispersion* is physical (invariant under the overall spin scale `sᵢ→c sᵢ,
+    J→J/c`); the static energy is rescaled.
+  - `:auto` (default) picks `:moment` for half-integer spins, else `:coupling`. `mode` also
+    gains `:auto` (`:dipole` for half-integer, `:dipole_uncorrected` otherwise). A `:coupling`
+    placeholder cannot carry the quantum quadrupole, so single-ion + `:dipole` + `:coupling`
+    is rejected. Modeled on the Magesty.jl Sunny export.
+  - Validated: the `:moment` and `:coupling` dispersions agree to ``<10^{-7}`` for a
+    half-integer spin where both apply, the `:coupling` static energy equals
+    `(predict_energy − j0)/S`, and a non-half-integer `S_eff` now builds and disperses.
+
+### Added — bcc Fe worked-example tutorial
+
+- New tutorial [`docs/src/tutorials/case1_bcc_fe.md`](docs/src/tutorials/case1_bcc_fe.md):
+  a real (non-synthetic) end-to-end fit for body-centered cubic iron — a 128-atom
+  ``4\times4\times4`` supercell, isotropic two-body basis (``Im\bar3m``, 13 SALCs), fit from
+  noncollinear spin-DFT energies and torques, with in-sample validation (parity plots),
+  the isotropic ``J_{ij}`` read back out of [`bilinear_terms`](@ref) against pair distance,
+  and a **live** [`to_sunny`](@ref) magnon dispersion (``\Gamma\text{–}H\text{–}N\text{–}\Gamma\text{–}P\text{–}H``
+  and a ``\Gamma\text{–}N`` comparison to neutron data) using the new `:coupling` route at
+  ``S_{\text{eff}} = 1.1``. The fit uses `torque_weight = 1.0` (a torque fit, constraining the
+  energy gradient that sets the dispersion), reproducing the reference Magesty.jl tutorial's
+  ``J_{ij}`` and magnon spectrum. The whole pipeline runs **live** in the docs (the ~10× `SCEBasis`
+  speedup below makes the 128-atom build a few seconds). Ships the reference data — `POSCAR`,
+  a 50-configuration `EMBSET`, and the experimental `febcc_spinwave.csv` — under
+  `docs/src/tutorials/case1_inputs/`; the upstream VASP I/O and mean-field sampling that
+  produced it live in the companion `SCETools.jl`. Adds `Sunny` to the docs environment.
+
 ### Performance — `SCEBasis` build (clusters + SALC)
 
 - The symmetry-orbit and SALC construction were the dominant cost of building a basis on
