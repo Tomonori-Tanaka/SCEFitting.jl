@@ -6,6 +6,24 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed
+
+- `build_salc_basis`'s docstring had detached and bound to the internal `_orbit_salcs`
+  helper (it was inserted between the docstring and the function), leaving the exported
+  `build_salc_basis` undocumented and breaking the `checkdocs = :exports` docs build. The
+  docstring is back on `build_salc_basis`.
+
+### Added — training-data boundary validation
+
+- Spin configurations are now validated where they enter the pipeline (`SCEDataset`
+  constructors, `predict_energy` / `predict_torque`): each must be `3 × n_atoms` with
+  **finite, unit-norm columns** — the contract the harmonic kernels assume (they call
+  `Zlm_unsafe`, which skips per-call checks). A non-normalized / NaN / wrong-shape config
+  previously produced a silently biased design matrix or prediction; it now throws an
+  actionable `ArgumentError` / `DimensionMismatch` naming the offending config and column.
+  The `SCEDataset` constructors also check `length(configs) == length(energies)`. The unit-
+  norm tolerance is the `atol` keyword (default `1e-6`). New `test/unit/test_validation.jl`.
+
 ### Added — thread-parallel SALC basis construction
 
 - `build_salc_basis` now builds the cluster orbits in parallel (`Threads.@threads` over a

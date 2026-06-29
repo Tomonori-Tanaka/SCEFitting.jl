@@ -289,29 +289,6 @@ function _transport_term(o::Vector{Int}, F::Array{Float64}, g::Int,
     return o[q], G                          # member ls = o[invperm(perm)]
 end
 
-"""
-    build_salc_basis(crystal, spacegroup, clusters; lmax_by_species, isotropy = false) -> SALCBasis
-
-Construct the symmetry-adapted (and time-reversal-even) SCE basis for every cluster
-orbit and body order. For each `(orbit, l-multiset, Lf)` the stabilizer-invariant
-coefficient subspace (over orderings × coupling paths) is found, gauge-fixed, and
-transported to all orbit members.
-
-# Keyword arguments
-- `lmax_by_species::AbstractVector{<:Integer}`: per-species maximum `l`.
-- `isotropy::Bool = false`: keep only the scalar `Lf == 0` channel if `true`.
-
-# Status
-Arbitrary body order. Isotropic (`Lf == 0`) and anisotropic (`Lf > 0`) channels —
-including those that mix coupling paths (`N ≥ 3`) or `l`-orderings on
-symmetry-equivalent sites (e.g. `l=(1,1,2)`, `Lf>0` on an equilateral triangle) —
-are validated by the ground-truth invariance test `Φ(g·e)=Φ(e)` (non-collinear
-spins, all `Lf`) and time-reversal evenness `Φ(−e)=Φ(e)`.
-
-The orbits are built in parallel over `Threads.nthreads()` (set `julia -t` /
-`JULIA_NUM_THREADS`); each orbit is independent and the result is sorted by
-`SALCKey`, so it is byte-for-byte identical at any thread count.
-"""
 # All SALCs of one cluster orbit. Self-contained (its `blockcount` and output are
 # orbit-local; `wcache` is read-only), so orbits are processed independently — the
 # unit of parallelism in `build_salc_basis`.
@@ -359,6 +336,29 @@ function _orbit_salcs(crystal::Crystal, spacegroup::SpaceGroup, N::Int, orbit_id
     return out
 end
 
+"""
+    build_salc_basis(crystal, spacegroup, clusters; lmax_by_species, isotropy = false) -> SALCBasis
+
+Construct the symmetry-adapted (and time-reversal-even) SCE basis for every cluster
+orbit and body order. For each `(orbit, l-multiset, Lf)` the stabilizer-invariant
+coefficient subspace (over orderings × coupling paths) is found, gauge-fixed, and
+transported to all orbit members.
+
+# Keyword arguments
+- `lmax_by_species::AbstractVector{<:Integer}`: per-species maximum `l`.
+- `isotropy::Bool = false`: keep only the scalar `Lf == 0` channel if `true`.
+
+# Status
+Arbitrary body order. Isotropic (`Lf == 0`) and anisotropic (`Lf > 0`) channels —
+including those that mix coupling paths (`N ≥ 3`) or `l`-orderings on
+symmetry-equivalent sites (e.g. `l=(1,1,2)`, `Lf>0` on an equilateral triangle) —
+are validated by the ground-truth invariance test `Φ(g·e)=Φ(e)` (non-collinear
+spins, all `Lf`) and time-reversal evenness `Φ(−e)=Φ(e)`.
+
+The orbits are built in parallel over `Threads.nthreads()` (set `julia -t` /
+`JULIA_NUM_THREADS`); each orbit is independent and the result is sorted by
+`SALCKey`, so it is byte-for-byte identical at any thread count.
+"""
 function build_salc_basis(crystal::Crystal, spacegroup::SpaceGroup, clusters::ClusterSet;
                           lmax_by_species::AbstractVector{<:Integer},
                           isotropy::Bool = false)::SALCBasis

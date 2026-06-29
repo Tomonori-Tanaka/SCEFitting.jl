@@ -104,18 +104,54 @@ possible).
 """
 has_torque(d::SCEDataset) = !isempty(d.y_T)
 
-function SCEDataset(basis::SCEBasis, configs::AbstractVector, energies::AbstractVector)::SCEDataset
+# Spin configurations must be `3 × n_atoms` with finite, unit-norm columns — the
+# contract the harmonic kernels assume (they call `Zlm_unsafe`, skipping per-call
+# checks). Enforce it once at the data boundary so malformed DFT input fails loudly
+# here instead of silently biasing the design matrix / prediction. `label` carries the
+# config index into the message; `atol` is the unit-norm tolerance.
+function _validate_config(c::AbstractMatrix{<:Real}, nat::Int; atol::Real = 1e-6,
+                          label::AbstractString = "spin config")
+    size(c, 1) == 3 ||
+        throw(ArgumentError("$label must have 3 rows (got $(size(c, 1)))"))
+    size(c, 2) == nat ||
+        throw(DimensionMismatch("$label has $(size(c, 2)) atoms, basis expects $nat"))
+    @inbounds for a in axes(c, 2)
+        u = SVector{3,Float64}(c[1, a], c[2, a], c[3, a])
+        all(isfinite, u) ||
+            throw(ArgumentError("$label column $a is not finite ($(Tuple(u)))"))
+        abs(norm(u) - 1) <= atol ||
+            throw(ArgumentError("$label column $a is not a unit vector (‖e‖ = $(norm(u)))"))
+    end
+    return nothing
+end
+
+function _validate_configs(basis::SCEBasis, cfgs::Vector{Matrix{Float64}}; atol::Real = 1e-6)
+    nat = n_atoms(basis.crystal)
+    for (i, c) in enumerate(cfgs)
+        _validate_config(c, nat; atol = atol, label = "config $i")
+    end
+    return nothing
+end
+
+function SCEDataset(basis::SCEBasis, configs::AbstractVector, energies::AbstractVector;
+                   atol::Real = 1e-6)::SCEDataset
+    length(configs) == length(energies) ||
+        throw(DimensionMismatch("got $(length(configs)) configs but $(length(energies)) energies"))
     cfgs = [Matrix{Float64}(c) for c in configs]
+    _validate_configs(basis, cfgs; atol = atol)
     X = _design_energy(basis, cfgs)
     empty_T = Matrix{Float64}(undef, 0, size(X, 2))
     return SCEDataset(basis, cfgs, X, collect(Float64, energies), empty_T, Float64[])
 end
 
 function SCEDataset(basis::SCEBasis, configs::AbstractVector, energies::AbstractVector,
-                   torques::AbstractVector)::SCEDataset
+                   torques::AbstractVector; atol::Real = 1e-6)::SCEDataset
+    length(configs) == length(energies) ||
+        throw(DimensionMismatch("got $(length(configs)) configs but $(length(energies)) energies"))
     cfgs = [Matrix{Float64}(c) for c in configs]
     length(torques) == length(cfgs) ||
         throw(ArgumentError("got $(length(torques)) torque blocks for $(length(cfgs)) configs"))
+    _validate_configs(basis, cfgs; atol = atol)
     X_E = _design_energy(basis, cfgs)
     X_T = _design_torque(basis, cfgs)
     y_T = _flatten_torques(torques, cfgs)
@@ -383,6 +419,7 @@ configurations. The vector form is evaluated in parallel over `Threads.nthreads(
 threads (set `julia -t` / `JULIA_NUM_THREADS`); the result is thread-count-independent.
 """
 function predict_energy(model::SCEPredictor, config::AbstractMatrix{<:Real})::Float64
+    _validate_config(config, n_atoms(model.basis.crystal))
     salcs = model.basis.salc_basis.salcs
     e = model.j0
     @inbounds for k in eachindex(model.jphi)
@@ -391,6 +428,10 @@ function predict_energy(model::SCEPredictor, config::AbstractMatrix{<:Real})::Fl
     return e
 end
 function predict_energy(model::SCEPredictor, configs::AbstractVector)::Vector{Float64}
+    nat = n_atoms(model.basis.crystal)
+    for (i, c) in enumerate(configs)                   # serial: clean errors, not wrapped
+        _validate_config(c, nat; label = "config $i")
+    end
     out = Vector{Float64}(undef, length(configs))
     Threads.@threads for i in eachindex(configs, out)  # independent slots
         out[i] = predict_energy(model, configs[i])
@@ -411,8 +452,9 @@ consistent by construction (`τ = −e × ∇E`). The vector form is evaluated i
 over `Threads.nthreads()` threads; the result is thread-count-independent.
 """
 function predict_torque(model::SCEPredictor, config::AbstractMatrix{<:Real})::Matrix{Float64}
+    nat = n_atoms(model.basis.crystal)
+    _validate_config(config, nat)
     salcs = model.basis.salc_basis.salcs
-    nat = size(config, 2)
     G = zeros(Float64, 3, nat)
     @inbounds for k in eachindex(model.jphi)
         accumulate_grad!(G, salcs[k], config, model.jphi[k])
@@ -429,6 +471,10 @@ function predict_torque(model::SCEPredictor, config::AbstractMatrix{<:Real})::Ma
     return T
 end
 function predict_torque(model::SCEPredictor, configs::AbstractVector)::Vector{Matrix{Float64}}
+    nat = n_atoms(model.basis.crystal)
+    for (i, c) in enumerate(configs)                   # serial: clean errors, not wrapped
+        _validate_config(c, nat; label = "config $i")
+    end
     out = Vector{Matrix{Float64}}(undef, length(configs))
     Threads.@threads for i in eachindex(configs, out)  # independent slots
         out[i] = predict_torque(model, configs[i])
