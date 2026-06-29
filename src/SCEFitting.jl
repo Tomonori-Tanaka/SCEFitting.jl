@@ -15,6 +15,9 @@ using Statistics: mean
 using Random: AbstractRNG, default_rng
 import TOML
 import Tables
+# Extend the StatsAPI generics rather than shadow them, so `coef` / `fit` / `nobs` /
+# `dof` compose with the StatsBase / GLM ecosystem instead of clashing on `using`.
+import StatsAPI: coef, fit, nobs, dof
 
 # --- geometry ---
 include("geometry/lattice.jl")

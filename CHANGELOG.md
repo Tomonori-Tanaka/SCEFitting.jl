@@ -6,6 +6,15 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — diagnostics extend StatsAPI
+
+- `coef`, `fit`, `nobs`, and `dof` are now **methods of the StatsAPI generics** rather than
+  package-private functions, so they compose with the StatsBase / GLM ecosystem instead of
+  clashing under `using` (`SCEFitting.coef === StatsAPI.coef`). Signatures are unchanged, so
+  user code is unaffected. `intercept`, `refit`, `residuals_energy` / `residuals_torque`,
+  and the `r2_* / rmse_* / rss_*` pairs stay package-specific (the two-observable energy +
+  torque split has no single StatsAPI verb). Adds a lightweight `StatsAPI` dependency.
+
 ### Changed (breaking) — public API tiering and the `Interaction` rename
 
 - **`Interaction` → `BasisSpec`.** The old name wrongly suggested a fitted coupling term;
