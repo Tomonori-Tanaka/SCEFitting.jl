@@ -309,18 +309,37 @@ function _sunny_primitive(model::SCEPredictor)::SunnyPrimitive
 end
 
 """
-    to_sunny(model; spins, g = 2, mode = :dipole, placement = :auto) -> Sunny.System
+    to_sunny(model; spins, g = 2, mode = :auto, scaling = :auto, placement = :auto) -> Sunny.System
 
 Export a fitted [`SCEPredictor`](@ref) to a Sunny.jl `System`. **Requires `using Sunny`**
 (the export is a package extension). Only the Sunny-representable channels are
 exported — bilinear pair (`ls=[1,1]`) exchange and single-ion (`ls=[2]`) anisotropy;
 higher-order / higher-`l` SALCs are skipped and reported via `@warn`.
 
-`spins` gives the effective spin length `S` (a number, or a per-species
-`label => S` mapping); the exchange matrices are rescaled by `1/(SₐS_b)` so the
-Sunny system's classical energy equals `predict_energy − j0`. `mode` is the Sunny
-spin mode: `:dipole` applies the quantum rank-2 renormalization to the single-ion
-term (exchange is mode-independent), `:dipole_uncorrected` keeps it purely classical.
+`spins` gives the physical effective spin length `S_eff = m/(g μ_B)` (a number, or a
+per-species `label => S` mapping). The SCE couplings are fit from *unit* spin
+directions, so they absorb the moment magnitude (`J_SCE = J_phys S²`); the magnon
+frequency, however, scales as `1/S_eff`, so the export must carry `S_eff` explicitly.
+
+`scaling` chooses how:
+
+- `:moment` — put `S_eff` directly into Sunny's `Moment` and rescale each bilinear bond
+  by `1/(SₐS_b)`. Both the static energy *and* the dispersion are exact, but Sunny's
+  `Moment` accepts only half-integer spins, so `S_eff` must be a half-integer.
+- `:coupling` — keep `Moment` at a placeholder `s₀ = 1` and fold `S_eff` into the
+  couplings (`J = M/(s₀·√(SᵢSⱼ))`, single-ion `1/(s₀ Sᵢ)`). Works for **any** positive
+  `S_eff` (itinerant / non-half-integer moments). Only the magnon *dispersion* is
+  physical; the represented static energy is rescaled (the dispersion is invariant under
+  an overall spin scale `sᵢ → c sᵢ, J → J/c`). Exact for a uniform `S_eff`; the on-site
+  (Larmor) term is approximate for a non-uniform one.
+- `:auto` (default) — `:moment` when every `S_eff` is a half-integer, else `:coupling`.
+
+`mode` is the Sunny spin mode: `:dipole` applies the quantum rank-2 renormalization to
+the single-ion term (exchange is mode-independent), `:dipole_uncorrected` keeps it purely
+classical, `:auto` (default) picks `:dipole` for half-integer spins and
+`:dipole_uncorrected` otherwise. A `:coupling` placeholder `Moment` cannot carry the
+quantum quadrupole, so single-ion + `:dipole` + `:coupling` is rejected.
+
 `placement = :primitive` unfolds onto the chemical primitive cell (physical, unfolded
 dispersion) when the model maps cleanly, else falls back to the training supercell
 (`:explicit`, exact but folded); `:auto` picks primitive when clean.

@@ -93,6 +93,76 @@ end
         @test energy_error(model, Dict("Fe" => 1.5), :dipole_uncorrected) < 1e-10
     end
 
+    # The `:coupling` route keeps `Moment` at a placeholder s₀ = 1 and folds the physical
+    # S_eff into the couplings, so it works for a non-half-integer (itinerant) S_eff. The
+    # whole energy landscape is then scaled by s₀/S, so `energy(sys) = (predict − j0)/S`.
+    function coupling_energy_error(model, S, mode; seed = 7, ntrial = 20)
+        sys = MR.to_sunny(model; spins = S, mode = mode, scaling = :coupling,
+                          placement = :explicit)
+        nat = MR.n_atoms(model.basis.crystal)
+        rng = MersenneTwister(seed)
+        me = 0.0
+        for _ = 1:ntrial
+            e = _rcfg(rng, nat)
+            for i = 1:nat
+                Sunny.set_dipole!(sys, e[:, i], (1, 1, 1, i))
+            end
+            me = max(me, abs(Sunny.energy(sys) - (MR.predict_energy(model, e) - model.j0) / S))
+        end
+        return me
+    end
+
+    @testset "spin scaling routes (:moment / :coupling)" begin
+        b = MR.SCEBasis(cr2, MR.Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [1],
+                                            isotropy = false))
+        model = MR.SCEPredictor(b, 0.5, randn(rng, MR.n_salcs(b)), b.salc_basis.keys)
+        # :coupling carries S_eff in the couplings; energy is rescaled by 1/S. Works for a
+        # NON-half-integer S_eff (1.1) that Sunny's `Moment` (the :moment route) rejects.
+        @test coupling_energy_error(model, 1.1, :dipole_uncorrected) < 1e-10
+        @test coupling_energy_error(model, 1.5, :dipole_uncorrected) < 1e-10
+        # Forcing :moment on a non-half-integer S_eff is a clear, early error.
+        @test_throws ErrorException MR.to_sunny(model; spins = 1.1, scaling = :moment)
+        # Default :auto: non-half-integer builds (→ :coupling), half-integer is energy-exact
+        # (→ :moment), so the existing energy-matching property is preserved.
+        @test MR.to_sunny(model; spins = 1.1) isa Sunny.System
+        @test energy_error(model, 1.5, :dipole) < 1e-10
+
+        # Single-ion: the placeholder Moment can carry the classical (uncorrected) term,
+        # but not the quantum (:dipole) quadrupole — that combination is rejected.
+        cr1 = MR.Crystal(lat, reshape([0.0, 0, 0], 3, 1), [1], ["Fe"])
+        bo = MR.SCEBasis(cr1, MR.Interaction(; nbody = 1, pair_cutoff = 1.5, lmax = [2],
+                                             isotropy = false))
+        mo = MR.SCEPredictor(bo, 0.0, randn(rng, MR.n_salcs(bo)), bo.salc_basis.keys)
+        @test coupling_energy_error(mo, 1.1, :dipole_uncorrected) < 1e-10
+        @test_throws ErrorException MR.to_sunny(mo; spins = 1.1, scaling = :coupling,
+                                                mode = :dipole)
+    end
+
+    @testset "coupling and moment give the same magnon dispersion" begin
+        spg = MR.SpglibBackend()
+        lat3 = MR.Lattice([8.0 0 0; 0 8.0 0; 0 0 10.0])
+        crc = MR.Crystal(lat3, [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75], [1, 1, 1, 1], ["Fe"])
+        bc = MR.SCEBasis(crc, MR.Interaction(; nbody = 2, pair_cutoff = 2.6, lmax = [1],
+                                             isotropy = true); backend = spg)
+        # Ferromagnetic nearest-neighbor coupling: aligned spins are the ground state.
+        mc = MR.SCEPredictor(bc, 0.0, [-0.02], bc.salc_basis.keys)
+
+        function chain_dispersion(S, scaling)
+            sys = MR.to_sunny(mc; spins = S, scaling = scaling, placement = :primitive)
+            Sunny.polarize_spins!(sys, (0, 0, 1))
+            swt = Sunny.SpinWaveTheory(sys; measure = nothing)
+            qs = Sunny.q_space_path(sys.crystal, [[0, 0, 0], [0, 0, 1 / 2], [0, 0, 1]], 16)
+            return Sunny.dispersion(swt, qs)
+        end
+        # At a half-integer S_eff both routes are valid and must yield the SAME dispersion
+        # (the magnon frequency is invariant under the overall spin scale s₀/S).
+        d_moment = chain_dispersion(3 / 2, :moment)
+        d_coupling = chain_dispersion(3 / 2, :coupling)
+        @test maximum(abs, d_moment .- d_coupling) < 1e-7
+        # And a non-half-integer S_eff (the whole point) runs only through :coupling.
+        @test chain_dispersion(1.1, :coupling) isa AbstractMatrix
+    end
+
     # Copy a supercell spin config onto a reshaped (primitive→supercell) system by
     # matching each site's Cartesian position to a supercell atom.
     function _set_reshaped!(sys_r, model, e)
