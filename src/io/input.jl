@@ -103,7 +103,7 @@ end
     read_setup(path) -> (; crystal, interaction, backend, tol, images)
 
 Parse a human-authored TOML input file (schema in the file-level docstring of
-`src/sce/input.jl`) into the in-memory `crystal::Crystal`, `interaction::BasisSpec`,
+`src/io/input.jl`) into the in-memory `crystal::Crystal`, `interaction::BasisSpec`,
 symmetry `backend::AbstractSymmetryBackend`, `tol::Float64`, and the periodic-image
 selection `images::AbstractImageSelection`. Training data and the estimator are
 **not** part of the file (see [`SCEDataset`](@ref) / [`fit`](@ref)). See also

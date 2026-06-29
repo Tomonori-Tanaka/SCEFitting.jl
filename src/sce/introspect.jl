@@ -4,7 +4,7 @@
 # internals (`model.basis.salc_basis.salcs`, `SALCMember` / `SALCTerm` fields), so the basis
 # representation can evolve without breaking them. The general per-term dump is
 # `multipole_terms`; the bilinear / single-ion `3×3` extraction (reusing the validated
-# Sunny conversion in `sce/sunny.jl`) is `bilinear_terms`.
+# Sunny conversion in `interop/sunny.jl`) is `bilinear_terms`.
 
 """
     MultipoleTerm

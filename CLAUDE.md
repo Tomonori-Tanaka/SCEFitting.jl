@@ -124,14 +124,14 @@ Easy to break silently — confirm before touching the algorithm.
   guards against cross-basis confusion. This reload is realized by persistence
   (`SCEFitting.load(SCEPredictor, …)` rebuilds `jphi` in basis-key order from the
   per-`SALCKey` coefficients).
-- **Persistence schema ↔ the serialized structs** (`sce/persist.jl`): `_to_doc` /
-  `_from_doc` mirror the fields of `Crystal` / `Lattice` / `SpaceGroup` / `Interaction`
+- **Persistence schema ↔ the serialized structs** (`io/persist.jl`): `_to_doc` /
+  `_from_doc` mirror the fields of `Crystal` / `Lattice` / `SpaceGroup` / `BasisSpec`
   / `SALCKey` / `SALCTerm` / `SALCMember` / `SALC` / `SCEBasis` / `SCEPredictor`. Add or
   rename a field on any of these and both halves (and `test/unit/test_persist.jl`'s
   round-trip) must follow; the space group is rebuilt via `_assemble_spacegroup` from
   the stored fractional ops, and the `UInt64` fingerprint is stored as a string and
   **recomputed** on load (never trusted — `hash` is Julia-version dependent). The TOML
-  input reader (`sce/input.jl`) mirrors only the *setup* structs (crystal + interaction
+  input reader (`io/input.jl`) mirrors only the *setup* structs (crystal + basis spec
   + symmetry), not the SALCs.
 - **`coeftable` columns ↔ `SALCKey` fields** (`sce/coeftable.jl`): each result row is
   read straight off a `SALCKey` (`body` / `orbit_id` / `ls`→comma string / `Lf` /
@@ -150,7 +150,7 @@ Easy to break silently — confirm before touching the algorithm.
   frame by `Rz(α)·Ry(β)`); the core consumes only `SpinDatum`/`SCEDataset` and stays
   DFT-code-agnostic. The VASP parsers are cross-checked against Magesty in SCETools's oracle.
   The `SpinDatum` torque sign defined here is the convention source the adapters must match.
-- **Sunny export conversion ↔ the energy reconstruction** (`sce/sunny.jl`,
+- **Sunny export conversion ↔ the energy reconstruction** (`interop/sunny.jl`,
   `ext/SCEFittingSunnyExt.jl`): `_l1_pair_matrix` / `_l2_onsite_matrix` must satisfy
   `eₐ'·M·e_b = Σ folded·Z·Z` (the gate is the `Z₁`/`Z₂` contraction test); the per-bond
   matrix is `jϕ·(4π)^(N/2)·M` and the two directed members `(a,b,R)`/`(b,a,−R)` fold into
@@ -166,8 +166,9 @@ Easy to break silently — confirm before touching the algorithm.
   `SALCMember` / `SALCTerm`. It returns the **raw** fitted `jϕ` as `coef` and leaves the per-N
   scale `(4π)^(body/2)` to the consumer — the scale lives in exactly one place (the
   reconstruction gate `_energy_from_terms`), so do **not** also apply it inside
-  `multipole_terms`. `bilinear_terms` is a thin public wrapper of the Sunny
-  `_sunny_supercell_terms` extraction, so its numerics move with the Sunny coupled-site above.
+  `multipole_terms`. `bilinear_terms` is a thin public wrapper of the general
+  `_bilinear_terms` extraction (in `interop/sunny.jl`), so its numerics move with the
+  Sunny coupled-site above.
   Add or rename a `MultipoleTerm` field → update the gate and the `SCETools.jl` consumers
   (`sce_bridge.jl`).
 - `solve_coefficients(est, X, y; groups)` receives a **column-centered** `X` (⇒ the

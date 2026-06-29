@@ -113,7 +113,7 @@ files use the stdlib `TOML` (no external dependency).
   Heisenberg closed form), energy+torque co-fit recovers an in-span model.
 
 ### persistence + TOML input (M10)
-- **Persistence** (`sce/persist.jl`): `SCEFitting.save(path, x)` and
+- **Persistence** (`io/persist.jl`): `SCEFitting.save(path, x)` and
   `SCEFitting.load(SCEBasis | SCEPredictor, path)` serialize a self-contained,
   human-readable **TOML** document — the crystal, the space-group ops, the interaction,
   and the *full* SALC basis (every member / term / folded tensor); a model adds `j0`
@@ -123,7 +123,7 @@ files use the stdlib `TOML` (no external dependency).
   without any serializer; TOML is stdlib (no dep) and round-trips `Float64` exactly.
   `save` / `load` are **unexported** (call qualified) to avoid clashing with
   `FileIO`/`JLD2`.
-- **TOML input** (`sce/input.jl`): `read_setup(path) -> (; crystal, interaction, backend, tol, images)`
+- **TOML input** (`io/input.jl`): `read_setup(path) -> (; crystal, interaction, backend, tol, images)`
   and `SCEBasis(path::AbstractString; backend, tol, images)` build a basis from a human-authored
   `input.toml` (`[structure]` inline crystal, `[interaction]` with optional `images`
   (`"minimum_image"` default / `"all_images"`) and `pair_cutoff = inf` for the full WS
@@ -150,10 +150,10 @@ files use the stdlib `TOML` (no external dependency).
   parsing + defaults + keyword overrides + error paths.
 
 ### Sunny.jl export (M11)
-- **Conversion core** (`sce/sunny.jl`, dependency-free): `_l1_pair_matrix` / `_l2_onsite_matrix`
+- **Conversion core** (`interop/sunny.jl`, dependency-free): `_l1_pair_matrix` / `_l2_onsite_matrix`
   turn a folded tesseral tensor into a Cartesian exchange / single-ion matrix
   (`eₐ'·M·e_b = Σ folded·Z·Z`); `_classify_salc` keeps only `ls=[1,1]` pairs and `ls=[2]`
-  single-ion (`ls=[0…]` → `j0`, the rest skipped + reported). `_sunny_supercell_terms`
+  single-ion (`ls=[0…]` → `j0`, the rest skipped + reported). `_bilinear_terms`
   folds the directed members into one matrix per undirected supercell bond, and
   `_sunny_primitive` unfolds them onto the chemical primitive cell recovered from the
   pure translations (one Sunny bond per primitive bond, a `clean` flag for the fallback).
@@ -168,6 +168,17 @@ files use the stdlib `TOML` (no external dependency).
   main suite) and a separate `test/sunny/` environment (real `Sunny.System` energy vs SCE
   for both routes, the primitive system reshaped back to the supercell, mode/spin handling,
   the skip warning).
+
+### Fitted-model introspection (M12)
+- **Public, stable contract** (`sce/introspect.jl`): `multipole_terms(model) ->
+  Vector{MultipoleTerm}` is the code-neutral view downstream packages (the `SCETools.jl`
+  mean-field samplers) read **instead of** the SALC-basis internals (`SALCMember` /
+  `SALCTerm`). Each `MultipoleTerm` carries the raw fitted `coef = jϕ`, the cluster
+  `atoms` / `shifts`, the per-site `ls`, and the `folded` tensor; the per-`N` scale
+  `(4π)^(body/2)` is **left to the consumer** (applied in exactly one place, the
+  `_energy_from_terms` reconstruction gate). `bilinear_terms(model)` is the thin public
+  wrapper of the general Cartesian bilinear / single-ion extraction `_bilinear_terms`.
+- Validated: `test/unit/test_introspect.jl` (the terms reconstruct `predict_energy − j0`).
 
 ### Regularized estimators (M12)
 - **Analytic, in-core** (`fitting/estimators.jl`, no extension): `AdaptiveRidge(; lambda,

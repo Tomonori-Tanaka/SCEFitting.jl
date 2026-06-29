@@ -5,7 +5,8 @@ Clean, extensible, Julia-native rebuild of `Magesty.jl`: fit spin-cluster-expans
 (SCE) models to noncollinear DFT data. The numerical core is reimplemented from
 scratch; `Magesty.jl` serves only as a pinned numerical oracle in `test/oracle/`.
 
-Work in progress (v0 vertical slice). See `SPEC.md` for the realized architecture.
+The v0 feature set (geometry, symmetry, cluster/SALC basis, fitting, prediction,
+diagnostics, persistence, Sunny export, introspection) is realized; see `SPEC.md`.
 """
 module SCEFitting
 
