@@ -19,15 +19,19 @@ struct Lattice
     vectors::SMatrix{3,3,Float64,9}
     reciprocal::SMatrix{3,3,Float64,9}
     pbc::SVector{3,Bool}
-end
 
-function Lattice(vectors::AbstractMatrix{<:Real};
-                pbc = (true, true, true))::Lattice
-    size(vectors) == (3, 3) || throw(ArgumentError("lattice `vectors` must be 3×3"))
-    A = SMatrix{3,3,Float64}(vectors)
-    abs(det(A)) > 0 ||
-        throw(ArgumentError("lattice vectors are singular (zero cell volume)"))
-    return Lattice(A, inv(A), SVector{3,Bool}(pbc...))
+    # Inner constructor only: `reciprocal` is *derived* (`inv(vectors)`) and load-bearing
+    # for `interplanar_spacing` / the neighbor-list image range, so it must never be
+    # supplied independently. A near-singular cell makes `inv` — and everything downstream
+    # — garbage, so reject by a relative-volume threshold, not just exact zero.
+    function Lattice(vectors::AbstractMatrix{<:Real}; pbc = (true, true, true))
+        size(vectors) == (3, 3) || throw(ArgumentError("lattice `vectors` must be 3×3"))
+        A = SMatrix{3,3,Float64}(vectors)
+        abs(det(A)) > eps(Float64) * norm(A)^3 ||
+            throw(ArgumentError("lattice vectors are singular or numerically degenerate " *
+                                "(|det| = $(abs(det(A))), ‖A‖ = $(norm(A)))"))
+        return new(A, inv(A), SVector{3,Bool}(pbc...))
+    end
 end
 
 """

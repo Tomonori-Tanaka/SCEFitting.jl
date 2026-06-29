@@ -25,6 +25,11 @@ release, so everything lives under *Unreleased*.
 
 ### Fixed
 
+- `Lattice` now validates in an **inner** constructor, so the derived `reciprocal`
+  (`inv(vectors)`, load-bearing for `interplanar_spacing` and the neighbor-list image
+  range) can no longer be supplied independently via the auto-generated field constructor,
+  and the singular-cell guard rejects **numerically degenerate** cells by a relative-volume
+  threshold (`|det| > eps·‖A‖³`) rather than only exactly-zero volume.
 - `build_salc_basis`'s docstring had detached and bound to the internal `_orbit_salcs`
   helper (it was inserted between the docstring and the function), leaving the exported
   `build_salc_basis` undocumented and breaking the `checkdocs = :exports` docs build. The
