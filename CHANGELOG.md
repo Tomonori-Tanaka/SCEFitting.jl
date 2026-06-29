@@ -6,6 +6,19 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — thread-parallel design-matrix assembly and batch prediction
+
+- The two design-matrix builders (`_design_energy`, `_design_torque`) and the vector
+  `predict_energy` / `predict_torque` forms now parallelize over independent columns /
+  configurations with `Threads.@threads`. Each task owns whole columns (or output slots),
+  so writes are disjoint and the result is **identical at any thread count** (the per-atom
+  gradient buffer `G` in the torque builder is now task-local). Speedup scales with
+  `JULIA_NUM_THREADS` / `julia -t`; serial (1 thread) is unchanged. This is the cost that
+  grows with dataset size — large active-learning batches and bigger supercells.
+- New `test/unit/test_threading.jl` pins the threaded output to a race-free serial
+  reference and to the independent scalar predict path (a data race would fail it under
+  `julia -t N>1`).
+
 ### Added — `to_sunny` spin scaling routes (`:moment` / `:coupling`)
 
 - `to_sunny` gains a `scaling` keyword so it can export a **non-half-integer** effective spin

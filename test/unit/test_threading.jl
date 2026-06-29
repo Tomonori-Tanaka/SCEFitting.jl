@@ -1,0 +1,73 @@
+using Test
+using SCEFitting
+using LinearAlgebra
+using Random
+
+# The design-matrix assembly (`_design_energy` / `_design_torque`) and the vector
+# `predict_energy` / `predict_torque` forms are multithreaded over independent
+# columns / slots. These checks pin the threaded output to a race-free serial
+# reference (and to the independent scalar predict path): they hold at any thread
+# count and would flag a data race when run with `julia -t N>1`.
+
+function _thr_randcfg(rng, nat)
+    M = Matrix{Float64}(undef, 3, nat)
+    for a = 1:nat
+        v = randn(rng, 3)
+        M[:, a] = v / norm(v)
+    end
+    return M
+end
+
+@testset "threaded assembly / prediction equals serial" begin
+    @info "running with $(Threads.nthreads()) thread(s)"
+
+    lat = Lattice(Matrix(3.0 * I(3)))
+    crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+    interaction = Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = true)
+    basis = SCEBasis(crystal, interaction)
+    salcs = basis.salc_basis.salcs
+    m = length(salcs)
+    nat = 2
+
+    rng = MersenneTwister(7)
+    configs = [_thr_randcfg(rng, nat) for _ = 1:64]
+    cfgs = [Matrix{Float64}(c) for c in configs]
+
+    @testset "_design_energy: threaded == serial double loop" begin
+        X = SCEFitting._design_energy(basis, cfgs)             # threaded
+        Xref = Matrix{Float64}(undef, length(cfgs), m)
+        for j = 1:m, i in eachindex(cfgs)                      # race-free serial
+            Xref[i, j] = SCEFitting.evaluate_salc(salcs[j], cfgs[i])
+        end
+        @test X == Xref                                        # exact: same kernel, deterministic
+        @test SCEFitting._design_energy(basis, cfgs) == X      # idempotent across calls
+    end
+
+    # Fit a model so the columns carry real coefficients for the cross-checks.
+    y = 0.7 .+ SCEFitting._design_energy(basis, cfgs) * randn(MersenneTwister(3), m)
+    ds = SCEDataset(basis, configs, y)
+    model = SCEPredictor(fit(SCEFit, ds, OLS()))
+    jphi = coef(model)
+
+    @testset "_design_torque: threaded X_T·jϕ == scalar predict_torque" begin
+        X_T = SCEFitting._design_torque(basis, cfgs)           # threaded
+        @test X_T == SCEFitting._design_torque(basis, cfgs)    # idempotent
+        # Independent path: assemble the full-model torque from the scalar kernel,
+        # flattened config-major / atom-major / xyz, and compare to X_T·jϕ.
+        block = 3 * nat
+        ref = Vector{Float64}(undef, length(cfgs) * block)
+        for ci in eachindex(cfgs)
+            τ = predict_torque(model, cfgs[ci])                # scalar (all SALCs)
+            rb = block * (ci - 1)
+            for a = 1:nat, d = 1:3
+                ref[rb + 3 * (a - 1) + d] = τ[d, a]
+            end
+        end
+        @test isapprox(X_T * jphi, ref; atol = 1e-12, rtol = 0)
+    end
+
+    @testset "vector predict_* (threaded) == scalar map (serial)" begin
+        @test predict_energy(model, configs) == [predict_energy(model, c) for c in configs]
+        @test predict_torque(model, configs) == [predict_torque(model, c) for c in configs]
+    end
+end

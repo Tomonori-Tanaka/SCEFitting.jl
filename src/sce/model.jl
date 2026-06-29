@@ -128,8 +128,12 @@ function _design_energy(basis::SCEBasis, cfgs::Vector{Matrix{Float64}})::Matrix{
     n = length(cfgs)
     m = length(salcs)
     X = Matrix{Float64}(undef, n, m)
-    @inbounds for j = 1:m, i = 1:n   # column-major: stride-1 writes down each column
-        X[i, j] = evaluate_salc(salcs[j], cfgs[i])
+    # Columns are independent; each task owns whole columns, so the writes are
+    # disjoint (no false sharing) and the result is identical at any thread count.
+    Threads.@threads for j = 1:m
+        @inbounds for i = 1:n        # column-major: stride-1 writes down each column
+            X[i, j] = evaluate_salc(salcs[j], cfgs[i])
+        end
     end
     return X
 end
@@ -144,9 +148,11 @@ function _design_torque(basis::SCEBasis, cfgs::Vector{Matrix{Float64}})::Matrix{
     nat = isempty(cfgs) ? 0 : size(cfgs[1], 2)
     block = 3 * nat
     X = Matrix{Float64}(undef, n * block, m)
-    G = Matrix{Float64}(undef, 3, nat)
-    @inbounds for j = 1:m            # column per SALC (column-major writes)
-        for ci = 1:n
+    # Columns are independent; each task owns whole columns. `G` must be
+    # task-local (a shared buffer would race across threads).
+    Threads.@threads for j = 1:m     # column per SALC (column-major writes)
+        G = Matrix{Float64}(undef, 3, nat)
+        @inbounds for ci = 1:n
             c = cfgs[ci]
             fill!(G, 0.0)
             accumulate_grad!(G, salcs[j], c, 1.0)
@@ -373,7 +379,8 @@ SCEPredictor(f::SCEFit) = SCEPredictor(f.dataset.basis, f.j0, f.jphi, f.dataset.
     predict_energy(model, data) -> Float64 or Vector{Float64}
 
 Predict the energy of a spin configuration (`3 × n_atoms` matrix) or a vector of
-configurations.
+configurations. The vector form is evaluated in parallel over `Threads.nthreads()`
+threads (set `julia -t` / `JULIA_NUM_THREADS`); the result is thread-count-independent.
 """
 function predict_energy(model::SCEPredictor, config::AbstractMatrix{<:Real})::Float64
     salcs = model.basis.salc_basis.salcs
@@ -383,8 +390,13 @@ function predict_energy(model::SCEPredictor, config::AbstractMatrix{<:Real})::Fl
     end
     return e
 end
-predict_energy(model::SCEPredictor, configs::AbstractVector)::Vector{Float64} =
-    [predict_energy(model, c) for c in configs]
+function predict_energy(model::SCEPredictor, configs::AbstractVector)::Vector{Float64}
+    out = Vector{Float64}(undef, length(configs))
+    Threads.@threads for i in eachindex(configs, out)  # independent slots
+        out[i] = predict_energy(model, configs[i])
+    end
+    return out
+end
 predict_energy(f::SCEFit, data) = predict_energy(SCEPredictor(f), data)
 
 """
@@ -395,7 +407,8 @@ Predict the per-atom torque `τ_a = −e_a × ∂E/∂e_a` of a spin configurati
 returns a vector of such matrices. This is the Landau–Lifshitz / physical torque
 `m_a × B_eff,a` (the negative rotation-gradient of the energy), the analytic
 derivative of the same surface [`predict_energy`](@ref) evaluates, so the two are
-consistent by construction (`τ = −e × ∇E`).
+consistent by construction (`τ = −e × ∇E`). The vector form is evaluated in parallel
+over `Threads.nthreads()` threads; the result is thread-count-independent.
 """
 function predict_torque(model::SCEPredictor, config::AbstractMatrix{<:Real})::Matrix{Float64}
     salcs = model.basis.salc_basis.salcs
@@ -415,8 +428,13 @@ function predict_torque(model::SCEPredictor, config::AbstractMatrix{<:Real})::Ma
     end
     return T
 end
-predict_torque(model::SCEPredictor, configs::AbstractVector)::Vector{Matrix{Float64}} =
-    [predict_torque(model, c) for c in configs]
+function predict_torque(model::SCEPredictor, configs::AbstractVector)::Vector{Matrix{Float64}}
+    out = Vector{Matrix{Float64}}(undef, length(configs))
+    Threads.@threads for i in eachindex(configs, out)  # independent slots
+        out[i] = predict_torque(model, configs[i])
+    end
+    return out
+end
 predict_torque(f::SCEFit, data) = predict_torque(SCEPredictor(f), data)
 
 """
