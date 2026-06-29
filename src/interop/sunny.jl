@@ -83,15 +83,15 @@ _unsupported_salc_string(k::SALCKey) =
     "(only ls=[1,1] pairs and ls=[2] single-ion are exported)"
 
 """
-    SunnyTerms
+    BilinearTerms
 
 The supercell-route intermediate of a Sunny export: one bilinear matrix per
 directed supercell bond `(a, b, R)` (canonicalized to `a ≤ b`), one single-ion
 matrix per atom, and the human-readable list of skipped SALCs. Built by
-[`_sunny_supercell_terms`](@ref); consumed by the `Sunny` extension and by the
+[`_bilinear_terms`](@ref); consumed by the `Sunny` extension and by the
 Sunny-free energy reconstruction [`_reconstruct_energy`](@ref).
 """
-struct SunnyTerms
+struct BilinearTerms
     pairs::Dict{Tuple{Int,Int,SVector{3,Int}},SMatrix{3,3,Float64,9}}
     onsites::Dict{Int,SMatrix{3,3,Float64,9}}
     skipped::Vector{String}
@@ -102,7 +102,7 @@ _accum!(d, key, m::SMatrix{3,3,Float64,9}) =
     (d[key] = get(d, key, zero(SMatrix{3,3,Float64,9})) + m)
 
 """
-    _sunny_supercell_terms(model) -> SunnyTerms
+    _bilinear_terms(model) -> BilinearTerms
 
 Walk the fitted SALCs and fold each Sunny-representable channel onto the training
 supercell: an `ls=[1,1]` member `(a, b, R)` contributes `jϕ·(4π)^(N/2)·_l1_pair_matrix`
@@ -112,7 +112,7 @@ member contributes `jϕ·(4π)^(N/2)·_l2_onsite_matrix` to its atom. The energy
 `Σ eₐ'·M·e_b + Σ eₐ'·A·eₐ`, matching `predict_energy − j0` for a model with only
 these channels.
 """
-function _sunny_supercell_terms(model::SCEPredictor)::SunnyTerms
+function _bilinear_terms(model::SCEPredictor)::BilinearTerms
     pairs = Dict{Tuple{Int,Int,SVector{3,Int}},SMatrix{3,3,Float64,9}}()
     onsites = Dict{Int,SMatrix{3,3,Float64,9}}()
     skipped = String[]
@@ -145,18 +145,18 @@ function _sunny_supercell_terms(model::SCEPredictor)::SunnyTerms
             end
         end
     end
-    return SunnyTerms(pairs, onsites, skipped)
+    return BilinearTerms(pairs, onsites, skipped)
 end
 
 """
     _reconstruct_energy(terms, e) -> Float64
 
-The classical energy `Σ_{(a,b,R)} eₐ'·M·e_b + Σ_a eₐ'·A·eₐ` of a [`SunnyTerms`](@ref)
+The classical energy `Σ_{(a,b,R)} eₐ'·M·e_b + Σ_a eₐ'·A·eₐ` of a [`BilinearTerms`](@ref)
 on a spin configuration `e` (`3 × n_atoms`, unit columns). For a model whose only
 channels are `ls=[1,1]`/`ls=[2]` this equals `predict_energy(model, e) − j0` — the
 Sunny-free gate on the conversion math.
 """
-function _reconstruct_energy(terms::SunnyTerms, e::AbstractMatrix{<:Real})::Float64
+function _reconstruct_energy(terms::BilinearTerms, e::AbstractMatrix{<:Real})::Float64
     tot = 0.0
     @inbounds for ((a, b, _), M) in terms.pairs
         ea = SVector{3,Float64}(e[1, a], e[2, a], e[3, a])
@@ -223,7 +223,7 @@ end
 """
     _sunny_primitive(model) -> SunnyPrimitive
 
-Unfold the supercell [`SunnyTerms`](@ref) onto the chemical primitive cell: recover
+Unfold the supercell [`BilinearTerms`](@ref) onto the chemical primitive cell: recover
 the primitive lattice from the space group's pure translations, group supercell atoms
 into sublattices by their translation orbits, and map each supercell bond `(a,b,R)`
 to a primitive bond `(i,j,n)`. Translation-equivalent supercell bonds collapse to one
@@ -271,7 +271,7 @@ function _sunny_primitive(model::SCEPredictor)::SunnyPrimitive
     cellof(a::Int) = round.(Int, Lp \ SVector{3,Float64}(cart[1, a], cart[2, a], cart[3, a]) -
                             positions[sublattice[a]])
 
-    terms = _sunny_supercell_terms(model)
+    terms = _bilinear_terms(model)
     bonds = Dict{Tuple{Int,Int,SVector{3,Int}},SMatrix{3,3,Float64,9}}()
     # The recovered cell must tile the supercell exactly: `supercell = primitive·reshape`
     # with `|det(reshape)|` primitive cells. A single-ion-only model has no bonds to

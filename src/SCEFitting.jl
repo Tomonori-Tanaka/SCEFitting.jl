@@ -43,26 +43,29 @@ include("basis/salcbasis.jl")
 
 # --- fitting + high-level SCE API ---
 include("fitting/estimators.jl")
-include("sce/model.jl")
+include("sce/model.jl")          # pipeline types + constructors + config validation
+include("fitting/design.jl")     # design-matrix assembly (X_E / X_T)
+include("fitting/fit.jl")        # fit / refit / predict
+include("fitting/diagnostics.jl")  # coef / intercept / residuals / R² / RMSE
 
 # --- tabular results (Tables.jl source) ---
 include("sce/coeftable.jl")
 
-# --- Sunny export: conversion math in core, Sunny.System assembly in the extension ---
-include("sce/sunny.jl")
+# --- external-engine interop: conversion math in core, engine assembly in extensions ---
+# Sunny export (Sunny.System assembled in SCEFittingSunnyExt). The general Cartesian
+# bilinear / single-ion extraction `_bilinear_terms` lives here too.
+include("interop/sunny.jl")
 
 # --- fitted-model introspection: a code-neutral view of the multipole / bilinear terms
-# (consumed by downstream packages such as the SCETools.jl samplers); depends on the Sunny
-# bilinear / single-ion extraction `_sunny_supercell_terms` above.
+# (consumed by downstream packages such as the SCETools.jl samplers); depends on the
+# bilinear / single-ion extraction `_bilinear_terms` above.
 include("sce/introspect.jl")
 
-# --- persistence (format-agnostic schema, serialized as TOML) + TOML input files ---
-include("sce/persist.jl")
-include("sce/input.jl")
-
-# --- DFT data sources: the code-agnostic boundary only. Concrete DFT-code adapters (e.g. the
-# VASP POSCAR / OSZICAR reader + INCAR writer) live in the SCETools.jl package; the SCE pipeline
-# only ever sees `SpinDatum` / `SCEDataset`.
+# --- I/O: persistence (TOML model schema), TOML input files, and the code-agnostic DFT
+# data boundary. Concrete DFT-code adapters (e.g. the VASP reader/writer) live in
+# SCETools.jl; the SCE pipeline only ever sees `SpinDatum` / `SCEDataset`.
+include("io/persist.jl")
+include("io/input.jl")
 include("io/dftsource.jl")
 
 # --- Public API (exported) --------------------------------------------------------

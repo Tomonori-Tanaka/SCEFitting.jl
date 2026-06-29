@@ -6,7 +6,7 @@ module SCEFittingSunnyExt
 # extension only places the core-computed matrices into Sunny constructs, so it stays
 # thin and the numerics are validated without Sunny.
 
-using SCEFitting: SCEPredictor, SunnyTerms, SunnyPrimitive, _sunny_supercell_terms,
+using SCEFitting: SCEPredictor, BilinearTerms, SunnyPrimitive, _bilinear_terms,
     _sunny_primitive, n_atoms
 import SCEFitting: to_sunny
 using Sunny
@@ -141,7 +141,7 @@ function _build_supercell(model::SCEPredictor, plan::_SpinPlan, g::Real)
     moments = [i => Sunny.Moment(s = _smom(plan, types[i]), g = Float64(g)) for i = 1:nat]
     sys = Sunny.to_inhomogeneous(Sunny.System(cryst, moments, plan.mode))
 
-    terms = _sunny_supercell_terms(model)
+    terms = _bilinear_terms(model)
     for ((a, b, R), M) in terms.pairs
         J = M / _bond_denom(plan, types[a], types[b])
         Sunny.set_exchange_at!(sys, Matrix(J), (1, 1, 1, a), (1, 1, 1, b);

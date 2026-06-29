@@ -78,6 +78,6 @@ Reuses the same validated tesseral→Cartesian conversion as the Sunny export
 [`multipole_terms`](@ref) view.
 """
 function bilinear_terms(model::SCEPredictor)
-    t = _sunny_supercell_terms(model)
+    t = _bilinear_terms(model)
     return (; pairs = t.pairs, onsites = t.onsites, skipped = t.skipped)
 end

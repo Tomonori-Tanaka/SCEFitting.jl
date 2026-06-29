@@ -6,6 +6,20 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — source-tree reorganization (no behavior change)
+
+- The 600-line `sce/model.jl` is split by responsibility: `sce/model.jl` keeps the
+  pipeline **types** + constructors + config validation; `fitting/design.jl` the
+  design-matrix assembly; `fitting/fit.jl` the `fit` / `refit` / `predict` logic; and
+  `fitting/diagnostics.jl` the `coef` / `intercept` / residuals / R² / RMSE block.
+- I/O is consolidated under `io/`: `persist.jl` and `input.jl` move there (joining
+  `dftsource.jl`). The Sunny export moves to `interop/sunny.jl`, making the
+  core/extension seam visible in the tree.
+- The general Cartesian bilinear / single-ion extraction is renamed off the Sunny brand:
+  `SunnyTerms` → `BilinearTerms`, `_sunny_supercell_terms` → `_bilinear_terms` (both
+  internal/unexported), so the public `bilinear_terms` introspection no longer reads as
+  Sunny-specific. `to_sunny` / `SunnyPrimitive` stay Sunny-named.
+
 ### Changed — diagnostics extend StatsAPI
 
 - `coef`, `fit`, `nobs`, and `dof` are now **methods of the StatsAPI generics** rather than

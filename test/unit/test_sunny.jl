@@ -1,7 +1,7 @@
 using Test
 using SCEFitting
 using SCEFitting: _l1_pair_matrix, _l2_onsite_matrix, _classify_salc,
-    _sunny_supercell_terms, _reconstruct_energy, _sunny_primitive, _assemble_spacegroup,
+    _bilinear_terms, _reconstruct_energy, _sunny_primitive, _assemble_spacegroup,
     Harmonics
 using StaticArrays
 using LinearAlgebra
@@ -61,7 +61,7 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
         jphi = randn(rng, n_salcs(basis))
         j0 = 0.37
         model = SCEPredictor(basis, j0, jphi, basis.salc_basis.keys)
-        terms = _sunny_supercell_terms(model)
+        terms = _bilinear_terms(model)
         nat = n_atoms(basis.crystal)
         me = 0.0
         for _ = 1:ntrial
@@ -95,7 +95,7 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
         cr = Crystal(lat, [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75], [1, 1, 1, 1], ["Fe"])
         b = SCEBasis(cr, BasisSpec(; nbody = 2, pair_cutoff = 2.6, lmax = [1], isotropy = true))
         model = SCEPredictor(b, 0.0, [0.0137], b.salc_basis.keys)
-        terms = _sunny_supercell_terms(model)
+        terms = _bilinear_terms(model)
         for (_, M) in terms.pairs
             @test isapprox(M, (M[1, 1]) * I; atol = 1e-12)   # diagonal isotropic
         end
@@ -106,7 +106,7 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
         cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
         b = SCEBasis(cr, BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false))
         model = SCEPredictor(b, 0.0, ones(n_salcs(b)), b.salc_basis.keys)
-        terms = _sunny_supercell_terms(model)
+        terms = _bilinear_terms(model)
         @test !isempty(terms.skipped)                         # ls=[2,2] pairs reported
         @test all(s -> occursin("unsupported", s), terms.skipped)
     end
@@ -133,10 +133,10 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
         ntran = round(Int, abs(det(Matrix(prim.reshape))))
         @test ntran == 4
         @test length(prim.bonds) * ntran ==
-              length(_sunny_supercell_terms(model).pairs)      # each prim bond ↔ ntran cells
+              length(_bilinear_terms(model).pairs)      # each prim bond ↔ ntran cells
 
         # uniform-config energy round-trip: supercell == ntran · (per-primitive-cell)
-        terms = _sunny_supercell_terms(model)
+        terms = _bilinear_terms(model)
         e0 = (v = randn(rng, 3); v / norm(v))
         eu = repeat(e0, 1, n_atoms(cr))
         e_prim = sum(dot(e0, M * e0) for (_, M) in prim.bonds; init = 0.0)
