@@ -1,27 +1,33 @@
 """
-    Interaction(; nbody, pair_cutoff, lmax, isotropy = false)
+    BasisSpec(; nbody, pair_cutoff, lmax, isotropy = false)
 
-An SCE interaction **specification** — the knobs that define the basis, not an
-interaction term itself: maximum body order, the 2-body cutoff (Å), per-species
-maximum `l`, and whether to keep only the isotropic (`Lf = 0`) channel.
+An SCE basis **specification** — the knobs that define the basis, not an interaction
+term itself: maximum body order, the 2-body cutoff (Å), per-species maximum `l`, and
+whether to keep only the isotropic (`Lf = 0`) channel.
 
 `pair_cutoff` may be `Inf`, meaning "every resolvable pair" — the whole
 Wigner–Seitz cell of the (super)cell — under the default [`MinimumImage`](@ref)
 selection (cf. Magesty's `-1` sentinel).
+
+!!! note
+    Renamed from `Interaction` (the old name wrongly suggested a fitted coupling
+    term). `Interaction` remains as a deprecated alias.
 """
-struct Interaction
+struct BasisSpec
     nbody::Int
     pair_cutoff::Float64
     lmax::Vector{Int}
     isotropy::Bool
-end
-function Interaction(; nbody::Integer, pair_cutoff::Real, lmax::AbstractVector{<:Integer},
-                     isotropy::Bool = false)
-    nbody >= 1 || throw(ArgumentError("nbody must be ≥ 1; got $nbody"))
-    (pair_cutoff > 0 && !isnan(pair_cutoff)) ||
-        throw(ArgumentError("pair_cutoff must be positive (or Inf for the full " *
-                            "Wigner–Seitz cell); got $pair_cutoff"))
-    return Interaction(Int(nbody), Float64(pair_cutoff), collect(Int, lmax), isotropy)
+
+    # Inner constructor only: validation can't be bypassed via the field constructor.
+    function BasisSpec(; nbody::Integer, pair_cutoff::Real,
+                       lmax::AbstractVector{<:Integer}, isotropy::Bool = false)
+        nbody >= 1 || throw(ArgumentError("nbody must be ≥ 1; got $nbody"))
+        (pair_cutoff > 0 && !isnan(pair_cutoff)) ||
+            throw(ArgumentError("pair_cutoff must be positive (or Inf for the full " *
+                                "Wigner–Seitz cell); got $pair_cutoff"))
+        return new(Int(nbody), Float64(pair_cutoff), collect(Int, lmax), isotropy)
+    end
 end
 
 """
@@ -43,10 +49,10 @@ struct SCEBasis
     crystal::Crystal
     spacegroup::SpaceGroup
     salc_basis::SALCBasis
-    interaction::Interaction
+    interaction::BasisSpec
 end
 
-function SCEBasis(crystal::Crystal, interaction::Interaction;
+function SCEBasis(crystal::Crystal, interaction::BasisSpec;
                  backend::AbstractSymmetryBackend = NoSymmetry(), tol::Real = 1e-5,
                  images::AbstractImageSelection = MinimumImage())::SCEBasis
     sg = analyze_symmetry(backend, crystal; tol = tol)

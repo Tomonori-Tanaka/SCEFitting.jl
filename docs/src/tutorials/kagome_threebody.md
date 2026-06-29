@@ -26,7 +26,7 @@ lat  = Lattice([a -a/2 0.0; 0.0 a*sqrt(3)/2 0.0; 0.0 0.0 c])
 frac = [0.0 0.5 0.5; 0.5 0.0 0.5; 0.0 0.0 0.0]
 kagome = Crystal(lat, frac, [1, 1, 1], ["Fe"])
 
-interaction = Interaction(; nbody = 3, pair_cutoff = 1.2, lmax = [2])   # up to 3-body, l ≤ 2
+interaction = BasisSpec(; nbody = 3, pair_cutoff = 1.2, lmax = [2])   # up to 3-body, l ≤ 2
 basis = SCEBasis(kagome, interaction; backend = SpglibBackend())
 
 (space_group = basis.spacegroup.symbol, n_salc = n_salcs(basis))

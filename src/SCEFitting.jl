@@ -62,17 +62,22 @@ include("sce/input.jl")
 # only ever sees `SpinDatum` / `SCEDataset`.
 include("io/dftsource.jl")
 
-export Lattice, Crystal, n_atoms, cartesian_positions, interplanar_spacing
-export NeighborPair, NeighborList, build_neighbor_list
+# --- Public API (exported) --------------------------------------------------------
+# The fitting workflow a user reaches for. Construction internals (cluster / neighbor /
+# SALC builders, symmetry analysis) are *public but unexported* — see the block below.
+
+# geometry the user builds
+export Lattice, Crystal, n_atoms, cartesian_positions
+# how periodic images / symmetry are chosen (passed into `SCEBasis`)
 export AbstractImageSelection, MinimumImage, AllImages
-export SymOp, SpaceGroup, AbstractSymmetryBackend, NoSymmetry, SpglibBackend,
-    analyze_symmetry, n_ops
-export ClusterMember, ClusterOrbit, ClusterSet, build_clusters
-export SALCKey, SALC, SALCBasis, build_salc_basis, evaluate_salc, salcs
-export Interaction, SCEBasis, SCEDataset, SCEPredictor, SCEFit, fit, refit, n_salcs, read_setup
+export AbstractSymmetryBackend, NoSymmetry, SpglibBackend
+# the SCE pipeline
+export BasisSpec, SCEBasis, SCEDataset, SCEPredictor, SCEFit, fit, refit, n_salcs, read_setup
 export predict_energy, predict_torque, has_torque
+# estimators
 export AbstractEstimator, OLS, Ridge, ElasticNet, Lasso, AdaptiveLasso, AdaptiveRidge,
-    PrecomputedPilot, solve_coefficients
+    PrecomputedPilot
+# fit diagnostics
 export coef, intercept, nobs, dof, r2_energy, rmse_energy, r2_torque, rmse_torque,
     rss_energy, rss_torque, residuals_energy, residuals_torque
 export coeftable, SCECoefficients
@@ -84,6 +89,23 @@ export MultipoleTerm, multipole_terms, bilinear_terms
 # DFT data I/O: only the code-agnostic boundary is exported; per-code adapters are
 # namespaced submodules (e.g. `SCEFitting.VASP.read_poscar`), so adding a code
 # touches neither the core nor this export list.
-export AbstractDFTSource, AbstractTrainingDatum, SpinDatum, read_configs
+export AbstractDFTSource, SpinDatum, read_configs
+
+# Deprecated alias: `BasisSpec` was named `Interaction` before v0.2; kept (and exported)
+# for one minor version so existing scripts keep working.
+const Interaction = BasisSpec
+export Interaction
+
+# --- Public, unexported -----------------------------------------------------------
+# Reachable as `SCEFitting.<name>` (and documented), but kept out of the flat `using`
+# namespace: the `SCEBasis` constructor already drives them for you. Power users and the
+# test suite reach them by qualification.
+#
+#   geometry/neighbors : build_neighbor_list, NeighborPair, NeighborList,
+#                        interplanar_spacing
+#   symmetry           : analyze_symmetry, n_ops, SymOp, SpaceGroup, AbstractTrainingDatum
+#   clusters           : build_clusters, ClusterMember, ClusterOrbit, ClusterSet
+#   SALC basis         : build_salc_basis, evaluate_salc, salcs, SALC, SALCKey, SALCBasis
+#   estimators         : solve_coefficients
 
 end # module SCEFitting

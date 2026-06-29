@@ -169,7 +169,7 @@ end
 
     @testset "end-to-end: energy+torque co-fit recovers an in-span 3-body model" begin
         # wrap the manual-symmetry basis in an SCEBasis (default constructor)
-        sceb = SCEBasis(crystal, sg, basis, Interaction(; nbody = 3, pair_cutoff = 2.2, lmax = [2]))
+        sceb = SCEBasis(crystal, sg, basis, BasisSpec(; nbody = 3, pair_cutoff = 2.2, lmax = [2]))
         m = n_salcs(sceb)
         rng = MersenneTwister(9)
         configs = [_rcfg3(rng, 3) for _ = 1:120]

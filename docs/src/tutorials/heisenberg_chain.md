@@ -32,7 +32,7 @@ lat   = Lattice([8.0 0 0; 0 8.0 0; 0 0 10.0])
 frac  = [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75]
 chain = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
 
-interaction = Interaction(; nbody = 2, pair_cutoff = 2.6, lmax = [1], isotropy = true)
+interaction = BasisSpec(; nbody = 2, pair_cutoff = 2.6, lmax = [1], isotropy = true)
 basis       = SCEBasis(chain, interaction; backend = SpglibBackend())
 
 (space_group = basis.spacegroup.symbol, n_salc = n_salcs(basis))

@@ -97,7 +97,7 @@ files use the stdlib `TOML` (no external dependency).
   Magesty: per-`(body, ls, Lf)` invariant-subspace dimensions agree through 3-body.
 
 ### fitting + SCE API (M8, M9)
-- `Interaction`, `SCEBasis`, `SCEDataset` (energy design matrix `X_E`, and the
+- `BasisSpec`, `SCEBasis`, `SCEDataset` (energy design matrix `X_E`, and the
   torque design matrix `X_T` via the four-argument form), `SCEPredictor`/`SCEFit`,
   `fit(SCEFit, dataset, estimator; torque_weight)`, `refit(f, estimator; threshold)`
   (re-solve on the scaled-magnitude support of `f` — the de-biasing step after a sparse

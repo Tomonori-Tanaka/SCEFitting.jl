@@ -42,7 +42,7 @@ frac = [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75]
 chain = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
 
 # nearest-neighbor 2-body interaction, isotropic (Heisenberg) channel only
-interaction = Interaction(; nbody = 2, pair_cutoff = 2.6, lmax = [1], isotropy = true)
+interaction = BasisSpec(; nbody = 2, pair_cutoff = 2.6, lmax = [1], isotropy = true)
 basis = SCEBasis(chain, interaction; backend = SpglibBackend())
 
 # synthetic Heisenberg data E = J Σ_⟨ij⟩ e_i·e_j, then fit
@@ -76,7 +76,7 @@ predict_energy(model, configs)
 ```
 
 A basis can also be built from a human-authored `input.toml` (inline crystal +
-interaction + optional symmetry) instead of constructing `Crystal` / `Interaction`
+interaction + optional symmetry) instead of constructing `Crystal` / `BasisSpec`
 in Julia. Training data and the estimator stay in Julia:
 
 ```toml

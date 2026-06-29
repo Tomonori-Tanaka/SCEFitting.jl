@@ -5,7 +5,7 @@ CurrentModule = SCEFitting
 ```
 
 Every exported type and function, grouped by pipeline stage. The headline workflow is
-built from `Crystal` + `Interaction` → [`SCEBasis`](@ref) → [`SCEDataset`](@ref) →
+built from `Crystal` + `BasisSpec` → [`SCEBasis`](@ref) → [`SCEDataset`](@ref) →
 [`fit`](@ref) → [`SCEPredictor`](@ref).
 
 ```@index
@@ -63,10 +63,10 @@ build_salc_basis
 evaluate_salc
 ```
 
-## Interaction, basis, dataset, model
+## BasisSpec, basis, dataset, model
 
 ```@docs
-Interaction
+BasisSpec
 SCEBasis
 SCEDataset
 SCEPredictor

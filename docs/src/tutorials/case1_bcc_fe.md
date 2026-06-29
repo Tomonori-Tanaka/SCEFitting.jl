@@ -117,7 +117,7 @@ momentum `lmax = [1]`, and `isotropy = true` to restrict to the rotationally inv
 lattice = Lattice(poscar.lattice)
 crystal = Crystal(lattice, poscar.frac, poscar.kinds, poscar.species)
 
-interaction = Interaction(; nbody = 2, pair_cutoff = Inf, lmax = [1], isotropy = true)
+interaction = BasisSpec(; nbody = 2, pair_cutoff = Inf, lmax = [1], isotropy = true)
 basis       = SCEBasis(crystal, interaction; backend = SpglibBackend())
 
 (space_group = basis.spacegroup.symbol, n_salc = n_salcs(basis))

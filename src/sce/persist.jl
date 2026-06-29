@@ -70,7 +70,7 @@ function _symmetry_doc(sg::SpaceGroup)
         "rotations_frac" => rots, "translations_frac" => trans)
 end
 
-_interaction_doc(it::Interaction) = Dict{String,Any}(
+_interaction_doc(it::BasisSpec) = Dict{String,Any}(
     "nbody" => it.nbody, "pair_cutoff" => _jnum(it.pair_cutoff),
     "lmax" => collect(Int, it.lmax), "isotropy" => it.isotropy)
 
@@ -180,8 +180,10 @@ function _symmetry_from(crystal::Crystal, d)::SpaceGroup
                                 String(d["symbol"]), Int(d["number"]); tol = Float64(d["tol"]))
 end
 
-_interaction_from(d)::Interaction = Interaction(Int(d["nbody"]), Float64(d["pair_cutoff"]),
-                                                _intvec(d["lmax"]), Bool(d["isotropy"]))
+_interaction_from(d)::BasisSpec = BasisSpec(; nbody = Int(d["nbody"]),
+                                            pair_cutoff = Float64(d["pair_cutoff"]),
+                                            lmax = _intvec(d["lmax"]),
+                                            isotropy = Bool(d["isotropy"]))
 
 function _check_schema(d, allowed::Tuple)
     s = get(d, "schema", nothing)

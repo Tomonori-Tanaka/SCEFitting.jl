@@ -17,10 +17,15 @@ end
 @testset "fit / predict" begin
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-    interaction = Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = true)
+    interaction = BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = true)
     basis = SCEBasis(crystal, interaction)          # NoSymmetry backend (no Spglib needed)
     m = length(basis.salc_basis)
     @test m > 0
+
+    @testset "Interaction is a deprecated alias for BasisSpec" begin
+        @test Interaction === BasisSpec
+        @test Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2]) isa BasisSpec
+    end
 
     rng = MersenneTwister(1)
     configs = [randcfg(rng, 2) for _ = 1:40]
@@ -79,7 +84,7 @@ end
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
     # isotropy = false ⇒ a wide (44-column) basis, so concentration / selection is meaningful
-    interaction = Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false)
+    interaction = BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false)
     basis = SCEBasis(crystal, interaction)
     m = length(basis.salc_basis)
     @test m > 10
@@ -165,7 +170,7 @@ end
 @testset "refit and accessors" begin
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-    interaction = Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false)
+    interaction = BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false)
     basis = SCEBasis(crystal, interaction)
     m = length(basis.salc_basis)
     @test m > 10

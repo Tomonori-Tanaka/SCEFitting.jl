@@ -31,7 +31,7 @@ zero-dependency format.
 
 ## A human-authored `input.toml`
 
-Instead of constructing `Crystal` / `Interaction` in Julia, you can describe the *setup*
+Instead of constructing `Crystal` / `BasisSpec` in Julia, you can describe the *setup*
 (crystal + interaction + optional symmetry) in a TOML file and build the basis from it.
 Training data and the estimator stay in Julia.
 

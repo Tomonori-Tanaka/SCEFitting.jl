@@ -164,17 +164,17 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
         @test isapprox(only(p.distance for p in nl.pairs if (p.i, p.j) == (1, 2)), 1.0)
     end
 
-    @testset "Interaction accepts Inf cutoff; rejects ≤ 0 / NaN" begin
-        @test Interaction(; nbody = 2, pair_cutoff = Inf, lmax = [1]).pair_cutoff == Inf
-        @test_throws ArgumentError Interaction(; nbody = 2, pair_cutoff = 0.0, lmax = [1])
-        @test_throws ArgumentError Interaction(; nbody = 2, pair_cutoff = -1.0, lmax = [1])
-        @test_throws ArgumentError Interaction(; nbody = 2, pair_cutoff = NaN, lmax = [1])
+    @testset "BasisSpec accepts Inf cutoff; rejects ≤ 0 / NaN" begin
+        @test BasisSpec(; nbody = 2, pair_cutoff = Inf, lmax = [1]).pair_cutoff == Inf
+        @test_throws ArgumentError BasisSpec(; nbody = 2, pair_cutoff = 0.0, lmax = [1])
+        @test_throws ArgumentError BasisSpec(; nbody = 2, pair_cutoff = -1.0, lmax = [1])
+        @test_throws ArgumentError BasisSpec(; nbody = 2, pair_cutoff = NaN, lmax = [1])
     end
 
     @testset "full-WS basis builds; under symmetry it has no collinear columns" begin
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["Fe"])
-        inter = Interaction(; nbody = 2, pair_cutoff = Inf, lmax = [1], isotropy = true)
+        inter = BasisSpec(; nbody = 2, pair_cutoff = Inf, lmax = [1], isotropy = true)
         @test n_salcs(SCEBasis(cr, inter)) ≥ 1                    # default (NoSymmetry) build succeeds
         # with the cubic sign symmetry the 8 WS-corner ties collapse to one orbit;
         # the centered energy design matrix must then have full column rank — i.e. the
@@ -225,7 +225,7 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
     @testset "persistence round-trips a pair_cutoff = Inf basis" begin
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["Fe"])
-        b = SCEBasis(cr, Interaction(; nbody = 2, pair_cutoff = Inf, lmax = [1], isotropy = true))
+        b = SCEBasis(cr, BasisSpec(; nbody = 2, pair_cutoff = Inf, lmax = [1], isotropy = true))
         path = joinpath(mktempdir(), "wsbasis.toml")
         SCEFitting.save(path, b)
         b2 = SCEFitting.load(SCEBasis, path)

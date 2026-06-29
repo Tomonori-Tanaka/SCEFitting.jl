@@ -6,6 +6,24 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed (breaking) — public API tiering and the `Interaction` rename
+
+- **`Interaction` → `BasisSpec`.** The old name wrongly suggested a fitted coupling term;
+  it is a basis/cluster *specification*. `Interaction` stays as a deprecated, exported
+  alias (`const Interaction = BasisSpec`) for one minor version, so existing scripts keep
+  working. `BasisSpec` now validates in an **inner** constructor.
+- **Export surface tiered.** The flat ~60-name export is split into the fitting workflow
+  (still exported) and the *construction internals*, which are now **public but
+  unexported** — reachable as `SCEFitting.build_clusters` / `SCEFitting.build_salc_basis`
+  / `SCEFitting.evaluate_salc` / etc., but no longer dumped into `using SCEFitting`. The
+  `SCEBasis` constructor already drives them, so typical user code is unaffected; advanced
+  callers and tests qualify. Unexported: `build_neighbor_list`, `NeighborPair`,
+  `NeighborList`, `interplanar_spacing`, `analyze_symmetry`, `n_ops`, `SymOp`,
+  `SpaceGroup`, `build_clusters`, `ClusterMember`, `ClusterOrbit`, `ClusterSet`,
+  `build_salc_basis`, `evaluate_salc`, `salcs`, `SALC`, `SALCKey`, `SALCBasis`,
+  `solve_coefficients`, `AbstractTrainingDatum`. (Downstream `SCETools.jl` only uses the
+  exported user API, so it is unaffected.)
+
 ### Performance — design-matrix / prediction hot path (bit-identical)
 
 - `evaluate_salc` and `accumulate_grad!` now tabulate the per-site tesseral harmonics

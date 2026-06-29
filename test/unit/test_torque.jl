@@ -52,7 +52,7 @@ end
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
 
     @testset "predict_torque = −e × ∇E (finite differences, anisotropic)" begin
-        interaction = Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false)
+        interaction = BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false)
         basis = SCEBasis(crystal, interaction)   # NoSymmetry (P1): exercises Lf > 0
         m = length(basis.salc_basis)
         @test m > 0
@@ -64,7 +64,7 @@ end
     end
 
     @testset "global-rotation equivariance (isotropic model)" begin
-        interaction = Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [1], isotropy = true)
+        interaction = BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [1], isotropy = true)
         basis = SCEBasis(crystal, interaction)
         m = length(basis.salc_basis)
         model = SCEPredictor(basis, 0.3, randn(rng, m), basis.salc_basis.keys)
@@ -78,7 +78,7 @@ end
     end
 
     @testset "energy+torque co-fit recovers an in-span model" begin
-        interaction = Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false)
+        interaction = BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false)
         basis = SCEBasis(crystal, interaction)
         m = length(basis.salc_basis)
         configs = [_randcfg(rng, 2) for _ = 1:60]
@@ -105,7 +105,7 @@ end
     end
 
     @testset "pure-torque fit (weight = 1) still pins jϕ and recovers j0" begin
-        interaction = Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [1], isotropy = true)
+        interaction = BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [1], isotropy = true)
         basis = SCEBasis(crystal, interaction)
         m = length(basis.salc_basis)
         configs = [_randcfg(rng, 2) for _ = 1:50]
@@ -121,7 +121,7 @@ end
     end
 
     @testset "error paths" begin
-        interaction = Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [1], isotropy = true)
+        interaction = BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [1], isotropy = true)
         basis = SCEBasis(crystal, interaction)
         configs = [_randcfg(rng, 2) for _ = 1:10]
         ds_e = SCEDataset(basis, configs, zeros(10))           # energy-only

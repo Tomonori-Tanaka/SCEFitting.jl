@@ -4,7 +4,7 @@ TOML input files.
 A human-authored `input.toml` collects an SCE run's *setup* parameters — the
 crystal, the interaction (cluster) spec, and the symmetry settings — in one
 readable file, so a basis can be built with `SCEBasis("input.toml")` instead of
-constructing `Crystal` / `Interaction` in Julia. Training data and the choice of
+constructing `Crystal` / `BasisSpec` in Julia. Training data and the choice of
 estimator are intentionally kept out of this file (load data and fit in Julia),
 mirroring the basis/data separation.
 
@@ -75,12 +75,12 @@ function _crystal_from_input(d)::Crystal
     return Crystal(lattice, fr, species, labels)   # Crystal validates species range etc.
 end
 
-function _interaction_from_input(d)::Interaction
+function _interaction_from_input(d)::BasisSpec
     nbody = Int(_input_require(d, "nbody", "interaction"))
     pair_cutoff = Float64(_input_require(d, "pair_cutoff", "interaction"))
     lmax = Int[Int(x) for x in _input_require(d, "lmax", "interaction")]
     isotropy = haskey(d, "isotropy") ? Bool(d["isotropy"]) : false
-    return Interaction(; nbody = nbody, pair_cutoff = pair_cutoff, lmax = lmax, isotropy = isotropy)
+    return BasisSpec(; nbody = nbody, pair_cutoff = pair_cutoff, lmax = lmax, isotropy = isotropy)
 end
 
 function _backend_from_name(name)::AbstractSymmetryBackend
@@ -103,14 +103,14 @@ end
     read_setup(path) -> (; crystal, interaction, backend, tol, images)
 
 Parse a human-authored TOML input file (schema in the file-level docstring of
-`src/sce/input.jl`) into the in-memory `crystal::Crystal`, `interaction::Interaction`,
+`src/sce/input.jl`) into the in-memory `crystal::Crystal`, `interaction::BasisSpec`,
 symmetry `backend::AbstractSymmetryBackend`, `tol::Float64`, and the periodic-image
 selection `images::AbstractImageSelection`. Training data and the estimator are
 **not** part of the file (see [`SCEDataset`](@ref) / [`fit`](@ref)). See also
 `SCEBasis(path)`.
 """
 function read_setup(path::AbstractString)::@NamedTuple{crystal::Crystal,
-                                                       interaction::Interaction,
+                                                       interaction::BasisSpec,
                                                        backend::AbstractSymmetryBackend,
                                                        tol::Float64,
                                                        images::AbstractImageSelection}

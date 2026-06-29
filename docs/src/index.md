@@ -35,14 +35,14 @@ the SCE's other DFT observable.
 The pipeline is one straight line, each stage a small, typed object:
 
 ```
-Crystal + Interaction ──▶ SCEBasis ──▶ SCEDataset ──▶ fit ──▶ SCEPredictor
+Crystal + BasisSpec ──▶ SCEBasis ──▶ SCEDataset ──▶ fit ──▶ SCEPredictor
    (geometry, range)      (symmetry,    (DFT data:     (OLS / Ridge /   (predict_energy,
                            SALC basis)   E, τ)          Lasso / …)        predict_torque,
                                                                           to_sunny, save)
 ```
 
 - **`SCEBasis`** analyzes symmetry, enumerates cluster orbits, and builds the
-  symmetry-adapted SALC basis for a `Crystal` and an `Interaction` (body order, cutoff,
+  symmetry-adapted SALC basis for a `Crystal` and an `BasisSpec` (body order, cutoff,
   per-species `l`, isotropy).
 - **`SCEDataset`** pairs the basis with training data and materializes the energy
   (and torque) design matrices.
@@ -66,7 +66,7 @@ Crystal + Interaction ──▶ SCEBasis ──▶ SCEDataset ──▶ fit ─�
 | Page | What's there |
 |------|--------------|
 | [Getting started](getting_started.md) | Install, then fit and recover a Heisenberg coupling in a dozen lines |
-| [Guide: building the basis](guide/basis.md) | `Crystal`, `Interaction`, periodic resolvability, symmetry, body order |
+| [Guide: building the basis](guide/basis.md) | `Crystal`, `BasisSpec`, periodic resolvability, symmetry, body order |
 | [Guide: data and fitting](guide/fitting.md) | Datasets, the energy + torque co-fit, estimators (OLS / Ridge / Lasso / elastic-net), diagnostics |
 | [Guide: persistence and I/O](guide/io.md) | Save/reload models, human-authored `input.toml`, the DFT-source (VASP) seam |
 | [Guide: Sunny export](guide/sunny.md) | Turn a fitted model into a `Sunny.System` for linear spin-wave theory |

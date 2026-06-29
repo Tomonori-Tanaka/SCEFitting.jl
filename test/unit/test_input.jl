@@ -56,7 +56,7 @@ _writetoml(s) = (p = tempname() * ".toml"; write(p, s); p)
         @test inp.tol == 1.0e-5
     end
 
-    @testset "SCEBasis(path) == building from the same Crystal/Interaction" begin
+    @testset "SCEBasis(path) == building from the same Crystal/BasisSpec" begin
         path = _writetoml(_INPUT_FULL)
         b_file = SCEBasis(path)
         inp = read_setup(path)

@@ -7,7 +7,7 @@ CurrentModule = SCEFitting
 The first half of the workflow turns a crystal and an interaction specification into a
 symmetry-adapted SALC basis — the fixed set of invariants ``\Phi_\varphi`` whose
 coefficients the fit will recover. This page covers the four ingredients:
-[`Crystal`](@ref), [`Interaction`](@ref), the periodic image selection, and the symmetry
+[`Crystal`](@ref), [`BasisSpec`](@ref), the periodic image selection, and the symmetry
 backend, all assembled by [`SCEBasis`](@ref).
 
 ## Geometry: `Lattice` and `Crystal`
@@ -33,11 +33,11 @@ neighbor list relies on.
 
 ## The interaction specification
 
-An [`Interaction`](@ref) fixes the body order, the pair cutoff, the per-species maximum
+An [`BasisSpec`](@ref) fixes the body order, the pair cutoff, the per-species maximum
 angular momentum `l`, and whether to keep only the isotropic channel:
 
 ```@example basis
-interaction = Interaction(; nbody = 2, pair_cutoff = 2.7, lmax = [1], isotropy = true)
+interaction = BasisSpec(; nbody = 2, pair_cutoff = 2.7, lmax = [1], isotropy = true)
 ```
 
 - `nbody` — maximum cluster size. `2` is pairwise; `nbody = 3` adds triplets, and so on
@@ -67,7 +67,7 @@ length([p for p in nl.pairs if (p.i, p.j) == (1, 2)])  # the 8-fold body-diagona
 This is a load-bearing distinction with subtleties at the cell boundary (and for `N ≥ 3`
 clusters); it has its own chapter, [Periodic resolvability](../theory/resolvability.md).
 You rarely call `build_neighbor_list` directly — `SCEBasis` threads the selection through
-for you — but `pair_cutoff = Inf` in the `Interaction` is how you ask for the whole cell.
+for you — but `pair_cutoff = Inf` in the `BasisSpec` is how you ask for the whole cell.
 
 ## Symmetry backends
 

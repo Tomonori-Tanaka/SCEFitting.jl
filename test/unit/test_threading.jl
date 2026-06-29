@@ -25,7 +25,7 @@ end
 
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-    interaction = Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = true)
+    interaction = BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = true)
     basis = SCEBasis(crystal, interaction)
     salcs = basis.salc_basis.salcs
     m = length(salcs)

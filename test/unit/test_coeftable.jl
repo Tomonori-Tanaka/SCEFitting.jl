@@ -8,7 +8,7 @@ using Random
     rng = MersenneTwister(5)
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-    basis = SCEBasis(crystal, Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false))
+    basis = SCEBasis(crystal, BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false))
     m = n_salcs(basis)
     configs = [(E = randn(rng, 3, 2); E ./ sqrt.(sum(abs2, E; dims = 1))) for _ = 1:40]
     f = fit(SCEFit, SCEDataset(basis, configs, randn(rng, 40)), OLS())
@@ -64,7 +64,7 @@ using Random
     end
 
     @testset "empty model" begin
-        eb = SCEBasis(crystal, Interaction(; nbody = 1, pair_cutoff = 0.1, lmax = [0]))
+        eb = SCEBasis(crystal, BasisSpec(; nbody = 1, pair_cutoff = 0.1, lmax = [0]))
         ce = coeftable(SCEPredictor(eb, 0.5, Float64[], eb.salc_basis.keys))
         @test length(ce) == 0
         @test Tables.istable(typeof(ce))
