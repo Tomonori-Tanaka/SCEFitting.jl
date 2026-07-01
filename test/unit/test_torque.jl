@@ -4,17 +4,6 @@ using LinearAlgebra
 using StaticArrays
 using Random
 
-# Self-contained config generator (fresh draw per column, so neighboring spins
-# differ and odd-Lf / anisotropic channels do not vanish).
-function _randcfg(rng, nat)
-    M = Matrix{Float64}(undef, 3, nat)
-    for a = 1:nat
-        v = randn(rng, 3)
-        M[:, a] = v / norm(v)
-    end
-    return M
-end
-
 # A random proper rotation (det = +1) from a QR of a Gaussian matrix.
 function _rand_rotation(rng)
     Q, R = qr(randn(rng, 3, 3))
@@ -58,7 +47,7 @@ end
         @test m > 0
         model = SCEPredictor(basis, 0.0, randn(rng, m), basis.salc_basis.keys)
         for _ = 1:8
-            c = _randcfg(rng, 2)
+            c = randcfg(rng, 2)
             @test isapprox(predict_torque(model, c), _torque_fd(model, c); atol = 1e-5)
         end
     end
@@ -69,7 +58,7 @@ end
         m = length(basis.salc_basis)
         model = SCEPredictor(basis, 0.3, randn(rng, m), basis.salc_basis.keys)
         for _ = 1:5
-            c = _randcfg(rng, 2)
+            c = randcfg(rng, 2)
             R = _rand_rotation(rng)
             τ = predict_torque(model, c)
             τR = predict_torque(model, R * c)
@@ -81,7 +70,7 @@ end
         interaction = BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false)
         basis = SCEBasis(crystal, interaction)
         m = length(basis.salc_basis)
-        configs = [_randcfg(rng, 2) for _ = 1:60]
+        configs = [randcfg(rng, 2) for _ = 1:60]
 
         true_jphi = randn(rng, m)
         true_j0 = 0.4
@@ -108,7 +97,7 @@ end
         interaction = BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [1], isotropy = true)
         basis = SCEBasis(crystal, interaction)
         m = length(basis.salc_basis)
-        configs = [_randcfg(rng, 2) for _ = 1:50]
+        configs = [randcfg(rng, 2) for _ = 1:50]
         true_jphi = randn(rng, m)
         true_j0 = -0.9
         model0 = SCEPredictor(basis, true_j0, true_jphi, basis.salc_basis.keys)
@@ -123,7 +112,7 @@ end
     @testset "error paths" begin
         interaction = BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [1], isotropy = true)
         basis = SCEBasis(crystal, interaction)
-        configs = [_randcfg(rng, 2) for _ = 1:10]
+        configs = [randcfg(rng, 2) for _ = 1:10]
         ds_e = SCEDataset(basis, configs, zeros(10))           # energy-only
         @test !has_torque(ds_e)
         @test_throws ArgumentError fit(SCEFit, ds_e, OLS(); torque_weight = 0.5)

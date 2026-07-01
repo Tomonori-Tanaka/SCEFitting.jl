@@ -48,10 +48,10 @@ _writetoml(s) = (p = tempname() * ".toml"; write(p, s); p)
         @test inp.crystal.frac_positions[:, 1] ≈ [0.2, 0.0, 0.0]
         @test inp.crystal.frac_positions[:, 2] ≈ [0.8, 0.0, 0.0]
         @test inp.crystal.lattice.pbc == SVector{3,Bool}(true, true, true)
-        @test inp.interaction.nbody == 2
-        @test inp.interaction.pair_cutoff == 1.5
-        @test inp.interaction.lmax == [2]
-        @test inp.interaction.isotropy == false
+        @test inp.spec.nbody == 2
+        @test inp.spec.pair_cutoff == 1.5
+        @test inp.spec.lmax == [2]
+        @test inp.spec.isotropy == false
         @test inp.backend isa NoSymmetry
         @test inp.tol == 1.0e-5
     end
@@ -60,7 +60,7 @@ _writetoml(s) = (p = tempname() * ".toml"; write(p, s); p)
         path = _writetoml(_INPUT_FULL)
         b_file = SCEBasis(path)
         inp = read_setup(path)
-        b_manual = SCEBasis(inp.crystal, inp.interaction)
+        b_manual = SCEBasis(inp.crystal, inp.spec)
         @test b_file.salc_basis.keys == b_manual.salc_basis.keys
         @test n_salcs(b_file) == n_salcs(b_manual)
     end
@@ -69,7 +69,7 @@ _writetoml(s) = (p = tempname() * ".toml"; write(p, s); p)
         inp = read_setup(_writetoml(_INPUT_MINIMAL))
         @test inp.backend isa NoSymmetry          # no [symmetry] → NoSymmetry
         @test inp.tol == 1.0e-5                    # default tol
-        @test inp.interaction.isotropy == false    # default isotropy
+        @test inp.spec.isotropy == false    # default isotropy
         @test inp.crystal.lattice.pbc == SVector{3,Bool}(true, true, true)  # default pbc
     end
 

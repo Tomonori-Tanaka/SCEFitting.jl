@@ -60,16 +60,21 @@ end
 
     @testset "real Wigner-D vs Magesty Δl (M3)" begin
         rng = MersenneTwister(31)
+        # Both are the rotation's representation in the same tesseral basis; they agree
+        # up to the active/passive (transpose) convention. Resolve that convention ONCE
+        # (on the first generic sample) and hold every (R, l) to the same branch — a
+        # per-sample `≈ ref || ≈ refᵀ` would let a convention flip-flop slide through.
+        transposed = nothing
         for _ = 1:15
             R = rand_rotation(rng)
             α, β, γ = MTR.rotmat2euler(Matrix(R))
             for l = 1:4
                 mine = MRA.wignerD_real(l, R)
                 ref = MTR.Δl(l, α, β, γ)
-                # Both are the rotation's representation in the same tesseral basis;
-                # they agree up to the active/passive (transpose) convention.
-                @test isapprox(mine, ref; atol = 1e-9) ||
-                      isapprox(mine, permutedims(ref); atol = 1e-9)
+                if transposed === nothing
+                    transposed = !isapprox(mine, ref; atol = 1e-9)
+                end
+                @test isapprox(mine, transposed ? permutedims(ref) : ref; atol = 1e-9)
             end
         end
     end

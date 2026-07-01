@@ -209,7 +209,7 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
         # default images = MinimumImage
         p1 = joinpath(dir, "mi.toml"); write(p1, body)
         inp = read_setup(p1)
-        @test inp.interaction.pair_cutoff == Inf
+        @test inp.spec.pair_cutoff == Inf
         @test inp.images isa MinimumImage
         # explicit images = "all_images"
         p2 = joinpath(dir, "all.toml"); write(p2, body * "images = \"all_images\"\n")
@@ -229,7 +229,7 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
         path = joinpath(mktempdir(), "wsbasis.toml")
         SCEFitting.save(path, b)
         b2 = SCEFitting.load(SCEBasis, path)
-        @test b2.interaction.pair_cutoff == Inf
+        @test b2.spec.pair_cutoff == Inf
         @test n_salcs(b2) == n_salcs(b)
     end
 end

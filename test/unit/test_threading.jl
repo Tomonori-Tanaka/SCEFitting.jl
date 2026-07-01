@@ -9,15 +9,6 @@ using Random
 # reference (and to the independent scalar predict path): they hold at any thread
 # count and would flag a data race when run with `julia -t N>1`.
 
-function _thr_randcfg(rng, nat)
-    M = Matrix{Float64}(undef, 3, nat)
-    for a = 1:nat
-        v = randn(rng, 3)
-        M[:, a] = v / norm(v)
-    end
-    return M
-end
-
 @testset "threaded assembly / prediction equals serial" begin
     @info "running with $(Threads.nthreads()) thread(s)"
     Threads.nthreads() == 1 &&
@@ -32,7 +23,7 @@ end
     nat = 2
 
     rng = MersenneTwister(7)
-    configs = [_thr_randcfg(rng, nat) for _ = 1:64]
+    configs = [randcfg(rng, nat) for _ = 1:64]
     cfgs = [Matrix{Float64}(c) for c in configs]
 
     @testset "_design_energy: threaded == serial double loop" begin

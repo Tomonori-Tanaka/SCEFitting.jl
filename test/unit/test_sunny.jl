@@ -108,7 +108,7 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
         model = SCEPredictor(b, 0.0, ones(n_salcs(b)), b.salc_basis.keys)
         terms = _bilinear_terms(model)
         @test !isempty(terms.skipped)                         # ls=[2,2] pairs reported
-        @test all(s -> occursin("unsupported", s), terms.skipped)
+        @test all(s -> occursin("not representable", s), terms.skipped)
     end
 
     @testset "primitive unfold (Sunny-free): clean fold reproduces the supercell" begin

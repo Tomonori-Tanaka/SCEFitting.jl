@@ -110,3 +110,34 @@ In-sample torque root-mean-square error over the flattened per-atom torque compo
 (eV). Requires a torque-carrying dataset.
 """
 rmse_torque(f::SCEFit)::Float64 = sqrt(rss_torque(f) / length(f.dataset.y_T))
+
+# --- StatsAPI generics defaulting to the energy block ------------------------------
+# An SCE fit has two observable blocks (energy / torque); the unqualified StatsAPI
+# generics resolve to the **energy** block by convention (the torque block keeps its
+# explicit `*_torque` accessors). Extending — not shadowing — the generics keeps
+# `using GLM` / `using StatsBase` collision-free.
+
+"""
+    residuals(f::SCEFit) -> Vector{Float64}
+
+The energy residuals — [`residuals_energy`](@ref). Extends `StatsAPI.residuals`; the
+torque block is [`residuals_torque`](@ref).
+"""
+residuals(f::SCEFit)::Vector{Float64} = residuals_energy(f)
+
+"""
+    r2(f::SCEFit) -> Float64
+
+The energy `R²` — [`r2_energy`](@ref). Extends `StatsAPI.r2`; the torque block is
+[`r2_torque`](@ref).
+"""
+r2(f::SCEFit)::Float64 = r2_energy(f)
+
+"""
+    predict(model_or_fit, configs) -> Float64 or Vector{Float64}
+
+The predicted energy — [`predict_energy`](@ref). Extends `StatsAPI.predict`; the
+torque observable is [`predict_torque`](@ref).
+"""
+predict(m::SCEPredictor, data) = predict_energy(m, data)
+predict(f::SCEFit, data) = predict_energy(f, data)

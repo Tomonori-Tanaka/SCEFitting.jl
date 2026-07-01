@@ -22,12 +22,18 @@ struct OLS <: AbstractEstimator end
 """
     Ridge(; lambda = 0.0)
 
-L2-penalized least squares with penalty `lambda`.
+L2-penalized least squares with penalty `lambda ≥ 0` (`lambda = 0` is OLS).
 """
 struct Ridge <: AbstractEstimator
     lambda::Float64
+
+    function Ridge(lambda::Real)
+        (lambda >= 0 && isfinite(lambda)) ||
+            throw(ArgumentError("lambda must be finite and ≥ 0; got $lambda"))
+        return new(Float64(lambda))
+    end
 end
-Ridge(; lambda::Real = 0.0) = Ridge(Float64(lambda))
+Ridge(; lambda::Real = 0.0) = Ridge(lambda)
 
 """
     ElasticNet(; alpha = 1.0, lambda = nothing, standardize = true, nfolds = 10,
@@ -241,7 +247,7 @@ Whether `est` is a linear (closed-form) estimator — one whose fitted values ar
 [`OLS`](@ref), [`Ridge`](@ref), and [`AdaptiveRidge`](@ref) (linear in the
 converged-weight sense, the standard adaptive-ridge approximation) return `true`;
 the penalty-path / pilot estimators ([`ElasticNet`](@ref) / [`Lasso`](@ref) /
-[`AdaptiveLasso`](@ref)) are not linear.
+[`AdaptiveLasso`](@ref)) are not linear. Extends `StatsAPI.islinear`.
 """
 islinear(::AbstractEstimator) = false
 islinear(::OLS) = true

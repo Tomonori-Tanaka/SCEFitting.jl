@@ -7,17 +7,6 @@ using Random
 const CG = AngularMomentum.clebsch_gordan
 const Dreal = AngularMomentum.wignerD_real
 
-# Proper rotation from a random axis-angle (Rodrigues).
-function rand_rotation(rng)
-    a = SVector{3,Float64}(randn(rng), randn(rng), randn(rng))
-    a = a / norm(a)
-    θ = 2π * rand(rng)
-    Kc = @SMatrix [0.0 -a[3] a[2]; a[3] 0.0 -a[1]; -a[2] a[1] 0.0]
-    return SMatrix{3,3,Float64}(I) + sin(θ) * Kc + (1 - cos(θ)) * (Kc * Kc)
-end
-
-rand_unit(rng) = (v = SVector{3,Float64}(randn(rng), randn(rng), randn(rng)); v / norm(v))
-
 @testset "angular momentum" begin
     @testset "Clebsch-Gordan known values" begin
         @test CG(1, 0, 1, 0, 0, 0) ≈ -1 / sqrt(3)

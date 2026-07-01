@@ -8,16 +8,6 @@ using Random
 const coupled_bases = SCEFitting.coupled_bases
 const Dreal = AngularMomentum.wignerD_real
 
-rand_unit(rng) = (v = SVector{3,Float64}(randn(rng), randn(rng), randn(rng)); v / norm(v))
-
-function rand_rotation(rng)
-    a = SVector{3,Float64}(randn(rng), randn(rng), randn(rng))
-    a = a / norm(a)
-    θ = 2π * rand(rng)
-    Kc = @SMatrix [0.0 -a[3] a[2]; a[3] 0.0 -a[1]; -a[2] a[1] 0.0]
-    return SMatrix{3,3,Float64}(I) + sin(θ) * Kc + (1 - cos(θ)) * (Kc * Kc)
-end
-
 # Coupled field components f_Mf(e₁,…,e_N) = Σ tensor[m…, Mf] ∏ Zₗᵢmᵢ(eᵢ).
 function coupled_value(cb, es)
     ls, Lf, T = cb.ls, cb.Lf, cb.tensor

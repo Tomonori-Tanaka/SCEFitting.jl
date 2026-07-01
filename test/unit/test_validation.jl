@@ -7,15 +7,6 @@ using Random
 # assume (3 × n_atoms, finite, unit-norm columns). These checks pin that malformed
 # input fails loudly at construction / prediction instead of silently biasing the fit.
 
-function _vrandcfg(rng, nat)
-    M = Matrix{Float64}(undef, 3, nat)
-    for a = 1:nat
-        v = randn(rng, 3)
-        M[:, a] = v / norm(v)
-    end
-    return M
-end
-
 @testset "data-boundary validation" begin
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
@@ -24,7 +15,7 @@ end
     nat = n_atoms(crystal)
 
     rng = MersenneTwister(1)
-    good = [_vrandcfg(rng, nat) for _ = 1:8]
+    good = [randcfg(rng, nat) for _ = 1:8]
     energies = randn(rng, length(good))
 
     @testset "valid input constructs / predicts" begin
@@ -45,7 +36,7 @@ end
         bad = deepcopy(good); bad[2][1, 2] = NaN
         @test_throws ArgumentError SCEDataset(basis, bad, energies)
         # wrong atom count
-        @test_throws DimensionMismatch SCEDataset(basis, [_vrandcfg(rng, nat + 1)], [0.0])
+        @test_throws DimensionMismatch SCEDataset(basis, [randcfg(rng, nat + 1)], [0.0])
         # wrong row count
         @test_throws ArgumentError SCEDataset(basis, [randn(rng, 2, nat)], [0.0])
         # config / energy length mismatch
@@ -63,7 +54,7 @@ end
     @testset "predict rejects malformed configs (scalar + batch)" begin
         @test_throws ArgumentError predict_energy(model, 2.0 .* good[1])
         @test_throws ArgumentError predict_torque(model, 2.0 .* good[1])
-        @test_throws DimensionMismatch predict_energy(model, _vrandcfg(rng, nat + 1))
+        @test_throws DimensionMismatch predict_energy(model, randcfg(rng, nat + 1))
         # batch path validates serially up front (clean error, not a TaskFailedException)
         bad = deepcopy(good); bad[4][:, 1] .*= 3.0
         @test_throws ArgumentError predict_energy(model, bad)

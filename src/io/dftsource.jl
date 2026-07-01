@@ -30,8 +30,8 @@ One DFT spin configuration used for fitting:
 - `field::Matrix{Float64}` — `3 × n_atoms` constraining field `B_a` (eV/μ_B), from a
   constrained-noncollinear calculation (zero where unconstrained).
 - `torques::Matrix{Float64}` — `3 × n_atoms` per-atom torque target
-  `τ_a = −(m_a e_a) × B_a = −m_a (e_a × B_a)` (eV), the observable that the SCE
-  torque `τ_a = e_a × ∂E/∂e_a` is fit to.
+  `τ_a = m_a × B_a = ‖m_a‖ (e_a × B_a)` (eV), the physical / Landau–Lifshitz
+  torque, the observable that the SCE torque `τ_a = −e_a × ∂E/∂e_a` is fit to.
 
 Build it from raw per-atom moment vectors and the constraining field with
 `SpinDatum(energy, moments, field)` (which derives directions, magnitudes, and

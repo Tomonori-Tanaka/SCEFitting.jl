@@ -90,17 +90,6 @@ function _stabilizer(crystal::Crystal, sg::SpaceGroup, rep::ClusterMember)
     return out
 end
 
-# Op + induced permutation connecting the representative to an orbit member
-# (`g·rep` aligns to `member`). Members share the orbit, so this always exists.
-function _connect(crystal::Crystal, sg::SpaceGroup, rep::ClusterMember, member::ClusterMember)
-    dst = _sites(member)
-    for g = 1:n_ops(sg)
-        perm = _align(_op_images(crystal, sg, g, rep), dst)
-        perm === nothing || return (g, perm)
-    end
-    error("no symmetry operation connects the representative to a member")
-end
-
 # Translation signature of a raw site list (same normalization as `_member_sig`).
 _sig_of_sites(sites::Vector{Tuple{Int,SVector{3,Int}}}) =
     _sig_of_sites(sites, Val(length(sites)))
@@ -109,11 +98,12 @@ _sig_of_sites(sites::Vector{Tuple{Int,SVector{3,Int}}}) =
     return _normalize_sites(t)
 end
 
-# `[_connect(rep, m) for m in members]` in a single O(n_ops) sweep: apply each op to
-# `rep` once, match its image (by translation signature) to the member(s) of that class
-# — the orbit lists every anchor-variant, so one class can hold several — and record the
-# first connecting op for each. Same first-ascending op (and `_align` permutation) as
-# `_connect`; and the transported term is stabilizer-invariant, so the choice is moot.
+# Op + induced permutation connecting the representative to every orbit member
+# (`g·rep` aligns to `member`), in a single O(n_ops) sweep: apply each op to `rep`
+# once, match its image (by translation signature) to the member(s) of that class
+# — the orbit lists every anchor-variant, so one class can hold several — and record
+# the first-ascending connecting op for each. The transported term is
+# stabilizer-invariant, so which connecting op is chosen is moot.
 function _connect_all(crystal::Crystal, sg::SpaceGroup, rep::ClusterMember,
                       members::Vector{ClusterMember})
     M = length(members)

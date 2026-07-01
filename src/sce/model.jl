@@ -11,7 +11,7 @@ selection (cf. Magesty's `-1` sentinel).
 
 !!! note
     Renamed from `Interaction` (the old name wrongly suggested a fitted coupling
-    term). `Interaction` remains as a deprecated alias.
+    term).
 """
 struct BasisSpec
     nbody::Int
@@ -26,12 +26,15 @@ struct BasisSpec
         (pair_cutoff > 0 && !isnan(pair_cutoff)) ||
             throw(ArgumentError("pair_cutoff must be positive (or Inf for the full " *
                                 "Wigner–Seitz cell); got $pair_cutoff"))
+        isempty(lmax) && throw(ArgumentError("lmax must have one entry per species"))
+        all(>=(0), lmax) ||
+            throw(ArgumentError("lmax entries must be ≥ 0; got $(collect(lmax))"))
         return new(Int(nbody), Float64(pair_cutoff), collect(Int, lmax), isotropy)
     end
 end
 
 """
-    SCEBasis(crystal, interaction; backend = NoSymmetry(), tol = 1e-5,
+    SCEBasis(crystal, spec; backend = NoSymmetry(), tol = 1e-5,
              images = MinimumImage())
 
 Build the SCE basis for `crystal`: analyze symmetry, enumerate cluster orbits, and
@@ -49,18 +52,18 @@ struct SCEBasis
     crystal::Crystal
     spacegroup::SpaceGroup
     salc_basis::SALCBasis
-    interaction::BasisSpec
+    spec::BasisSpec
 end
 
-function SCEBasis(crystal::Crystal, interaction::BasisSpec;
+function SCEBasis(crystal::Crystal, spec::BasisSpec;
                  backend::AbstractSymmetryBackend = NoSymmetry(), tol::Real = 1e-5,
                  images::AbstractImageSelection = MinimumImage())::SCEBasis
     sg = analyze_symmetry(backend, crystal; tol = tol)
-    nl = build_neighbor_list(crystal, interaction.pair_cutoff, images)
-    clusters = build_clusters(crystal, nl, sg; nbody = interaction.nbody, selection = images)
+    nl = build_neighbor_list(crystal, spec.pair_cutoff, images)
+    clusters = build_clusters(crystal, nl, sg; nbody = spec.nbody, selection = images)
     salcs = build_salc_basis(crystal, sg, clusters;
-                             lmax_by_species = interaction.lmax, isotropy = interaction.isotropy)
-    return SCEBasis(crystal, sg, salcs, interaction)
+                             lmax_by_species = spec.lmax, isotropy = spec.isotropy)
+    return SCEBasis(crystal, sg, salcs, spec)
 end
 
 """
@@ -87,7 +90,7 @@ Pair an [`SCEBasis`](@ref) with training data: spin configurations `configs`
 design matrix `X_E[config, salc] = evaluate_salc(salc, config)`.
 
 The four-argument form additionally takes per-configuration torques (each
-`3 × n_atoms`, the DFT torque `τ_a = e_a × ∂E/∂e_a` on every atom) and builds the
+`3 × n_atoms`, the DFT torque `τ_a = m_a × B_a = −e_a × ∂E/∂e_a` on every atom) and builds the
 torque design matrix `X_T` for an energy+torque co-fit (see [`fit`](@ref)). Its
 rows are flattened config-major, then atom-major, then `xyz`:
 `row = 3·n_atoms·(config−1) + 3·(atom−1) + component`. Torque-free datasets leave
@@ -182,6 +185,21 @@ struct SCEPredictor
     j0::Float64
     jphi::Vector{Float64}
     keys::Vector{SALCKey}
+end
+
+"""
+    SCEPredictor(basis, j0, jphi) -> SCEPredictor
+
+Assemble a predictor directly from a basis and coefficients — `jphi[k]` pairs with
+`salcs(basis)[k]` positionally and the `keys` are filled in from the basis. The public
+way to build a synthetic model (hand-set couplings for tests, demos, or model studies)
+without touching the SALC-basis internals; a fitted model comes from `SCEPredictor(fit)`.
+"""
+function SCEPredictor(basis::SCEBasis, j0::Real, jphi::AbstractVector{<:Real})::SCEPredictor
+    length(jphi) == n_salcs(basis) ||
+        throw(DimensionMismatch("jphi has $(length(jphi)) coefficients for " *
+                                "$(n_salcs(basis)) SALC basis functions"))
+    return SCEPredictor(basis, Float64(j0), collect(Float64, jphi), basis.salc_basis.keys)
 end
 
 """

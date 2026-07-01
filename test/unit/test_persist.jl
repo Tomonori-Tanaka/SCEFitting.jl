@@ -76,8 +76,8 @@ end
         b2 = MR.load(SCEBasis, path)
         @test _basis_identical(b2, basis)
         @test b2.salc_basis.fingerprint == basis.salc_basis.fingerprint   # recomputed, same session
-        @test b2.interaction.nbody == basis.interaction.nbody
-        @test b2.interaction.lmax == basis.interaction.lmax
+        @test b2.spec.nbody == basis.spec.nbody
+        @test b2.spec.lmax == basis.spec.lmax
         @test b2.crystal.frac_positions == basis.crystal.frac_positions
         rm(path)
     end

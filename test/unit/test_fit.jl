@@ -5,26 +5,33 @@ using Random
 
 struct _DummyEstimator <: SCEFitting.AbstractEstimator end
 
-function randcfg(rng, nat)
-    M = Matrix{Float64}(undef, 3, nat)
-    for a = 1:nat
-        v = randn(rng, 3)
-        M[:, a] = v / norm(v)
-    end
-    return M
-end
-
 @testset "fit / predict" begin
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-    interaction = BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = true)
-    basis = SCEBasis(crystal, interaction)          # NoSymmetry backend (no Spglib needed)
+    spec = BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = true)
+    basis = SCEBasis(crystal, spec)                 # NoSymmetry backend (no Spglib needed)
     m = length(basis.salc_basis)
     @test m > 0
 
-    @testset "Interaction is a deprecated alias for BasisSpec" begin
-        @test Interaction === BasisSpec
-        @test Interaction(; nbody = 2, pair_cutoff = 1.5, lmax = [2]) isa BasisSpec
+    @testset "BasisSpec / Ridge constructor validation" begin
+        @test_throws ArgumentError BasisSpec(; nbody = 0, pair_cutoff = 1.5, lmax = [2])
+        @test_throws ArgumentError BasisSpec(; nbody = 2, pair_cutoff = -1.0, lmax = [2])
+        @test_throws ArgumentError BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = Int[])
+        @test_throws ArgumentError BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [-1])
+        @test_throws ArgumentError Ridge(; lambda = -1.0)
+        @test_throws ArgumentError Ridge(Inf)
+        @test Ridge(; lambda = 0.0).lambda == 0.0
+        @test basis.spec === spec                   # the spec rides along on the basis
+        @test salcs(basis) === basis.salc_basis.salcs   # the public accessor
+        @test length(salcs(basis)) == m
+    end
+
+    @testset "SCEPredictor(basis, j0, jphi) fills keys from the basis" begin
+        jphi3 = randn(MersenneTwister(7), m)
+        p = SCEPredictor(basis, 0.25, jphi3)
+        @test p.keys == basis.salc_basis.keys
+        @test p.j0 == 0.25 && p.jphi == jphi3
+        @test_throws DimensionMismatch SCEPredictor(basis, 0.0, zeros(m + 1))
     end
 
     rng = MersenneTwister(1)
@@ -192,10 +199,14 @@ end
         @test dof(f) == m + 1                                   # coefficients + intercept
         @test residuals_energy(f) === f.residuals               # the stored energy residuals
         @test length(residuals_energy(f)) == nobs(f)
-        @test rss_energy(f) ≈ sum(abs2, residuals_energy(f))
-        @test rmse_energy(f) ≈ sqrt(rss_energy(f) / nobs(f))
+        # from-scratch reference (y − prediction), not the accessors' own definitions —
+        # a typo'd rss/rmse implementation must fail here, not be re-executed verbatim
+        r_ref = y .- predict_energy(f, configs)
+        @test residuals_energy(f) ≈ r_ref atol = 1e-9
+        @test rss_energy(f) ≈ sum(abs2, r_ref) atol = 1e-9
+        @test rmse_energy(f) ≈ sqrt(sum(abs2, r_ref) / length(y)) atol = 1e-9
         ss_tot = sum(abs2, y .- sum(y) / length(y))
-        @test r2_energy(f) ≈ 1 - rss_energy(f) / ss_tot
+        @test r2_energy(f) ≈ 1 - sum(abs2, r_ref) / ss_tot atol = 1e-9
         # torque accessors require a torque-carrying dataset
         @test_throws ArgumentError residuals_torque(f)
         @test_throws ArgumentError rss_torque(f)
@@ -205,9 +216,27 @@ end
     @testset "torque accessors on a co-fit are mutually consistent" begin
         fco = fit(SCEFit, dst, OLS(); torque_weight = 0.3)
         @test length(residuals_torque(fco)) == length(dst.y_T)
-        @test rss_torque(fco) ≈ sum(abs2, residuals_torque(fco))
-        @test rmse_torque(fco) ≈ sqrt(rss_torque(fco) / length(dst.y_T))
-        @test r2_torque(fco) ≈ 1 - rss_torque(fco) / sum(abs2, dst.y_T)   # uncentered baseline
+        # from-scratch reference: the flattened torque prediction of the fitted model
+        t_ref = dst.y_T .- reduce(vcat, vec.(predict_torque(SCEPredictor(fco), configs)))
+        @test residuals_torque(fco) ≈ t_ref atol = 1e-9
+        @test rss_torque(fco) ≈ sum(abs2, t_ref) atol = 1e-9
+        @test rmse_torque(fco) ≈ sqrt(sum(abs2, t_ref) / length(dst.y_T)) atol = 1e-9
+        @test r2_torque(fco) ≈ 1 - sum(abs2, t_ref) / sum(abs2, dst.y_T)  # uncentered baseline
+    end
+
+    @testset "StatsAPI generics default to the energy block" begin
+        f = fit(SCEFit, ds, OLS())
+        @test residuals(f) === residuals_energy(f)
+        @test r2(f) == r2_energy(f)
+        @test predict(f, configs) ≈ predict_energy(f, configs)
+        model = SCEPredictor(f)
+        @test predict(model, configs) ≈ predict_energy(model, configs)
+        @test predict(model, configs[1]) ≈ predict_energy(model, configs[1])
+        # islinear (StatsAPI): closed-form estimators vs penalty-path / unknown ones
+        @test SCEFitting.islinear(OLS()) && SCEFitting.islinear(Ridge())
+        @test SCEFitting.islinear(AdaptiveRidge(lambda = 1e-3))
+        @test !SCEFitting.islinear(Lasso()) && !SCEFitting.islinear(ElasticNet())
+        @test !SCEFitting.islinear(_DummyEstimator())
     end
 
     @testset "refit(threshold = 0) on a dense OLS fit is (near) identity" begin

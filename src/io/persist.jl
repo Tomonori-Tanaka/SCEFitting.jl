@@ -18,7 +18,8 @@ library — no external dependency; Float64 round-trips exactly) by [`save`](@re
 
 const _SCHEMA_BASIS = "scefitting/sce-basis"
 const _SCHEMA_MODEL = "scefitting/sce-model"
-const PERSIST_SCHEMA_VERSION = 1
+# v2: the basis-spec section key renamed "interaction" → "spec" (with the SCEBasis field).
+const PERSIST_SCHEMA_VERSION = 2
 
 # Normalize -0.0 → +0.0 so two builds of the same object serialize byte-identically
 # (eigensolvers on different BLAS can flip a sign of zero); -0.0 == 0.0 anyway.
@@ -70,15 +71,15 @@ function _symmetry_doc(sg::SpaceGroup)
         "rotations_frac" => rots, "translations_frac" => trans)
 end
 
-_interaction_doc(it::BasisSpec) = Dict{String,Any}(
-    "nbody" => it.nbody, "pair_cutoff" => _jnum(it.pair_cutoff),
-    "lmax" => collect(Int, it.lmax), "isotropy" => it.isotropy)
+_spec_doc(sp::BasisSpec) = Dict{String,Any}(
+    "nbody" => sp.nbody, "pair_cutoff" => _jnum(sp.pair_cutoff),
+    "lmax" => collect(Int, sp.lmax), "isotropy" => sp.isotropy)
 
 function _basis_doc(b::SCEBasis)
     return Dict{String,Any}(
         "crystal" => _crystal_doc(b.crystal),
         "symmetry" => _symmetry_doc(b.spacegroup),
-        "interaction" => _interaction_doc(b.interaction),
+        "spec" => _spec_doc(b.spec),
         "fingerprint" => string(b.salc_basis.fingerprint),   # UInt64 as a string (JSON numbers lose >2^53)
         "salcs" => [_salc_doc(s) for s in b.salc_basis.salcs])
 end
@@ -180,10 +181,10 @@ function _symmetry_from(crystal::Crystal, d)::SpaceGroup
                                 String(d["symbol"]), Int(d["number"]); tol = Float64(d["tol"]))
 end
 
-_interaction_from(d)::BasisSpec = BasisSpec(; nbody = Int(d["nbody"]),
-                                            pair_cutoff = Float64(d["pair_cutoff"]),
-                                            lmax = _intvec(d["lmax"]),
-                                            isotropy = Bool(d["isotropy"]))
+_spec_from(d)::BasisSpec = BasisSpec(; nbody = Int(d["nbody"]),
+                                     pair_cutoff = Float64(d["pair_cutoff"]),
+                                     lmax = _intvec(d["lmax"]),
+                                     isotropy = Bool(d["isotropy"]))
 
 function _check_schema(d, allowed::Tuple)
     s = get(d, "schema", nothing)
@@ -208,7 +209,7 @@ function _basis_from_doc(d)::SCEBasis
     _check_schema(d, (_SCHEMA_BASIS, _SCHEMA_MODEL))
     crystal = _crystal_from(d["crystal"])
     sg = _symmetry_from(crystal, d["symmetry"])
-    interaction = _interaction_from(d["interaction"])
+    spec = _spec_from(d["spec"])
     salcs = SALC[_salc_from(s) for s in d["salcs"]]
     keyvec = SALCKey[s.key for s in salcs]
     if !issorted(keyvec)
@@ -219,7 +220,7 @@ function _basis_from_doc(d)::SCEBasis
     allunique(keyvec) ||
         throw(ArgumentError("loaded SALC keys are not injective (duplicate design-matrix columns)"))
     sb = SALCBasis(salcs, keyvec, hash(keyvec))
-    return SCEBasis(crystal, sg, sb, interaction)
+    return SCEBasis(crystal, sg, sb, spec)
 end
 
 """

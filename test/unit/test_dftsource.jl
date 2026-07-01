@@ -1,0 +1,86 @@
+# The code-agnostic DFT data boundary (src/io/dftsource.jl): `SpinDatum`,
+# `read_configs`, and `SCEDataset(basis, data/src)`. The headline gate is the torque
+# convention `τ_a = m_a × B_a` (the physical / Landau–Lifshitz torque) — CLAUDE.md
+# designates this file as the convention source every DFT adapter must match, so a
+# closed-form sign check lives here, next to the definition. A silent sign flip
+# would bias every energy+torque co-fit while all self-consistency tests still pass.
+
+using Test
+using SCEFitting
+using LinearAlgebra
+using Random
+
+# A minimal in-memory source, exercising the `read_configs` extension seam the way a
+# real adapter (e.g. SCETools.VASP.Oszicar) does.
+struct _MemSource <: AbstractDFTSource
+    data::Vector{SpinDatum}
+end
+SCEFitting.read_configs(s::_MemSource) = s.data
+
+struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpose
+
+@testset "DFT data boundary (SpinDatum / read_configs)" begin
+    @testset "torque convention: τ = m × B, closed form" begin
+        # m = m·x̂, B = B·ŷ ⇒ τ = m×B = mB·ẑ (and NOT −mB·ẑ: the old, pre-LL sign)
+        moments = reshape([2.0, 0.0, 0.0], 3, 1)
+        field = reshape([0.0, 0.5, 0.0], 3, 1)
+        d = SpinDatum(-1.0, moments, field)
+        @test d.torques[:, 1] ≈ [0.0, 0.0, 1.0]
+        @test d.directions[:, 1] ≈ [1.0, 0.0, 0.0]
+        @test d.magmoms[1] ≈ 2.0
+        @test d.energy == -1.0
+        # generic cross-product check on random data
+        rng = MersenneTwister(11)
+        mo = randn(rng, 3, 4)
+        Bf = randn(rng, 3, 4)
+        dr = SpinDatum(0.0, mo, Bf)
+        for a = 1:4
+            @test dr.torques[:, a] ≈ cross(mo[:, a], Bf[:, a]) atol = 1e-14
+            @test dr.directions[:, a] ≈ mo[:, a] ./ norm(mo[:, a]) atol = 1e-14
+        end
+    end
+
+    @testset "zero-moment placeholder: ẑ direction, zero torque" begin
+        moments = [1.0 0.0; 0.0 0.0; 0.0 0.0]         # atom 2 is quenched
+        field = [0.0 1.0; 1.0 1.0; 0.0 1.0]
+        d = SpinDatum(0.0, moments, field)
+        @test d.directions[:, 2] ≈ [0.0, 0.0, 1.0]     # the documented ẑ placeholder
+        @test d.torques[:, 2] ≈ zeros(3) atol = 1e-15  # m = 0 ⇒ τ = 0 exactly
+        @test d.magmoms[2] == 0.0
+    end
+
+    @testset "constructor / dataset validation throws" begin
+        @test_throws ArgumentError SpinDatum(0.0, zeros(2, 3), zeros(2, 3))   # not 3 × n
+        @test_throws ArgumentError SpinDatum(0.0, zeros(3, 2), zeros(3, 3))   # shape mismatch
+        @test_throws ArgumentError read_configs(_EmptySource())               # no method
+        # dataset-level guards
+        lat = Lattice(Matrix(3.0 * I(3)))
+        cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+        basis = SCEBasis(cr, BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [1],
+                                       isotropy = true))
+        @test_throws ArgumentError SCEDataset(basis, SpinDatum[])             # empty data
+        # all-zero torque targets with use_torque = true must fail loudly
+        rng = MersenneTwister(3)
+        nofield = [SpinDatum(0.1, randn(rng, 3, 2), zeros(3, 2)) for _ = 1:3]
+        @test_throws ArgumentError SCEDataset(basis, nofield)
+        ds = SCEDataset(basis, nofield; use_torque = false)                   # energy-only OK
+        @test !has_torque(ds)
+    end
+
+    @testset "source → dataset round trip carries directions / energies / torques" begin
+        lat = Lattice(Matrix(3.0 * I(3)))
+        cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+        basis = SCEBasis(cr, BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [1],
+                                       isotropy = true))
+        rng = MersenneTwister(5)
+        data = [SpinDatum(0.1 * k, randn(rng, 3, 2), 0.1 .* randn(rng, 3, 2)) for k = 1:4]
+        src = _MemSource(data)
+        @test read_configs(src) === data
+        ds = SCEDataset(basis, src)
+        @test has_torque(ds)
+        @test ds.y_E == [0.1 * k for k = 1:4]
+        @test ds.configs == [d.directions for d in data]
+        # flattened config-major / atom-major / xyz torque layout
+        @test ds.y_T == reduce(vcat, [vec(d.torques) for d in data])
+    end
+end

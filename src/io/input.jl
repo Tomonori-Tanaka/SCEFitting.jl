@@ -100,17 +100,17 @@ function _image_selection_from_name(name)::AbstractImageSelection
 end
 
 """
-    read_setup(path) -> (; crystal, interaction, backend, tol, images)
+    read_setup(path) -> (; crystal, spec, backend, tol, images)
 
 Parse a human-authored TOML input file (schema in the file-level docstring of
-`src/io/input.jl`) into the in-memory `crystal::Crystal`, `interaction::BasisSpec`,
-symmetry `backend::AbstractSymmetryBackend`, `tol::Float64`, and the periodic-image
-selection `images::AbstractImageSelection`. Training data and the estimator are
-**not** part of the file (see [`SCEDataset`](@ref) / [`fit`](@ref)). See also
-`SCEBasis(path)`.
+`src/io/input.jl`) into the in-memory `crystal::Crystal`, `spec::BasisSpec` (from the
+file's `[interaction]` section), symmetry `backend::AbstractSymmetryBackend`,
+`tol::Float64`, and the periodic-image selection `images::AbstractImageSelection`.
+Training data and the estimator are **not** part of the file (see
+[`SCEDataset`](@ref) / [`fit`](@ref)). See also `SCEBasis(path)`.
 """
 function read_setup(path::AbstractString)::@NamedTuple{crystal::Crystal,
-                                                       interaction::BasisSpec,
+                                                       spec::BasisSpec,
                                                        backend::AbstractSymmetryBackend,
                                                        tol::Float64,
                                                        images::AbstractImageSelection}
@@ -120,16 +120,16 @@ function read_setup(path::AbstractString)::@NamedTuple{crystal::Crystal,
     haskey(doc, "interaction") ||
         throw(ArgumentError("input file is missing the [interaction] section"))
     crystal = _crystal_from_input(doc["structure"])
-    interaction = _interaction_from_input(doc["interaction"])
-    length(interaction.lmax) == length(crystal.species_labels) ||
-        throw(ArgumentError("[interaction].lmax has $(length(interaction.lmax)) entries for " *
+    spec = _interaction_from_input(doc["interaction"])
+    length(spec.lmax) == length(crystal.species_labels) ||
+        throw(ArgumentError("[interaction].lmax has $(length(spec.lmax)) entries for " *
                             "$(length(crystal.species_labels)) species"))
     images = haskey(doc["interaction"], "images") ?
         _image_selection_from_name(doc["interaction"]["images"]) : MinimumImage()
     sym = get(doc, "symmetry", Dict{String,Any}())
     backend = haskey(sym, "backend") ? _backend_from_name(sym["backend"]) : NoSymmetry()
     tol = haskey(sym, "tol") ? Float64(sym["tol"]) : 1e-5
-    return (; crystal, interaction, backend, tol, images)
+    return (; crystal, spec, backend, tol, images)
 end
 
 """
@@ -149,5 +149,5 @@ function SCEBasis(path::AbstractString;
     be = backend === nothing ? inp.backend : backend
     tl = tol === nothing ? inp.tol : Float64(tol)
     im = images === nothing ? inp.images : images
-    return SCEBasis(inp.crystal, inp.interaction; backend = be, tol = tl, images = im)
+    return SCEBasis(inp.crystal, inp.spec; backend = be, tol = tl, images = im)
 end

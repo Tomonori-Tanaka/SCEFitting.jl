@@ -90,6 +90,20 @@ end
         end
     end
 
+    @testset "MultipoleTerm field contract (downstream consumers pin on this)" begin
+        # SCETools.jl's bridge reads exactly these fields; a rename/retype must fail here
+        # (and then be synchronized downstream), not slip through the energy gates.
+        @test fieldnames(MultipoleTerm) == (:coef, :body, :atoms, :shifts, :ls, :folded)
+        terms = multipole_terms(SCEPredictor(b, 0.0, randn(MersenneTwister(3), K), keys))
+        @test terms isa Vector{MultipoleTerm}
+        t = terms[1]
+        @test t.coef isa Float64 && t.body isa Int
+        @test t.atoms isa Vector{Int} && t.ls isa Vector{Int}
+        @test t.shifts isa Vector{SVector{3,Int}}
+        @test t.folded isa Array{Float64}
+        @test length(t.atoms) == length(t.shifts) == length(t.ls) == t.body == ndims(t.folded)
+    end
+
     @testset "zero-coefficient SALCs are dropped" begin
         jphi = zeros(K)
         jphi[1] = 0.5

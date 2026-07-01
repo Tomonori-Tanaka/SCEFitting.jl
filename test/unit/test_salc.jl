@@ -17,17 +17,6 @@ function act_on_config(sg, g, e)
     return out
 end
 
-# Distinct random unit spin per column (a single shared spin would make every
-# odd-Lf invariant vanish and silently mask anisotropic bugs).
-function rand_config(rng, nat)
-    M = Matrix{Float64}(undef, 3, nat)
-    for a = 1:nat
-        v = randn(rng, 3)
-        M[:, a] = v / norm(v)
-    end
-    return M
-end
-
 @testset "SALC" begin
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
@@ -50,7 +39,7 @@ end
     @testset "every SALC is space-group invariant: Φ(g·e) = Φ(e)" begin
         rng = MersenneTwister(7)
         for _ = 1:20
-            e = Matrix(rand_config(rng, 2))
+            e = Matrix(randcfg(rng, 2))
             for g = 1:length(sg.ops)
                 ge = act_on_config(sg, g, e)
                 for s in basis.salcs
@@ -63,7 +52,7 @@ end
     @testset "every SALC is time-reversal even: Φ(-e) = Φ(e)" begin
         rng = MersenneTwister(11)
         for _ = 1:20
-            e = Matrix(rand_config(rng, 2))
+            e = Matrix(randcfg(rng, 2))
             for s in basis.salcs
                 @test isapprox(evaluate_salc(s, -e), evaluate_salc(s, e); atol = 1e-9, rtol = 1e-8)
             end

@@ -7,8 +7,6 @@ using Random
 const Z = Harmonics.Zlm
 const gZ = Harmonics.grad_Zlm
 
-rand_unit(rng) = (v = SVector{3,Float64}(randn(rng), randn(rng), randn(rng)); v / norm(v))
-
 @testset "harmonics" begin
     rng = MersenneTwister(20260627)
 

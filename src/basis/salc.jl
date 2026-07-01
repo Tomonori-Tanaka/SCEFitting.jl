@@ -141,7 +141,7 @@ Accumulate `weight · ∇Φ(e)` into `G` (a `3 × n_atoms` buffer), where `∇Φ
 per-site direction gradient of the SALC orbit sum: column `a` of `G` receives
 `weight · ∂Φ/∂e_a`. Summing this over a model's SALCs (with `weight = jϕ`) yields
 `Σ_ϕ jϕ ∇Φ_ϕ`, whose cross product with the spins gives the torque
-`τ_a = e_a × ∂E/∂e_a`.
+`τ_a = −e_a × ∂E/∂e_a = ∂E/∂e_a × e_a` (the physical / Landau–Lifshitz sign).
 
 The gradient distributes over the product rule: for each cluster member, each
 folded-tensor multi-index `μ`, and each site `i` of the member,
