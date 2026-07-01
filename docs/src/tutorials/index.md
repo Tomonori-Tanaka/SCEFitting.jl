@@ -5,7 +5,7 @@ each is also available as a script under [`examples/`](https://github.com/Tomono
 in the repository.
 
 ```@contents
-Pages = ["heisenberg_chain.md", "kagome_threebody.md"]
+Pages = ["heisenberg_chain.md", "kagome_threebody.md", "case1_bcc_fe.md"]
 Depth = 1
 ```
 
@@ -15,6 +15,10 @@ Depth = 1
 - **[Kagome three-body](kagome_threebody.md)** — beyond pairs: a 3-body interaction on the
   kagome lattice, where symmetry-equivalent sites force several `l`-orderings into one
   multi-term SALC. Recovers a synthetic 3-body model from energies and torques.
+- **[Case 1: bcc Fe](case1_bcc_fe.md)** — a real worked example: fit a 128-atom bcc Fe
+  supercell against constrained-noncollinear DFT energies and torques, read the result
+  back out as Heisenberg exchange constants ``J_{ij}``, and compute the magnon dispersion
+  with Sunny.jl against neutron data.
 
 For shorter, feature-by-feature snippets see the [Guide](../guide/basis.md); for the
 fastest possible first fit see [Getting started](../getting_started.md).

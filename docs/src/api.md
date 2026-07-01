@@ -4,7 +4,15 @@
 CurrentModule = SCEFitting
 ```
 
-Every exported type and function, grouped by pipeline stage. The headline workflow is
+```@docs
+SCEFitting
+```
+
+The public API, grouped by pipeline stage. It comes in two tiers: the **exported**
+names (available after `using SCEFitting`) and the **public but unexported** names —
+declared with the `public` keyword and reached by qualification
+(`SCEFitting.salcs(basis)`, `SCEFitting.build_neighbor_list(...)`, …); the
+[`SCEBasis`](@ref) constructor drives the latter for you. The headline workflow is
 built from `Crystal` + `BasisSpec` → [`SCEBasis`](@ref) → [`SCEDataset`](@ref) →
 [`fit`](@ref) → [`SCEPredictor`](@ref).
 
@@ -65,6 +73,10 @@ evaluate_salc
 
 ## BasisSpec, basis, dataset, model
 
+`SCEPredictor(fit)` extracts the lightweight predictor from a fit;
+`SCEPredictor(basis, j0, jphi)` assembles a synthetic model directly from a basis and
+hand-set coefficients (both are documented under [`SCEPredictor`](@ref)).
+
 ```@docs
 BasisSpec
 SCEBasis
@@ -78,6 +90,9 @@ read_setup
 
 ## Fitting
 
+`fit` and `islinear` extend the [StatsAPI](https://github.com/JuliaStats/StatsAPI.jl)
+generics of the same name (`islinear` is public but unexported).
+
 ```@docs
 fit
 refit
@@ -89,6 +104,7 @@ Lasso
 AdaptiveLasso
 AdaptiveRidge
 PrecomputedPilot
+islinear
 solve_coefficients
 ```
 
@@ -102,11 +118,19 @@ has_torque
 
 ## Diagnostics
 
+The `*_energy` / `*_torque` accessors are the full, per-observable surface. The generic
+names `coef` / `nobs` / `dof` / `predict` / `residuals` / `r2` **extend StatsAPI**
+(imported, not shadowed) and default to the energy block, so they compose with the
+StatsBase / GLM ecosystem.
+
 ```@docs
 coef
 intercept
 nobs
 dof
+predict
+residuals
+r2
 r2_energy
 rmse_energy
 r2_torque
@@ -118,6 +142,8 @@ residuals_torque
 ```
 
 ## Tabular coefficients
+
+`coeftable` extends `StatsAPI.coeftable`.
 
 ```@docs
 coeftable
@@ -137,14 +163,60 @@ contract downstream packages (e.g. the mean-field samplers in
 [`SCETools.jl`](https://github.com/Tomonori-Tanaka/SCETools.jl)) read instead of the
 SALC-basis internals.
 `multipole_terms` is the general per-term dump; `bilinear_terms` is the bilinear (`ls=[1,1]`)
-and single-ion (`ls=[2]`) extraction as Cartesian `3×3` matrices (reusing the validated
-Sunny conversion). The tesseral spherical-harmonic kernel `SCEFitting.Harmonics`
-(`Zlm`, `lm_index`) is a stable submodule those consumers may also use.
+and single-ion (`ls=[2]`) extraction as Cartesian `3×3` matrices (the same validated
+extraction the Sunny export consumes). The tesseral spherical-harmonic kernel
+[`SCEFitting.Harmonics`](@ref Harmonics) is the stable submodule those consumers pair it
+with — see the next section.
 
 ```@docs
 MultipoleTerm
 multipole_terms
 bilinear_terms
+```
+
+## Harmonics kernel
+
+The `Harmonics` submodule (public, unexported — call as `SCEFitting.Harmonics.Zlm` etc.)
+is the tesseral spherical-harmonic kernel, and a **stable surface for downstream
+packages**: `Zlm` / `Zlm_unsafe`, `grad_Zlm` / `grad_Zlm_unsafe`, `lm_index`, `num_lm`,
+and the tesseral normalization constants `Harmonics.N1 = √(3/4π)`,
+`Harmonics.A2 = √(15/16π)`, `Harmonics.B2 = √(5/16π)` (the single definition of the
+`l ≤ 2` tesseral ↔ Cartesian conversion factors, shared by the core's bilinear
+extraction and downstream exchange mappings so the forward and inverse conversions
+cannot drift apart).
+
+The `_unsafe` variants skip input validation on the **unit-direction contract**: the
+caller guarantees `u` is a unit 3-vector. SCETools.jl's hot paths (the mean-field
+samplers) call `Zlm_unsafe` under exactly this contract.
+
+```@docs
+Harmonics
+Harmonics.Zlm
+Harmonics.Zlm_unsafe
+Harmonics.grad_Zlm
+Harmonics.grad_Zlm_unsafe
+Harmonics.lm_index
+Harmonics.num_lm
+```
+
+## AngularMomentum kernel
+
+The `AngularMomentum` submodule (public, unexported) carries the angular-momentum
+recoupling machinery behind the SALC construction: Clebsch–Gordan coefficients, the
+real (tesseral) Wigner-D representation, the complex↔real change of basis, and the
+coupled real tensor bases over an `ls` multiset. Like `Harmonics` it is a
+self-contained numeric kernel; unlike `Harmonics` it is not a declared downstream
+surface — the SALC builder drives it.
+
+```@docs
+AngularMomentum
+AngularMomentum.clebsch_gordan
+AngularMomentum.wignerD_real
+AngularMomentum.c2r_matrix
+AngularMomentum.coupling_paths
+AngularMomentum.build_real_bases
+AngularMomentum.coeff_tensor_complex
+AngularMomentum.complex_to_real_tensor
 ```
 
 ## DFT data sources

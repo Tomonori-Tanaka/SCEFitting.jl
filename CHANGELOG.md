@@ -6,6 +6,66 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed (breaking) — pre-registration API polish
+
+- **The deprecated `Interaction` alias is removed** (it was a silent `const`, not a warning
+  deprecation, and the package is unreleased — the window to drop it cheaply is now). Use
+  `BasisSpec`.
+- **`SCEBasis.interaction` → `SCEBasis.spec`** (`::BasisSpec`): the last remnant of the old
+  name — reading `basis.interaction` and getting a `BasisSpec` back was the rename's ghost.
+  Follows through `read_setup` (its named tuple now carries `spec`; the human-authored TOML
+  section keeps its descriptive `[interaction]` name) and the persist schema (the basis
+  document key `"interaction"` → `"spec"`, `schema_version` bumped to **2**; v1 files are
+  rejected with a clean schema error).
+- `BasisSpec` additionally validates `lmax` (nonempty, entries ≥ 0); `Ridge` validates
+  `lambda` (finite, ≥ 0) in an inner constructor.
+
+### Added — StatsAPI completion, `public` tiering, synthetic-predictor constructor
+
+- `coeftable` and `islinear` now extend the **StatsAPI** generics instead of shadowing them
+  (the same collision `coef`/`fit` already avoided — `using GLM`/`StatsBase` no longer
+  clashes), and thin energy-block defaults `predict` (→ `predict_energy`), `residuals`
+  (→ `residuals_energy`), and `r2` (→ `r2_energy`) are exported; the torque block keeps its
+  explicit `*_torque` accessors.
+- The public-but-unexported tier is now declared with the Julia **`public` keyword**
+  (machine-checkable via `Base.ispublic` / Aqua) instead of a comment-only promise; `save`,
+  `load`, `salcs`, `islinear`, `Harmonics`, and `AngularMomentum` join the declared list.
+- **`SCEPredictor(basis, j0, jphi)`**: a public constructor filling `keys` from the basis,
+  so synthetic models (hand-set couplings in tests, demos, downstream packages) no longer
+  need the 4-argument form with `basis.salc_basis.keys`.
+- `LICENSE` (MIT) and a CI workflow (`.github/workflows/CI.yml`: `TEST_MODE=all` on
+  Ubuntu/macOS + a strict Documenter build) — the remaining registration blockers.
+
+### Changed — layering and shared constants
+
+- The bilinear / single-ion extraction (`BilinearTerms`, `_bilinear_terms`,
+  `_l1_pair_matrix`, `_l2_onsite_matrix`, `_reconstruct_energy`) moves from
+  `interop/sunny.jl` to **`sce/bilinear.jl`**: the public `bilinear_terms` introspection no
+  longer depends on the interop layer (the layer inversion is gone); Sunny keeps only the
+  primitive-cell unfold and `to_sunny`. Same code, same numbers.
+- The tesseral constants `N1 = √(3/4π)`, `A2 = √(15/16π)`, `B2 = √(5/16π)` are defined once
+  in `Harmonics` and consumed by the extraction (and by SCETools.jl's inverse mapping), so
+  the forward/inverse conversions cannot drift. Bit-identical (same expressions moved).
+
+### Fixed — torque-sign docstrings and test hygiene
+
+- Three docstrings still carried the pre-Landau–Lifshitz torque sign
+  (`SpinDatum.torques` in `io/dftsource.jl` — the file CLAUDE.md designates as the
+  convention source —, `accumulate_grad!`, `SCEDataset`): all now state the actual
+  convention, target `τ_a = m_a × B_a`, model `τ_a = −e_a × ∂E/∂e_a`. **Code was always
+  correct**; the risk was a future edit "fixing" the code to match the wrong docs.
+- New `test/unit/test_dftsource.jl`: the previously untested exported DFT data boundary —
+  a closed-form `m·x̂ × B·ŷ = mB·ẑ` sign gate on the `SpinDatum` torque convention, the
+  zero-moment placeholder branch, all validation throws, and a mock-source round trip.
+- Shared test helpers (`rand_unit` / `rand_rotation` / `randcfg`) hoisted into
+  `test/unit/testutils.jl` — the per-file copies overwrote each other in `Main` (warnings
+  on every run; an edited copy would silently win). Bodies kept byte-identical, so all
+  seeded fixtures draw the same stream.
+- The diagnostics tests now check `rss`/`rmse`/`r2` against a from-scratch
+  `y − predict_energy` reference instead of re-executing the accessors' own definitions;
+  the oracle's Wigner-D comparison resolves the Magesty transpose convention once instead
+  of accepting either per sample; dead `_connect` (superseded by `_connect_all`) deleted.
+
 ### Changed — source-tree reorganization (no behavior change)
 
 - The 600-line `sce/model.jl` is split by responsibility: `sce/model.jl` keeps the
@@ -32,9 +92,9 @@ release, so everything lives under *Unreleased*.
 ### Changed (breaking) — public API tiering and the `Interaction` rename
 
 - **`Interaction` → `BasisSpec`.** The old name wrongly suggested a fitted coupling term;
-  it is a basis/cluster *specification*. `Interaction` stays as a deprecated, exported
-  alias (`const Interaction = BasisSpec`) for one minor version, so existing scripts keep
-  working. `BasisSpec` now validates in an **inner** constructor.
+  it is a basis/cluster *specification*. (An interim `const Interaction = BasisSpec` alias
+  existed only within this unreleased cycle and is removed — see the entry above.)
+  `BasisSpec` now validates in an **inner** constructor.
 - **Export surface tiered.** The flat ~60-name export is split into the fitting workflow
   (still exported) and the *construction internals*, which are now **public but
   unexported** — reachable as `SCEFitting.build_clusters` / `SCEFitting.build_salc_basis`

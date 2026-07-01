@@ -339,4 +339,3 @@ gradient that sets the dispersion). This reproduces the comparison in the corres
   [`bilinear_terms`](@ref)'s `onsites`).
 - Raise `nbody` to `3` for many-body clusters (see the [kagome tutorial](kagome_threebody.md)).
 - Swap `OLS()` for a regularized estimator (see [Data and fitting](../guide/fitting.md)).
-```

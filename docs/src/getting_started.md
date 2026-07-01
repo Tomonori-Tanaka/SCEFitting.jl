@@ -54,7 +54,7 @@ training data from a known coupling and fit it:
 rng = MersenneTwister(2026)
 randcfg(nat) = mapreduce(_ -> (v = randn(rng, 3); v / norm(v)), hcat, 1:nat)
 
-heis    = salcs(basis)[1]              # the Heisenberg SALC
+heis    = SCEFitting.salcs(basis)[1]   # the Heisenberg SALC (public-unexported: qualify)
 J_true  = 0.0137
 configs = [randcfg(4) for _ = 1:40]
 E = [J_true * 0.5 * sum(dot(c[:, m.atoms[1]], c[:, m.atoms[2]]) for m in heis.members)

@@ -40,7 +40,7 @@ println("from input.toml → space group ", basis.spacegroup.symbol,
         " (#", basis.spacegroup.number, "), ", n_salcs(basis), " SALC(s)")
 
 # --- 2. fit synthetic Heisenberg data --------------------------------------------
-heis = salcs(basis)[1]
+heis = SCEFitting.salcs(basis)[1]   # public-unexported: call it qualified
 J_true = 0.0137
 configs = [randcfg(4) for _ = 1:40]
 E = [J_true * 0.5 * sum(dot(c[:, m.atoms[1]], c[:, m.atoms[2]]) for m in heis.members)

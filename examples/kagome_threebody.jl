@@ -26,7 +26,9 @@ println("space group : ", basis.spacegroup.symbol, " (#", basis.spacegroup.numbe
 println("# SALCs     : ", n_salcs(basis))
 
 # A 3-body, unequal-l channel is a multi-term SALC (combines l-orderings).
-s112 = first(s for s in salcs(basis) if s.key.body == 3 && s.ls == [1, 1, 2] && s.Lf == 0)
+# (`salcs` is public but unexported — qualify it.)
+s112 = first(s for s in SCEFitting.salcs(basis)
+             if s.key.body == 3 && s.ls == [1, 1, 2] && s.Lf == 0)
 println("3-body ls=[1,1,2], Lf=0 SALC: ", length(s112.members[1].terms), " orderings (terms) per member")
 
 # Synthetic in-span data: random true couplings, recover them from energies + torques.
@@ -36,7 +38,7 @@ skel = SCEDataset(basis, configs, zeros(length(configs)))
 J_true = randn(rng, m)
 j0_true = 0.5
 energies = j0_true .+ skel.X_E * J_true
-model0 = SCEPredictor(basis, j0_true, J_true, basis.salc_basis.keys)
+model0 = SCEPredictor(basis, j0_true, J_true)   # a synthetic model from hand-set couplings
 torques = [predict_torque(model0, c) for c in configs]
 
 f = fit(SCEFit, SCEDataset(basis, configs, energies, torques), OLS(); torque_weight = 0.3)

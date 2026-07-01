@@ -49,7 +49,7 @@ For a body-centered cubic cell, the cross pair sits at all eight corners at once
 ```@example res
 using SCEFitting
 cr = Crystal(Lattice([3.0 0 0; 0 3.0 0; 0 0 3.0]), [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["Fe"])
-nl = build_neighbor_list(cr, Inf, MinimumImage())
+nl = SCEFitting.build_neighbor_list(cr, Inf, MinimumImage())   # public-unexported: qualify
 length([p for p in nl.pairs if (p.i, p.j) == (1, 2)])     # 8 equidistant corner images
 ```
 

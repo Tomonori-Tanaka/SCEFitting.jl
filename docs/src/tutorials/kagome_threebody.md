@@ -56,9 +56,10 @@ for n1 in -1:2, n2 in -1:2, b in 1:3
 end
 
 # The representative 3-body cluster: home atoms + their periodic lattice shifts.
-sg   = analyze_symmetry(SpglibBackend(), kagome)
-nl   = build_neighbor_list(kagome, interaction.pair_cutoff, MinimumImage())
-clus = build_clusters(kagome, nl, sg; nbody = 3).by_body[3][1].representative
+# (These construction internals are public but unexported — call them qualified.)
+sg   = SCEFitting.analyze_symmetry(SpglibBackend(), kagome)
+nl   = SCEFitting.build_neighbor_list(kagome, interaction.pair_cutoff, MinimumImage())
+clus = SCEFitting.build_clusters(kagome, nl, sg; nbody = 3).by_body[3][1].representative
 corners = [Point2f((A * Float64.(clus.shifts[k]) + base[:, clus.atoms[k]])[1:2]...)
            for k in 1:3]
 
@@ -107,7 +108,7 @@ The ``l = (1,1,2)``, ``L_f = 0`` three-body channel combines the distinct ``l``-
 into one SALC, stored as several *terms* per member:
 
 ```@example kagome
-s112 = first(s for s in salcs(basis)
+s112 = first(s for s in SCEFitting.salcs(basis)
              if s.key.body == 3 && s.ls == [1, 1, 2] && s.Lf == 0)
 length(s112.members[1].terms)        # number of l-orderings folded into this one SALC
 ```
@@ -130,7 +131,7 @@ J_true  = randn(rng, m)
 j0_true = 0.5
 energies = j0_true .+ skel.X_E * J_true
 
-model0  = SCEPredictor(basis, j0_true, J_true, basis.salc_basis.keys)
+model0  = SCEPredictor(basis, j0_true, J_true)   # a synthetic model from hand-set couplings
 torques = [predict_torque(model0, c) for c in configs]
 
 f = fit(SCEFit, SCEDataset(basis, configs, energies, torques), OLS(); torque_weight = 0.3)

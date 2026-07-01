@@ -76,8 +76,9 @@ physical rather than reference-matching:
 - **Symmetry invariance** — every SALC satisfies ``\Phi(g\cdot\boldsymbol e) =
   \Phi(\boldsymbol e)`` and ``\Phi(-\boldsymbol e) = \Phi(\boldsymbol e)`` (the projector's
   exactly-0/1 eigenvalues are the in-band gate).
-- **Finite differences** — `predict_torque` matches ``\hat{\boldsymbol e}\times\nabla
-  E_{\text{FD}}`` on the sphere, so the torque is provably the energy surface's derivative.
+- **Finite differences** — `predict_torque` matches ``-\hat{\boldsymbol e}\times\nabla
+  E_{\text{FD}}`` on the sphere, so the torque is provably the (negative rotation-)
+  derivative of the energy surface.
 - **Known-coupling recovery** — a Heisenberg chain recovers ``J = 2\sqrt3\,j_\varphi``; a
   synthetic ``N``-body model is recovered from energies and torques.
 - **A pinned oracle** — a separate environment `dev`s a pinned Magesty.jl and cross-checks

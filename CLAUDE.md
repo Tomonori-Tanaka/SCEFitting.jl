@@ -76,7 +76,7 @@ Easy to break silently — confirm before touching the algorithm.
 - `basis/Harmonics.jl` (`Zlm`, `grad_Zlm`) ↔ the on-sphere central-difference and
   closed-form agreement tests (`test/unit/test_harmonics.jl`). Normalization / sign
   drift silently biases `X`.
-- **Energy kernel `evaluate` ↔ gradient kernel `accumulate_grad!`** (`basis/salc.jl`):
+- **Energy kernel `evaluate_salc` ↔ gradient kernel `accumulate_grad!`** (`basis/salc.jl`):
   identical `μ = idx[i] − ls[i] − 1` mapping, `ls`, `folded`, and `(4π)^(N/2)` scale.
   The gate is the finite-difference self-consistency `predict_torque ≈ −e × ∇E_FD`
   (`test/unit/test_torque.jl`, `test_nbody.jl`): the torque must be the exact (negative
@@ -150,13 +150,17 @@ Easy to break silently — confirm before touching the algorithm.
   frame by `Rz(α)·Ry(β)`); the core consumes only `SpinDatum`/`SCEDataset` and stays
   DFT-code-agnostic. The VASP parsers are cross-checked against Magesty in SCETools's oracle.
   The `SpinDatum` torque sign defined here is the convention source the adapters must match.
-- **Sunny export conversion ↔ the energy reconstruction** (`interop/sunny.jl`,
+- **Sunny export conversion ↔ the energy reconstruction** (`sce/bilinear.jl` — matrices /
+  extraction / gate — plus `interop/sunny.jl` — primitive unfold — and
   `ext/SCEFittingSunnyExt.jl`): `_l1_pair_matrix` / `_l2_onsite_matrix` must satisfy
-  `eₐ'·M·e_b = Σ folded·Z·Z` (the gate is the `Z₁`/`Z₂` contraction test); the per-bond
+  `eₐ'·M·e_b = Σ folded·Z·Z` (the gate is the `Z₁`/`Z₂` contraction test; the tesseral
+  constants `N1`/`A2`/`B2` are defined once, in `basis/Harmonics.jl`); the per-bond
   matrix is `jϕ·(4π)^(N/2)·M` and the two directed members `(a,b,R)`/`(b,a,−R)` fold into
   one matrix on the canonical `a≤b` bond (reverse transposed). The whole chain is checked
-  **without Sunny** by `_reconstruct_energy ≈ predict_energy − j0`; the extension then sets
-  `J = M/(SₐS_b)` so the `Sunny.System` energy matches. Only `ls=[1,1]`/`ls=[2]` are
+  **without Sunny** by `_reconstruct_energy ≈ predict_energy − j0`; the extension then
+  rescales by the effective spin (`scaling = :moment` sets `J = M/(SₐS_b)`; `:coupling`
+  folds `S_eff` into the couplings at a placeholder `Moment`) so the `Sunny.System` energy
+  matches. Only `ls=[1,1]`/`ls=[2]` are
   representable — every other channel must be **reported as skipped**, never silently
   dropped. Change a harmonic normalization or the `(4π)^(N/2)` scale → both the matrix
   formulas and the energy gate move together.
@@ -167,7 +171,7 @@ Easy to break silently — confirm before touching the algorithm.
   scale `(4π)^(body/2)` to the consumer — the scale lives in exactly one place (the
   reconstruction gate `_energy_from_terms`), so do **not** also apply it inside
   `multipole_terms`. `bilinear_terms` is a thin public wrapper of the general
-  `_bilinear_terms` extraction (in `interop/sunny.jl`), so its numerics move with the
+  `_bilinear_terms` extraction (in `sce/bilinear.jl`), so its numerics move with the
   Sunny coupled-site above.
   Add or rename a `MultipoleTerm` field → update the gate and the `SCETools.jl` consumers
   (`sce_bridge.jl`).
@@ -187,7 +191,7 @@ Easy to break silently — confirm before touching the algorithm.
   centered-`X` contract. Validated in the separate `test/glmnet/` env (GLMNet-backed) and
   `test/unit/test_fit.jl` (core `AdaptiveRidge` / `PrecomputedPilot` solves), never mixing
   the two (GLMNet absent in the core suite).
-- **`fit` ↔ `refit` share `_assemble_problem`** (`sce/model.jl`): the `(X, y, xbar, ybar,
+- **`fit` ↔ `refit` share `_assemble_problem`** (`fitting/fit.jl`): the `(X, y, xbar, ybar,
   groups)` centering/whitening assembly lives in one helper so the two build identical
   designs — change the centering or whitening there and **both** move together (the oracle
   pins `fit`'s numerics). `refit` re-solves on the scaled-magnitude support

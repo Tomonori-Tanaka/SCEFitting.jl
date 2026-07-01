@@ -23,7 +23,8 @@ carve-out:
   construction order.
 - Hot-path harmonics come in a validated `Zₗₘ` and an unchecked, buffered
   `Zₗₘ_unsafe`.
-- Rank parameter `R = N + 1` on `CoupledBasis{R}` / `SALC{R}` (N = body order).
+- Rank parameter `R = N + 1` on `CoupledBasis{R}` (N = body order); `SALC` itself is
+  not parametric — its terms store `folded::Array{Float64}` with runtime rank.
   **Never promote `l` / `l_max` to a type parameter** — they are runtime fields /
   loop bounds (avoids specialization blow-up).
 

@@ -33,7 +33,7 @@ neighbor list relies on.
 
 ## The interaction specification
 
-An [`BasisSpec`](@ref) fixes the body order, the pair cutoff, the per-species maximum
+A [`BasisSpec`](@ref) fixes the body order, the pair cutoff, the per-species maximum
 angular momentum `l`, and whether to keep only the isotropic channel:
 
 ```@example basis
@@ -60,7 +60,8 @@ boundary ties kept as distinct members; [`AllImages`](@ref) keeps every image wi
 cutoff and is reserved for the (future) spin-spiral / generalized-Bloch path.
 
 ```@example basis
-nl = build_neighbor_list(cr, Inf, MinimumImage())     # full Wigner–Seitz cell
+# `build_neighbor_list` is public but unexported — call it qualified.
+nl = SCEFitting.build_neighbor_list(cr, Inf, MinimumImage())   # full Wigner–Seitz cell
 length([p for p in nl.pairs if (p.i, p.j) == (1, 2)])  # the 8-fold body-diagonal corner tie
 ```
 
@@ -101,7 +102,8 @@ channel; the mechanism is described in [Architecture](../theory/architecture.md)
 ## What `SCEBasis` produces
 
 [`SCEBasis`](@ref) bundles the crystal, the space group, the SALC basis, and the
-interaction. Each basis function is a [`SALC`](@ref) addressed by a canonical
+spec it was built from (the `spec` field). Each basis function is a [`SALC`](@ref)
+addressed by a canonical
 [`SALCKey`](@ref) — a stable identity (body order, orbit, sorted `l`-multiset, `Lf`,
 block) that names a fixed interaction independent of construction order. The design-matrix
 columns, the persisted coefficients, and [`coeftable`](@ref) all key off it.

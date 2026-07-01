@@ -41,7 +41,7 @@ makedocs(;
         ],
         "API reference" => "api.md",
     ],
-    warnonly = true,
+    warnonly = false,   # strict: any @example error / missing docstring fails the build
     checkdocs = :exports,
     doctest = false,
 )

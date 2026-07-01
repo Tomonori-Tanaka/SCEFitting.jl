@@ -21,7 +21,7 @@ model = SCEFitting.load(SCEPredictor, "model.toml")
 predict_energy(model, configs)
 ```
 
-The document stores the crystal, the space-group operations, the interaction, the full
+The document stores the crystal, the space-group operations, the basis spec, the full
 SALC basis, and (for a model) `j0` and the per-`SALCKey` coefficients. On reload the basis
 is rebuilt *verbatim* (no re-projection), and coefficients are re-paired to it **by key**,
 not by position — so a reloaded model predicts identically even if the basis were rebuilt

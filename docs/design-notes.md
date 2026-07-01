@@ -186,17 +186,18 @@ force-loading Spglib at `using` time.
 
 ## 6. Torque as the energy surface's exact derivative
 
-The torque `τ_a = e_a × ∂E/∂e_a` is the SCE's second observable. Rather than
+The torque `τ_a = −e_a × ∂E/∂e_a` (the physical / Landau–Lifshitz torque
+`m_a × B_eff,a`) is the SCE's second observable. Rather than
 treat the torque design matrix as an independently-derived object (a place a sign
 or normalization can silently drift out of step with the energy kernel), the
 rebuild builds the per-site gradient `accumulate_grad!` from the *same*
 `μ = idx − ls − 1` mapping, `ls`, `folded`, and `(4π)^(N/2)` scale as the energy
 kernel `evaluate_salc` — only the innermost `Zₗᵢμᵢ` of each product is swapped for
 `∇Zₗᵢμᵢ` (product rule, summed over the cluster's sites). The consequence is that
-`predict_torque` is *by construction* the analytic gradient of the surface
-`predict_energy` evaluates, and the gate is exactly that: an on-sphere
-finite-difference check `predict_torque ≈ e × ∇E_FD`, plus the Heisenberg closed
-form `τ_a = J e_a × Σ_{nn} e_j`. This is convention-independent ground truth — it
+`predict_torque` is *by construction* the analytic (negative rotation-) gradient of
+the surface `predict_energy` evaluates, and the gate is exactly that: an on-sphere
+finite-difference check `predict_torque ≈ −e × ∇E_FD`, plus the Heisenberg closed
+form `τ_a = J (Σ_{nn} e_j) × e_a`. This is convention-independent ground truth — it
 would catch a self-consistent wrong convention that every gauge-invariant
 comparison misses. (Magesty's reverse-mode, cluster-major gradient accumulator is
 an optimization the v0 deliberately forgoes: the simple `O(N²)`-per-multi-index
@@ -213,15 +214,15 @@ Magesty persists the basis/model as **XML** (EzXML) and takes run setup from an
 **`input.toml`**. The rebuild keeps the two-artifact split but unifies on one
 zero-dependency format:
 
-- **Input** (`sce/input.jl`): a human-authored `input.toml` — `[structure]` (inline
+- **Input** (`io/input.jl`): a human-authored `input.toml` — `[structure]` (inline
   crystal: `lattice` as a list of the three lattice vectors, fractional `positions`,
   per-atom `species`, `species_labels`), `[interaction]` (`nbody`, `pair_cutoff`,
   per-species `lmax`, `isotropy`), and optional `[symmetry]` (`backend`, `tol`).
   `SCEBasis("input.toml")` builds the basis; keyword arguments override the file's
   backend/tol. Like Magesty, training data and the estimator are kept **out** of this
   file (loaded / chosen in Julia) — `input.toml` specifies only what defines the basis.
-- **Persistence** (`sce/persist.jl`): a **self-contained** TOML document — the crystal,
-  the space-group ops, the interaction, and the *full* SALC basis (every member, term,
+- **Persistence** (`io/persist.jl`): a **self-contained** TOML document — the crystal,
+  the space-group ops, the basis spec, and the *full* SALC basis (every member, term,
   and folded tensor), plus (for a model) `j0` and per-`SALCKey` coefficients. Reload
   reconstructs the basis **verbatim** (no re-projection), so a saved model keeps working
   even if the construction code's gauge later changes — the file is the ground truth.
@@ -264,17 +265,21 @@ code-specific I/O is confined to a single boundary: the only objects the fitting
 machinery consumes are `SpinDatum` (energy + spin directions + moment magnitudes +
 constraining field + the derived torque target) and the `SCEDataset` built from them.
 Each DFT code is an `AbstractDFTSource` *adapter* implementing
-`read_configs(src) -> Vector{SpinDatum}`; the adapters are **namespaced submodules**
-(`SCEFitting.VASP`, …) kept out of the core, and nothing code-specific reaches the
-core or its export list. Adding a code is one sibling submodule — the public surface does
+`read_configs(src) -> Vector{SpinDatum}`; the concrete adapters live **outside the
+core**, as namespaced submodules of the companion SCETools.jl package
+(`SCETools.VASP`, …), so nothing code-specific reaches the
+core or its export list. Adding a code is one sibling submodule there — the core's public
+surface does
 not grow as codes multiply, and "once you hold the training data, its origin is
 irrelevant" is enforced by the type structure, not merely by convention. (The same seam
 is where a future third-party I/O package, or a format extension needing a dependency
 such as `vasprun.xml` → EzXML, would plug in.) The VASP adapter mirrors Magesty's proven
-POSCAR/OSZICAR conventions — including the torque target `τ_a = −m_a × B_a` from the
-constraining field and the `Rz(α)·Ry(β)` SAXIS rotation — and is cross-checked
-bit-for-bit against Magesty's parsers in the oracle, since real VASP outputs are not
-vendored.
+POSCAR/OSZICAR conventions — including the torque target `τ_a = m_a × B_a` from the
+constraining field (the same physical / Landau–Lifshitz torque as the model's
+`predict_torque = −e_a × ∂E/∂e_a`) and the `Rz(α)·Ry(β)` SAXIS rotation — and is
+cross-checked
+bit-for-bit against Magesty's parsers in SCETools's oracle, since real VASP outputs are
+not vendored.
 
 ## 10. Oracle methodology
 
@@ -301,7 +306,8 @@ a heavy optional dependency, so the `Sunny.System` assembly is a package extensi
 with the right normalization (`_l1_pair_matrix = (3/4π)·folded` reproducing
 `eₐ'·M·e_b = Σ folded·Z₁·Z₁`; the traceless-symmetric `_l2_onsite_matrix`), folding the
 two directed cluster members into one matrix per undirected bond, and unfolding the
-supercell onto the primitive cell — all sits in the **core** (`sce/sunny.jl`), with no
+supercell onto the primitive cell — all sits in the **core** (the bilinear extraction in
+`sce/bilinear.jl`, the primitive unfold in `interop/sunny.jl`), with no
 Sunny dependency. It is gated by reconstructing the energy
 (`_reconstruct_energy ≈ predict_energy − j0`) in the main test suite, so the conversion is
 proven correct without ever loading Sunny; the extension only places the core-computed
@@ -323,8 +329,12 @@ supercell multiplicity — giving the unfolded dispersion. This is exact only wh
 genuinely lives on the primitive cell (the interaction range stays below the supercell
 boundary, the same `L/2` resolvability limit as §1b); a `clean` flag detects when it does
 not and falls back to the exact supercell route. Spin enters only at assembly: the SCE
-couplings are fit with unit directions, so `J = M/(SₐS_b)` makes Sunny's length-`S` dipoles
-reproduce the unit-vector energy, and the single-ion term carries the classical
+couplings are fit with unit directions, so the `scaling = :moment` route sets
+`J = M/(SₐS_b)` to make Sunny's length-`S` dipoles
+reproduce the unit-vector energy (half-integer `S_eff` only — Sunny's `Moment`
+constraint), while `scaling = :coupling` holds `Moment` at a placeholder `s₀ = 1` and
+folds `S_eff` into the couplings instead (any positive `S_eff`; dispersion-exact, static
+energy rescaled). The single-ion term carries the classical
 (`:dipole_uncorrected`) or quantum rank-2 (`:dipole`) rescaling.
 
 ## 12. GLMNet estimators: sparse selection inside the centered-`X` contract

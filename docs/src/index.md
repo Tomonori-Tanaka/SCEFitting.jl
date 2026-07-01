@@ -42,7 +42,7 @@ Crystal + BasisSpec ──▶ SCEBasis ──▶ SCEDataset ──▶ fit ──
 ```
 
 - **`SCEBasis`** analyzes symmetry, enumerates cluster orbits, and builds the
-  symmetry-adapted SALC basis for a `Crystal` and an `BasisSpec` (body order, cutoff,
+  symmetry-adapted SALC basis for a `Crystal` and a `BasisSpec` (body order, cutoff,
   per-species `l`, isotropy).
 - **`SCEDataset`** pairs the basis with training data and materializes the energy
   (and torque) design matrices.
@@ -72,7 +72,7 @@ Crystal + BasisSpec ──▶ SCEBasis ──▶ SCEDataset ──▶ fit ──
 | [Guide: Sunny export](guide/sunny.md) | Turn a fitted model into a `Sunny.System` for linear spin-wave theory |
 | [Tutorials](tutorials/index.md) | Narrated end-to-end runs (Heisenberg chain, kagome three-body) |
 | [Theory](theory/index.md) | The SCE formalism, minimum-image/Wigner–Seitz resolvability, the rebuild's architecture |
-| [API reference](api.md) | Every exported type and function |
+| [API reference](api.md) | The exported and public (qualified) types and functions |
 
 ## Key features
 

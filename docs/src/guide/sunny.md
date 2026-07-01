@@ -31,16 +31,32 @@ Sunny `System` and is **reported as skipped**, never silently dropped:
 sys = to_sunny(model; spins = 3/2)        # @warn lists any skipped channels
 ```
 
-## Spin length and mode
+## Spin length, scaling, and mode
 
-Spins enter only at assembly. The SCE couplings are fit with *unit* directions, so the
-exchange is rescaled `J = M / (Sₐ S_b)` to make Sunny's length-``S`` dipoles reproduce the
-unit-vector energy. The single-ion term carries the classical (`mode = :dipole_uncorrected`,
+Spins enter only at assembly. The SCE couplings are fit with *unit* directions, so they
+absorb the moment magnitude; `spins` supplies the physical effective spin
+``S_{\text{eff}} = m/(g\mu_B)`` (a number, or a per-species `label => S` mapping), and the
+`scaling` keyword chooses how it enters:
+
+- **`scaling = :moment`** — put ``S_{\text{eff}}`` directly into Sunny's `Moment` and
+  rescale each bilinear bond `J = M / (Sₐ S_b)`. Both the static energy *and* the magnon
+  dispersion are exact — but Sunny's `Moment` accepts only **half-integer** spins, so
+  ``S_{\text{eff}}`` must be one.
+- **`scaling = :coupling`** — keep `Moment` at a placeholder ``s_0 = 1`` and fold
+  ``S_{\text{eff}}`` into the couplings instead. Works for **any** positive
+  ``S_{\text{eff}}`` (itinerant / non-half-integer moments); the magnon *dispersion* is
+  exact, while the represented static energy is rescaled (the dispersion is invariant
+  under an overall spin rescale).
+- **`scaling = :auto`** (default) — `:moment` when every ``S_{\text{eff}}`` is a
+  half-integer, else `:coupling`.
+
+The single-ion term carries the classical (`mode = :dipole_uncorrected`,
 factor ``1/s^2``) or quantum rank-2 (`mode = :dipole`, factor ``2/(s(2s-1))``, requires
-``s > 1/2``) rescaling.
+``s > 1/2``) rescaling; `mode = :auto` picks `:dipole` for half-integer spins.
 
 ```julia
-sys = to_sunny(model; spins = 1.5, g = 2, mode = :dipole)
+sys = to_sunny(model; spins = 1.5, g = 2, mode = :dipole)    # :auto → scaling = :moment
+sys = to_sunny(model; spins = 1.1)                           # :auto → scaling = :coupling
 sys = to_sunny(model; spins = Dict("Fe" => 3/2, "O" => 1))   # per-species
 ```
 

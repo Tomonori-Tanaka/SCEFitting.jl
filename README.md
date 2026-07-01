@@ -47,7 +47,7 @@ basis = SCEBasis(chain, interaction; backend = SpglibBackend())
 
 # synthetic Heisenberg data E = J Σ_⟨ij⟩ e_i·e_j, then fit
 configs = [mapreduce(_ -> (v = randn(3); v / norm(v)), hcat, 1:4) for _ in 1:30]
-heis = salcs(basis)[1]
+heis = SCEFitting.salcs(basis)[1]   # public-but-unexported: call it qualified
 J = 0.0137
 E = [J * 0.5 * sum(c[:, m.atoms[1]]' * c[:, m.atoms[2]] for m in heis.members) for c in configs]
 
@@ -117,10 +117,14 @@ intercept(f)                       # the reference energy j0 (not a row)
 
 Standard diagnostics are split by observable: `r2_energy` / `rmse_energy` / `rss_energy` /
 `residuals_energy` (and the `_torque` equivalents for a co-fit), plus `nobs` and `dof`.
+The generic names — `predict` / `residuals` / `r2` (defaulting to the energy block) and
+`coef` / `fit` / `nobs` / `dof` / `coeftable` / `islinear` — extend
+[StatsAPI](https://github.com/JuliaStats/StatsAPI.jl), so they compose with the
+StatsBase / GLM ecosystem instead of clashing on `using`.
 
 ### Refitting on a selected support
 
-After a sparse fit, [`refit`](src/sce/model.jl) keeps the surviving support and re-solves on
+After a sparse fit, [`refit`](src/fitting/fit.jl) keeps the surviving support and re-solves on
 just those columns (by default with `OLS`) — the de-biasing step that removes the penalty's
 shrinkage from the selected coefficients:
 
@@ -249,3 +253,7 @@ The v0 vertical slice is feature-complete.
 - R. Drautz, *Phys. Rev. B* **102**, 024104 (2020) — tesseral-harmonic /
   cluster-expansion formalism.
 - T. Tanaka & Y. Gohda, *Phys. Rev. Research* **8**, 023300 (2026).
+
+## License
+
+MIT — see [LICENSE](LICENSE).

@@ -164,6 +164,11 @@ The energy and torque blocks are reported separately throughout (the rebuild doe
 them into one combined residual): `residuals_energy(f)` is `y_E − (j0 + X_E·jϕ)` and
 `residuals_torque(f)` is `y_T − X_T·jϕ` over the flattened torque components.
 
+The generic names — [`predict`](@ref), [`residuals`](@ref), [`r2`](@ref), plus `coef` /
+`fit` / `nobs` / `dof` / `coeftable` / `islinear` — **extend StatsAPI** (imported, not
+shadowed) and default to the energy block, so they compose with `using StatsBase` /
+`using GLM` instead of clashing.
+
 To inspect the coefficients as a table, use [`coeftable`](@ref) — a Tables.jl source with
 one row per SALC. See [Persistence and I/O](io.md#Tabular-coefficients).
 
