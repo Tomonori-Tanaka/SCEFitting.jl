@@ -6,6 +6,16 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — verification docs page (angular momentum)
+
+- New **Verification** docs section (`docs/src/verification/angular_momentum.md`): a
+  human-readable rendition of the `test/unit/test_angmom.jl` checks, recomputed at every
+  docs build — a Clebsch–Gordan known-value table against closed forms (Varshalovich),
+  orthonormality *and* completeness sweeps to `j ≤ 3`, the real Wigner-D functional
+  identity on fresh directions (proper + improper), and the complex→real unitary closed
+  form. Every section ends in an assertion, so a numerical regression fails the strict
+  docs build; the unit tests remain the primary gate.
+
 ### Changed (breaking) — pre-registration API polish
 
 - **The deprecated `Interaction` alias is removed** (it was a silent `const`, not a warning

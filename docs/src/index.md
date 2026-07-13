@@ -72,6 +72,7 @@ Crystal + BasisSpec ──▶ SCEBasis ──▶ SCEDataset ──▶ fit ──
 | [Guide: Sunny export](guide/sunny.md) | Turn a fitted model into a `Sunny.System` for linear spin-wave theory |
 | [Tutorials](tutorials/index.md) | Narrated end-to-end runs (Heisenberg chain, kagome three-body) |
 | [Theory](theory/index.md) | The SCE formalism, minimum-image/Wigner–Seitz resolvability, the rebuild's architecture |
+| [Verification](verification/angular_momentum.md) | Human-readable numerical checks, recomputed at every docs build (Clebsch–Gordan, Wigner-D) |
 | [API reference](api.md) | The exported and public (qualified) types and functions |
 
 ## Key features

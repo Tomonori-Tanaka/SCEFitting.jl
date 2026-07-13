@@ -39,6 +39,9 @@ makedocs(;
             "theory/resolvability.md",
             "theory/architecture.md",
         ],
+        "Verification" => [
+            "verification/angular_momentum.md",
+        ],
         "API reference" => "api.md",
     ],
     warnonly = false,   # strict: any @example error / missing docstring fails the build
