@@ -224,6 +224,174 @@ maximum(u) <= 1e-12 || error("complex→real unitary verification failed")
 println("closed form and unitarity pass at the 1e-12 tolerance (l ≤ 3)")
 ```
 
+## Worked example: tesseral CG coefficients for ``l_1 = l_2 = 1``
+
+The SALC construction couples products of *tesseral* harmonics, so it needs the
+CG coefficients **in the real basis** — this section derives them from the
+familiar complex ones for the simplest case, two ``l = 1`` sites, using the exact
+code path of the basis build
+([`coeff_tensor_complex`](@ref SCEFitting.AngularMomentum.coeff_tensor_complex) →
+[`complex_to_real_tensor`](@ref SCEFitting.AngularMomentum.complex_to_real_tensor)).
+
+**Step 1 — the complex CG coefficients.** The standard coupling
+
+```math
+|L\, M\rangle = \sum_{m_1 m_2}
+    \langle 1\, m_1\, 1\, m_2 | L\, M \rangle\, |1\, m_1\rangle |1\, m_2\rangle,
+\qquad L \in \{0, 1, 2\},
+```
+
+conserves ``M = m_1 + m_2``, so the nonzero coefficients form one ``3 \times 3``
+matrix per ``L``: ``C^{(L)}_{m_1 m_2} = \langle 1 m_1\, 1 m_2 | L,\, m_1{+}m_2
+\rangle``, rows ``m_1 = -1, 0, +1`` top to bottom and columns ``m_2`` likewise.
+Computed from the package's `clebsch_gordan` and pretty-printed by matching each
+entry against ``\pm p/\sqrt{q}`` (an unmatched entry throws — the display *is* a
+check):
+
+```@example am
+using LaTeXStrings
+
+function exact_string(x; tol = 1e-12)
+    abs(x) < tol && return "0"
+    for q = 1:12, p = 1:3
+        if abs(abs(x) - p / sqrt(q)) < tol
+            sign = x < 0 ? "-" : ""
+            return q == 1 ? string(sign, p) :
+                   string(sign, "\\frac{", p, "}{\\sqrt{", q, "}}")
+        end
+    end
+    error("no exact form ±p/√q matched for $x")
+end
+
+function texmatrix(A)
+    rows = [join([exact_string(A[i, j]) for j = 1:size(A, 2)], " & ")
+            for i = 1:size(A, 1)]
+    return "\\begin{pmatrix} " * join(rows, " \\\\ ") * " \\end{pmatrix}"
+end
+
+displaymath(tex) = LaTeXString("\$\$\\begin{gathered}" * tex * "\\end{gathered}\$\$")
+
+Ccg = [[CG(1, m1, 1, m2, L, m1 + m2) for m1 = -1:1, m2 = -1:1] for L = 0:2]
+
+displaymath("C^{(0)} = " * texmatrix(Ccg[1]) *
+            " \\qquad C^{(1)} = " * texmatrix(Ccg[2]) *
+            " \\\\[0.8em] C^{(2)} = " * texmatrix(Ccg[3]))
+```
+
+**Step 2 — the complex→real change of basis.** The tesseral harmonics are
+``Z_{1,\mu} = \sum_m U^{(1)}_{\mu m} Y_1^m`` with the (verified-above) closed form
+
+```math
+\begin{pmatrix} Z_{1,-1} \\ Z_{1,0} \\ Z_{1,+1} \end{pmatrix}
+  = U^{(1)}
+\begin{pmatrix} Y_1^{-1} \\ Y_1^{0} \\ Y_1^{+1} \end{pmatrix},
+\qquad
+U^{(1)} = \frac{1}{\sqrt{2}}
+\begin{pmatrix} i & 0 & i \\ 0 & \sqrt{2} & 0 \\ 1 & 0 & -1 \end{pmatrix},
+```
+
+which is exactly the statement ``\bigl(Z_{1,-1}, Z_{1,0}, Z_{1,+1}\bigr) \propto
+(y, z, x)``. Inverting (``U`` is unitary, ``Y = U^\dagger Z``) and substituting
+into Step 1 turns the coupled function ``T_{L M} = \sum C^{(L)} Y_1^{m_1}
+Y_1^{m_2}`` into an expansion over products ``Z_{1\mu_1} Z_{1\mu_2}`` — each site
+axis picks up ``\overline{U^{(1)}}`` — and rotating the multiplet axis
+``\tilde{T}_{L \tilde{M}} = \sum_M U^{(L)}_{\tilde{M} M} T_{L M}`` makes the
+resulting family itself tesseral:
+
+```math
+\tilde{C}^{(L)}_{\mu_1 \mu_2, \tilde{M}}
+  = i^{\,L - l_1 - l_2} \sum_{m_1 m_2 M}
+    \overline{U^{(1)}_{\mu_1 m_1}}\, \overline{U^{(1)}_{\mu_2 m_2}}\,
+    U^{(L)}_{\tilde{M} M}\,
+    \langle 1\, m_1\, 1\, m_2 | L\, M \rangle .
+```
+
+Without the prefactor the entries come out purely real for even ``l_1 + l_2 - L``
+and purely imaginary for odd; the global phase ``i^{L - l_1 - l_2}`` (one number
+per ``L``, physically irrelevant) makes every sector real. This is precisely what
+`complex_to_real_tensor` implements — it errors if any imaginary residue survives.
+
+**Step 3 — the tesseral CG coefficients.** Running that pipeline
+(`build_real_bases([1, 1])`) and printing each ``\tilde{M}`` slice:
+
+```@example am
+const AM = SCEFitting.AngularMomentum
+real11 = Dict(Lf => T for (_, Lf, T) in AM.build_real_bases([1, 1]))
+
+slices(L) = ["\\tilde C^{(" * string(L) * ")}_{\\tilde M = " * string(k - L - 1) *
+             "} = " * texmatrix(real11[L][:, :, k]) for k = 1:(2L + 1)]
+
+displaymath(slices(0)[1] *
+            " \\\\[0.8em] " * join(slices(1), " \\quad ") *
+            " \\\\[0.8em] " * join(slices(2)[1:3], " \\quad ") *
+            " \\\\[0.8em] " * join(slices(2)[4:5], " \\quad "))
+```
+
+Rows and columns are ``\mu_1, \mu_2 = -1, 0, +1``, i.e. the ``(y, z, x)``
+components of the two spins. Reading the slices back as functions of two unit
+vectors:
+
+- ``L = 0``: ``\tilde{C}^{(0)} = \delta_{\mu_1 \mu_2} / \sqrt{3}`` — the
+  Heisenberg invariant ``\hat{\boldsymbol e}_1 \cdot \hat{\boldsymbol e}_2 / \sqrt{3}``.
+- ``L = 1``: the three slices are the Levi-Civita tensor, ``\tilde{C}^{(1)}
+  = \varepsilon / \sqrt{2}`` — the cross product
+  ``(\hat{\boldsymbol e}_1 \times \hat{\boldsymbol e}_2) / \sqrt{2}``, an **axial** vector
+  (parity ``(-1)^{l_1 + l_2} = +1``, not ``(-1)^L``), which is why the SALC
+  projector must treat proper and improper operations differently.
+- ``L = 2``: the five quadrupole combinations — reading ``\tilde{M} = -2 \dots 2``:
+  ``xy``-, ``yz``-type, ``(2 z_1 z_2 - x_1 x_2 - y_1 y_2)/\sqrt{6}``, ``zx``-type,
+  and ``(x_1 x_2 - y_1 y_2)/\sqrt{2}``.
+
+The closed forms and the defining property — the coupled products transform under
+simultaneous (proper) rotation of both spins exactly like ``Z_{L, \tilde{M}}``,
+
+```math
+\tilde{T}_{L \tilde M}(R \hat{\boldsymbol e}_1, R \hat{\boldsymbol e}_2)
+  = \sum_{\tilde M'} \Delta^{(L)}_{\tilde M \tilde M'}(R)\,
+    \tilde{T}_{L \tilde M'}(\hat{\boldsymbol e}_1, \hat{\boldsymbol e}_2)
+```
+
+— are asserted:
+
+```@example am
+function coupled_eval(T, e1, e2)
+    z1 = [Harmonics.Zlm(1, m, e1) for m = -1:1]
+    z2 = [Harmonics.Zlm(1, m, e2) for m = -1:1]
+    return [z1' * T[:, :, k] * z2 for k = 1:size(T, 3)]
+end
+
+function equivariance_deviation(real11; nrot = 20, seed = 11)
+    rng = MersenneTwister(seed)
+    dev = 0.0
+    for _ = 1:nrot
+        R = rand_rotation(rng)         # proper only: the L = 1 channel is axial
+        e1, e2 = rand_unit(rng), rand_unit(rng)
+        for (Lf, T) in real11
+            lhs = coupled_eval(T, R * e1, R * e2)
+            rhs = Dreal(Lf, R) * coupled_eval(T, e1, e2)
+            dev = max(dev, maximum(abs.(lhs - rhs)))
+        end
+    end
+    return dev
+end
+
+# δ/√3 and ε/√2 closed forms; μ = (-1, 0, +1) ↔ the (y, z, x) = xyz-axes (2, 3, 1)
+ax = (2, 3, 1)
+eps3 = zeros(3, 3, 3)
+for (i, j, k) in ((1, 2, 3), (2, 3, 1), (3, 1, 2))
+    eps3[i, j, k] = 1.0
+    eps3[i, k, j] = -1.0
+end
+dot_dev = maximum(abs.(real11[0][:, :, 1] - Matrix(1.0I, 3, 3) / sqrt(3)))
+cross_dev = maximum(abs(real11[1][b, c, a] - eps3[ax[a], ax[b], ax[c]] / sqrt(2))
+                    for a = 1:3, b = 1:3, c = 1:3)
+eq_dev = equivariance_deviation(real11)
+
+max(dot_dev, cross_dev) <= 1e-12 || error("tesseral CG closed-form check failed")
+eq_dev <= 1e-9 || error("tesseral CG equivariance check failed")
+(dot_form = dot_dev, cross_form = cross_dev, rotation_equivariance = eq_dev)
+```
+
 ## What this page does and does not gate
 
 - Every number above is recomputed on each docs build; `warnonly = false` means a

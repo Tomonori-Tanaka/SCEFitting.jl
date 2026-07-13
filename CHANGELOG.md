@@ -15,6 +15,12 @@ release, so everything lives under *Unreleased*.
   identity on fresh directions (proper + improper), and the complex→real unitary closed
   form. Every section ends in an assertion, so a numerical regression fails the strict
   docs build; the unit tests remain the primary gate.
+- The page closes with a worked example deriving the **tesseral CG coefficients for
+  `l₁ = l₂ = 1`** from the complex ones via the package's own
+  `coeff_tensor_complex` → `complex_to_real_tensor` pipeline: exact-form matrix
+  displays (entries matched to `±p/√q`, unmatched throws), the `δ/√3` (Heisenberg),
+  `ε/√2` (cross product, axial) and quadrupole identifications, and a proper-rotation
+  equivariance gate against `wignerD_real`.
 
 ### Changed (breaking) — pre-registration API polish
 
