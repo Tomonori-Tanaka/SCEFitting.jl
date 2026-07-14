@@ -6,6 +6,23 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — bench suite: stress-scale defaults + Nd₂Fe₁₄B fixture
+
+- The `bench/` scripts (which had broken on the `Interaction` → `BasisSpec` rename)
+  are repaired and their defaults promoted from smoke sizes (16-atom bcc Fe, first
+  shell) to the recorded seconds-scale stress baselines: 128-atom bcc Fe with
+  multi-shell `cutoff = 6.0` Å (`bench_salcbasis` at `lmax = 3`, `bench_clusters` at
+  `nbody = 3`, design/end-to-end at `m = 100` configs), with a `cutoff` positional
+  argument added throughout. `bench_end_to_end` now also times `SCEDataset` assembly
+  and the energy+torque co-fit.
+- New realistic fixture: **Nd₂Fe₁₄B** (`bench/assets/nd2fe14b.toml`, `read_setup`
+  schema — structure only, 68 atoms, 9 sublattice species, P4₂/mnm) with
+  `bench/bench_nd2fe14b.jl` benching the full pipeline — basis build, design
+  matrices, and OLS/Ridge energy+torque co-fits sized like the real training set
+  (103 configs, 21 012 torque rows). Complements the high-symmetry bcc fixture with
+  the few-ops / many-orbit, multi-species, non-magnetic-species regime.
+- Baselines recorded in `.claude/bench_log.md` ("Stress baseline — 2026-07-14").
+
 ### Added — verification docs page (angular momentum)
 
 - New **Verification** docs section (`docs/src/verification/angular_momentum.md`): a

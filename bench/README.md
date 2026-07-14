@@ -17,17 +17,30 @@ julia --project=bench -e 'using Pkg; Pkg.develop(path="."); \
 ## Run
 
 ```bash
-julia --project=bench bench/bench_salcbasis.jl       [n] [lmax]      # SALC projection (the hotspot)
-julia --project=bench bench/bench_clusters.jl        [n] [nbody]     # neighbour list + orbit reduction
-julia --project=bench bench/bench_design_matrix.jl   [n] [m] [lmax]  # energy + torque design matrices
-julia --project=bench bench/bench_solver.jl                          # OLS vs Ridge solve, size sweep
-julia --project=bench bench/bench_end_to_end.jl      [n] [m] [lmax]  # SCEBasis build + fit
+julia --project=bench bench/bench_salcbasis.jl     [n] [lmax] [cutoff]    # SALC projection (the hotspot)
+julia --project=bench bench/bench_clusters.jl      [n] [nbody] [cutoff]   # neighbour list + orbit reduction
+julia --project=bench bench/bench_design_matrix.jl [n] [m] [lmax] [cutoff] # energy + torque design matrices
+julia --project=bench bench/bench_solver.jl                               # OLS vs Ridge solve, size sweep
+julia --project=bench bench/bench_end_to_end.jl    [n] [m] [lmax] [cutoff] # SCEBasis build + fits
+julia --project=bench bench/bench_nd2fe14b.jl      [nbody] [m] [cutoff]   # realistic multi-species case
 ```
 
-Positional arguments are optional (defaults in each script header). `n` is the bcc
-Fe supercell size: `n = 2 → 16` atoms, `n = 3 → 54`, `n = 4 → 128`. Start at `n = 2`
-to smoke-test, then scale up (the SALC build at `n = 4`, `lmax = 2` is the heavy
-case — minutes, not seconds).
+Positional arguments are optional. **Defaults are the recorded stress baselines**
+(seconds-scale, so regressions are visible above noise), not smoke sizes:
+
+- **bcc Fe scripts**: `n = 4` (128 atoms; `n` is the supercell size, `2n³` atoms),
+  multi-shell `cutoff = 6.0` Å (`bench_salcbasis` defaults to `lmax = 3`,
+  `bench_clusters` to `nbody = 3`; `bench_design_matrix`/`bench_end_to_end` to
+  `lmax = 2`, `m = 100` configs). For a quick smoke run pass the old sizes
+  explicitly, e.g. `bench_salcbasis.jl 2 2 2.6` (16 atoms, first shell).
+- **`bench_nd2fe14b.jl`**: the 68-atom Nd₂Fe₁₄B cell (`assets/nd2fe14b.toml`) —
+  9 sublattice species, 16 symmetry ops, per-species `lmax = [4,4,2,2,2,2,2,2,0]`
+  (B non-magnetic), `isotropy = true`, `nbody = 3` with `cutoff = 4.0` Å (compact
+  cliques — like the real l044 run, which SCEFitting bounds by cutoff instead of
+  Magesty's `lsum`), `m = 103` configs with torques (the real training-set size).
+  Unlike the high-symmetry bcc fixture it stresses the many-orbit / few-ops regime
+  and the co-fit solve, end to end through `fit`. Pass `2 103 inf` for the
+  every-resolvable-pair variant (205 pair orbits).
 
 ## Fixtures and harness
 
@@ -35,10 +48,15 @@ case — minutes, not seconds).
 
 - `bcc_fe(n; a = 2.87)` — an `n×n×n` bcc Fe supercell (`Crystal`),
 - `rand_configs(crystal, m; seed)` — `m` random unit-column spin configs,
-- `interaction(; nbody, cutoff, lmax, isotropy)` — the matching `Interaction`,
+- `basis_spec(; nbody, cutoff, lmax, isotropy)` — the matching `BasisSpec`,
 - `bench_one(label, f; ntrials)` — warm-up + `@timed`/`@allocations` (median/min ms,
   alloc count, MiB), for hot paths too heavy for `@benchmark` sampling,
-- `bench_header(title)`, `argn(i, default)`.
+- `bench_header(title)`, `argn(i, default)`, `argf(i, default)`.
+
+`assets/` holds structure-only TOML inputs (SCEFitting's `read_setup` schema) for
+the realistic fixtures. Only the crystal structure lives there — training data is
+always synthetic (`rand_configs` + random targets), since timing does not depend
+on data values, and numerical agreement is `test/oracle/`'s job.
 
 ## Recording results
 

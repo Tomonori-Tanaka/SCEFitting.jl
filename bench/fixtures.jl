@@ -6,6 +6,8 @@
 # Magesty.jl/bench (no package coupling) while keeping the common pieces DRY.
 
 using SCEFitting
+# Public (unexported) staging functions the stage-level benches drive directly.
+using SCEFitting: analyze_symmetry, build_neighbor_list, build_clusters, build_salc_basis
 using LinearAlgebra: norm
 using Statistics: median, mean
 using Printf: @printf
@@ -49,13 +51,13 @@ function rand_configs(crystal, m::Integer; seed::Integer = 1)
 end
 
 """
-    interaction(; nbody = 2, cutoff = 2.6, lmax = 1, isotropy = false) -> Interaction
+    basis_spec(; nbody = 2, cutoff = 2.6, lmax = 1, isotropy = false) -> BasisSpec
 
-An [`Interaction`](@ref) spec for the single-species fixtures (`lmax` is broadcast to
-the one species).
+A [`BasisSpec`](@ref) for the single-species fixtures (`lmax` is broadcast to the one
+species).
 """
-interaction(; nbody = 2, cutoff = 2.6, lmax = 1, isotropy = false) =
-    Interaction(; nbody = nbody, pair_cutoff = cutoff, lmax = [lmax], isotropy = isotropy)
+basis_spec(; nbody = 2, cutoff = 2.6, lmax = 1, isotropy = false) =
+    BasisSpec(; nbody = nbody, pair_cutoff = cutoff, lmax = [lmax], isotropy = isotropy)
 
 # ---------------------------------------------------------------------------
 # Timing harness.
@@ -97,5 +99,8 @@ function bench_one(label::AbstractString, f; ntrials::Integer = 3)
             allocs = allocs)
 end
 
-# Parse positional ARGS with integer defaults: argn(2, 30) → 2nd arg or 30.
+# Parse positional ARGS with defaults: argn(2, 30) → 2nd arg or 30 (Int);
+# argf(3, 6.0) → 3rd arg or 6.0 (Float64, accepts `inf`).
 argn(i::Integer, default::Integer) = length(ARGS) >= i ? parse(Int, ARGS[i]) : default
+argf(i::Integer, default::Real) =
+    length(ARGS) >= i ? parse(Float64, ARGS[i]) : Float64(default)

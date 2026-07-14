@@ -184,7 +184,7 @@ uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 version = "1.11.0"
 
 [[deps.SCEFitting]]
-deps = ["LegendrePolynomials", "LinearAlgebra", "Random", "StaticArrays", "Statistics", "TOML", "Tables"]
+deps = ["LegendrePolynomials", "LinearAlgebra", "Random", "StaticArrays", "Statistics", "StatsAPI", "TOML", "Tables"]
 path = ".."
 uuid = "854eb3e0-bd75-4c3b-927c-573f5c6d8b1d"
 version = "0.1.0"
@@ -251,6 +251,12 @@ version = "1.11.1"
 
     [deps.Statistics.weakdeps]
     SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+
+[[deps.StatsAPI]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "178ed29fd5b2a2cfc3bd31c13375ae925623ff36"
+uuid = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
+version = "1.8.0"
 
 [[deps.StructEqualHash]]
 git-tree-sha1 = "848390daec8886a8139b6b7dc48993bf57aa122b"
