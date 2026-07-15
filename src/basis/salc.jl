@@ -79,19 +79,22 @@ end
 Base.length(b::SALCBasis) = length(b.salcs)
 
 """
-    evaluate_salc(salc, e) -> Float64
+    evaluate_salc(salc, e[, cache]) -> Float64
 
 Evaluate `Φ(e)` for a single (super)cell spin configuration `e` (`3 × n_atoms`,
 unit columns). Periodic with the cell, so lattice shifts map back to the same
-column (`site(a, R) → a`).
+column (`site(a, R) → a`). Hot loops may pass `cache` (a reusable
+`Vector{Float64}`, grown on demand) — the dnPl recursion workspace of the
+cache-threaded `Harmonics.Zlm_unsafe`; values are identical with or without it.
 """
-function evaluate_salc(salc::SALC, e::AbstractMatrix{<:Real})::Float64
+function evaluate_salc(salc::SALC, e::AbstractMatrix{<:Real},
+                       cache::Vector{Float64} = Vector{Float64}(undef, 4))::Float64
     scale = (4π)^(salc.body / 2)
     total = 0.0
     @inbounds for m in salc.members
         atoms = m.atoms
         for t in m.terms
-            total += _eval_term(t.folded, t.ls, atoms, e)
+            total += _eval_term(t.folded, t.ls, atoms, e, cache)
         end
     end
     return scale * total
@@ -103,14 +106,14 @@ end
 # rank `D` (== body order) — same values and the same multiply/accumulate order, so
 # the result is bit-identical to the inlined loop.
 @inline function _eval_term(folded::Array{Float64,D}, ls, atoms,
-                            e::AbstractMatrix{<:Real}) where {D}
+                            e::AbstractMatrix{<:Real}, cache::Vector{Float64}) where {D}
     # Per-site harmonic tables. The site direction `u_i` is fixed for this term, so
     # `Z_{lsᵢ,μ}` depends only on `(i, μ)`; tabulate it once over `μ ∈ -lsᵢ:lsᵢ` (the
     # tensor axis index is `idx[i] = μ+lsᵢ+1`) instead of recomputing inside the
     # nonzero multi-index loop, where each call hit `dnPl` and dominated the design-
     # matrix cost. Same values, same multiply order ⇒ bit-identical. `u_i` is a unit
     # column by the config contract, so the unchecked harmonic is safe.
-    tabs = _site_ztables(Val(D), ls, atoms, e)
+    tabs = _site_ztables(Val(D), ls, atoms, e, cache)
     acc = 0.0
     @inbounds for idx in CartesianIndices(folded)
         w = folded[idx]
@@ -124,18 +127,22 @@ end
 end
 
 # Tuple of per-site harmonic tables `tabs[i][μ+lsᵢ+1] = Z_{lsᵢ,μ}(u_i)`. `Val(D)`
-# keeps the tuple length a compile-time constant (type-stable).
-@inline function _site_ztables(::Val{D}, ls, atoms, e::AbstractMatrix{<:Real}) where {D}
+# keeps the tuple length a compile-time constant (type-stable). `cache` is the
+# reusable dnPl recursion workspace of the cache-threaded `Zlm_unsafe` (grown on
+# demand; values are bit-identical to the cache-less call).
+@inline function _site_ztables(::Val{D}, ls, atoms, e::AbstractMatrix{<:Real},
+                               cache::Vector{Float64}) where {D}
     ntuple(Val(D)) do i
         a = atoms[i]
         u = SVector{3,Float64}(e[1, a], e[2, a], e[3, a])
         li = ls[i]
-        Float64[Harmonics.Zlm_unsafe(li, μ, u) for μ = -li:li]
+        length(cache) < li + 1 && resize!(cache, li + 1)
+        Float64[Harmonics.Zlm_unsafe(li, μ, u, cache) for μ = -li:li]
     end
 end
 
 """
-    accumulate_grad!(G, salc, e, weight) -> G
+    accumulate_grad!(G, salc, e, weight[, cache]) -> G
 
 Accumulate `weight · ∇Φ(e)` into `G` (a `3 × n_atoms` buffer), where `∇Φ` is the
 per-site direction gradient of the SALC orbit sum: column `a` of `G` receives
@@ -151,13 +158,14 @@ rule), so repeated sites are handled correctly. `∇Zₗₘ` is the tangent-proj
 gradient; the radial part it drops would cancel in `e × ∇Φ` anyway.
 """
 function accumulate_grad!(G::AbstractMatrix{Float64}, salc::SALC,
-                          e::AbstractMatrix{<:Real}, weight::Real)
+                          e::AbstractMatrix{<:Real}, weight::Real,
+                          cache::Vector{Float64} = Vector{Float64}(undef, 4))
     weight == 0.0 && return G
     scale = weight * (4π)^(salc.body / 2)
     @inbounds for m in salc.members
         atoms = m.atoms
         for t in m.terms
-            _accum_grad_term!(G, t.folded, t.ls, atoms, e, scale)
+            _accum_grad_term!(G, t.folded, t.ls, atoms, e, scale, cache)
         end
     end
     return G
@@ -169,9 +177,10 @@ end
 # depends only on `(i, μ)`), then the product-rule expansion reads them back. Same
 # expansion, same evaluation order ⇒ the accumulated gradient is bit-identical.
 @inline function _accum_grad_term!(G::AbstractMatrix{Float64}, folded::Array{Float64,D},
-                                   ls, atoms, e::AbstractMatrix{<:Real}, scale::Float64) where {D}
-    ztab = _site_ztables(Val(D), ls, atoms, e)
-    gtab = _site_gtables(Val(D), ls, atoms, e)
+                                   ls, atoms, e::AbstractMatrix{<:Real}, scale::Float64,
+                                   cache::Vector{Float64}) where {D}
+    ztab = _site_ztables(Val(D), ls, atoms, e, cache)
+    gtab = _site_gtables(Val(D), ls, atoms, e, cache)
     @inbounds for idx in CartesianIndices(folded)
         w = scale * folded[idx]
         w == 0.0 && continue
@@ -195,11 +204,13 @@ end
 end
 
 # Tuple of per-site gradient tables `gtab[i][μ+lsᵢ+1] = ∇Z_{lsᵢ,μ}(u_i)`.
-@inline function _site_gtables(::Val{D}, ls, atoms, e::AbstractMatrix{<:Real}) where {D}
+@inline function _site_gtables(::Val{D}, ls, atoms, e::AbstractMatrix{<:Real},
+                               cache::Vector{Float64}) where {D}
     ntuple(Val(D)) do i
         a = atoms[i]
         u = SVector{3,Float64}(e[1, a], e[2, a], e[3, a])
         li = ls[i]
-        SVector{3,Float64}[Harmonics.grad_Zlm_unsafe(li, μ, u) for μ = -li:li]
+        length(cache) < li + 1 && resize!(cache, li + 1)
+        SVector{3,Float64}[Harmonics.grad_Zlm_unsafe(li, μ, u, cache) for μ = -li:li]
     end
 end

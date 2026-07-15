@@ -73,4 +73,32 @@ const gZ = Harmonics.grad_Zlm
         idxs = [Harmonics.lm_index(l, m) for l = 0:4 for m = -l:l]
         @test sort(idxs) == collect(1:Harmonics.num_lm(4))
     end
+
+    @testset "cache-threaded variants: bitwise-identical and allocation-free" begin
+        # The 4-arg methods reuse `cache` as the dnPl recursion workspace; the value
+        # must be identical bit for bit (the recursion overwrites every entry it
+        # reads — cache contents must be irrelevant, hence the NaN poisoning).
+        rng = MersenneTwister(11)
+        lmax = 6
+        cache = Vector{Float64}(undef, lmax + 1)
+        for _ = 1:5
+            u = normalize(SVector{3,Float64}(randn(rng), randn(rng), randn(rng)))
+            for l = 0:lmax, m = -l:l
+                fill!(cache, NaN)
+                @test Harmonics.Zlm_unsafe(l, m, u, cache) ==
+                      Harmonics.Zlm_unsafe(l, m, u)
+                fill!(cache, NaN)
+                @test Harmonics.grad_Zlm_unsafe(l, m, u, cache) ==
+                      Harmonics.grad_Zlm_unsafe(l, m, u)
+            end
+        end
+        # measure through a function barrier — a global-scope call boxes its result
+        zallocs(l, m, u, c) = @allocations Harmonics.Zlm_unsafe(l, m, u, c)
+        gallocs(l, m, u, c) = @allocations Harmonics.grad_Zlm_unsafe(l, m, u, c)
+        u = normalize(SVector{3,Float64}(0.3, -0.5, 0.81))
+        zallocs(4, 2, u, cache)                       # warm up
+        gallocs(4, 2, u, cache)
+        @test zallocs(4, 2, u, cache) == 0
+        @test gallocs(4, 2, u, cache) == 0
+    end
 end

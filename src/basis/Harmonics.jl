@@ -58,10 +58,18 @@ Number of `(l, m)` pairs with `l ≤ lmax`, i.e. `(lmax + 1)²`.
 end
 
 # Drautz normalized associated Legendre P̄ₗₘ(z) and its z-derivative (m via |m|).
+# The cache-threaded variants hand `cache` (length ≥ l + 1, contents irrelevant —
+# the recursion overwrites every entry it reads) to LegendrePolynomials' `dnPl`,
+# whose default argument otherwise allocates a fresh work vector on every call —
+# the only allocation on these paths. Results are identical either way.
 @inline _barP(l::Integer, m::Integer, z::Real)::Float64 =
     (n = abs(m); _parity(n) * _plm_norm(Int(l), n) * dnPl(z, l, n))
 @inline _dbarP(l::Integer, m::Integer, z::Real)::Float64 =
     (n = abs(m); _parity(n) * _plm_norm(Int(l), n) * dnPl(z, l, n + 1))
+@inline _barP(l::Integer, m::Integer, z::Real, cache::Vector{Float64})::Float64 =
+    (n = abs(m); _parity(n) * _plm_norm(Int(l), n) * dnPl(z, l, n, cache))
+@inline _dbarP(l::Integer, m::Integer, z::Real, cache::Vector{Float64})::Float64 =
+    (n = abs(m); _parity(n) * _plm_norm(Int(l), n) * dnPl(z, l, n + 1, cache))
 
 @inline function _validate_lm(l::Integer, m::Integer)
     l >= 0 || throw(ArgumentError("need l ≥ 0 (got l=$l)"))
@@ -77,10 +85,23 @@ end
 end
 
 """
-    Zlm_unsafe(l, m, u) -> Float64
+    Zlm_unsafe(l, m, u[, cache]) -> Float64
 
 Tesseral harmonic `Zₗₘ(u)` for a unit vector `u`, without input validation.
+Passing `cache` (a `Vector{Float64}` of length ≥ `l + 1`, contents irrelevant)
+reuses it as the associated-Legendre recursion workspace, making the call
+allocation-free; the returned value is identical with or without it.
 """
+@inline function Zlm_unsafe(l::Integer, m::Integer, u::AbstractVector{<:Real},
+                            cache::Vector{Float64})::Float64
+    n = abs(m)
+    plm = _barP(l, n, u[3], cache)
+    n == 0 && return plm
+    c = _parity(n) * sqrt(2.0) * plm
+    zpow = ComplexF64(u[1], u[2])^n
+    return m > 0 ? c * real(zpow) : c * imag(zpow)
+end
+
 @inline function Zlm_unsafe(l::Integer, m::Integer, u::AbstractVector{<:Real})::Float64
     n = abs(m)
     plm = _barP(l, n, u[3])
@@ -110,17 +131,35 @@ function Zlm(l::Integer, m::Integer, u::AbstractVector{<:Real})::Float64
 end
 
 """
-    grad_Zlm_unsafe(l, m, u) -> SVector{3,Float64}
+    grad_Zlm_unsafe(l, m, u[, cache]) -> SVector{3,Float64}
 
 Tangent-projected Cartesian gradient `∇Zₗₘ(u) = ∂Z − u (u·∂Z)`, without
-validation.
+validation. The optional `cache` is the same allocation-free recursion workspace
+as in [`Zlm_unsafe`](@ref) (length ≥ `l + 1`; the value is identical either way).
 """
+@inline function grad_Zlm_unsafe(l::Integer, m::Integer, u::AbstractVector{<:Real},
+                                 cache::Vector{Float64})::SVector{3,Float64}
+    x, y, z = u[1], u[2], u[3]
+    n = abs(m)
+    plm = _barP(l, n, z, cache)
+    dplm = _dbarP(l, n, z, cache)
+    return _grad_zlm_assemble(l, m, n, x, y, z, plm, dplm)
+end
+
 @inline function grad_Zlm_unsafe(l::Integer, m::Integer,
                                  u::AbstractVector{<:Real})::SVector{3,Float64}
     x, y, z = u[1], u[2], u[3]
     n = abs(m)
     plm = _barP(l, n, z)
     dplm = _dbarP(l, n, z)
+    return _grad_zlm_assemble(l, m, n, x, y, z, plm, dplm)
+end
+
+# Shared tail of the two grad_Zlm_unsafe methods (identical arithmetic by
+# construction — the cache only affects where the recursion scratch lives).
+@inline function _grad_zlm_assemble(l::Integer, m::Integer, n::Integer, x::Real,
+                                    y::Real, z::Real, plm::Float64,
+                                    dplm::Float64)::SVector{3,Float64}
     if m == 0
         zz = z * dplm
         return SVector{3,Float64}(-x * zz, -y * zz, dplm - z * zz)

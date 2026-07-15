@@ -6,6 +6,26 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — allocation-free harmonics evaluation (cache-threaded variants)
+
+- `Harmonics.Zlm_unsafe(l, m, u, cache)` and `Harmonics.grad_Zlm_unsafe(l, m, u,
+  cache)`: passing a reusable `Vector{Float64}` workspace (length ≥ `l + 1`,
+  contents irrelevant) hands it to LegendrePolynomials' `dnPl`, whose default
+  argument otherwise allocates a fresh work vector on **every** call — previously
+  the only allocation on these paths, and the dominant per-call cost of hot-loop
+  consumers (SCEMonteCarlo's sweep kernels). Returned values are **bit-identical**
+  to the cache-less methods, which are unchanged (gate: the NaN-poisoned-cache
+  equivalence + zero-allocation testset in `test/unit/test_harmonics.jl`).
+- The package's own hot consumers are wired through: `evaluate_salc` /
+  `accumulate_grad!` accept an optional trailing `cache` (grown on demand inside
+  the site-table builders), the design-matrix loops (`_design_energy` /
+  `_design_torque`) hold one task-local workspace per threaded column, and the
+  `predict_energy` / `predict_torque` SALC loops reuse one per call. Design-matrix
+  cost roughly halves (`.claude/bench_log.md`): bcc Fe stress case `X_E` 1.96 →
+  1.10 s and `X_T` 4.60 → 2.35 s; Nd₂Fe₁₄B (nbody 3, m 103) `X_E` 1.31 → 0.76 s
+  and `X_T` 3.25 → 1.77 s. Values are bit-identical throughout (same summation
+  order), so fitted coefficients do not change.
+
 ### Changed — bench suite: stress-scale defaults + Nd₂Fe₁₄B fixture
 
 - The `bench/` scripts (which had broken on the `Interaction` → `BasisSpec` rename)

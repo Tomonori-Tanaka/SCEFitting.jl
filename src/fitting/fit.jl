@@ -159,8 +159,9 @@ function predict_energy(model::SCEPredictor, config::AbstractMatrix{<:Real})::Fl
     _validate_config(config, n_atoms(model.basis.crystal))
     salcs = model.basis.salc_basis.salcs
     e = model.j0
+    cache = Vector{Float64}(undef, 4)       # reused dnPl workspace (grows on demand)
     @inbounds for k in eachindex(model.jphi)
-        e += model.jphi[k] * evaluate_salc(salcs[k], config)
+        e += model.jphi[k] * evaluate_salc(salcs[k], config, cache)
     end
     return e
 end
@@ -193,8 +194,9 @@ function predict_torque(model::SCEPredictor, config::AbstractMatrix{<:Real})::Ma
     _validate_config(config, nat)
     salcs = model.basis.salc_basis.salcs
     G = zeros(Float64, 3, nat)
+    cache = Vector{Float64}(undef, 4)       # reused dnPl workspace (grows on demand)
     @inbounds for k in eachindex(model.jphi)
-        accumulate_grad!(G, salcs[k], config, model.jphi[k])
+        accumulate_grad!(G, salcs[k], config, model.jphi[k], cache)
     end
     T = Matrix{Float64}(undef, 3, nat)
     @inbounds for a = 1:nat
