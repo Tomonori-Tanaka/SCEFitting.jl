@@ -22,7 +22,7 @@ species_labels = ["Fe"]
 
 [interaction]
 nbody = 2
-pair_cutoff = 2.6
+cutoff = 2.6
 lmax = [1]
 isotropy = true
 

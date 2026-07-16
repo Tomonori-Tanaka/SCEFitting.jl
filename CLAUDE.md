@@ -57,7 +57,7 @@ Easy to break silently — confirm before touching the algorithm.
   of an atom carries the *same spin*, so its interaction is collinear with (an alias of)
   the minimum-image one and is not independently fittable. The default `MinimumImage`
   selection enumerates exactly this set (boundary ties kept; `i==j` self-pairs and
-  reused-atom clusters dropped); `pair_cutoff = Inf` is the whole WS cell. `AllImages`
+  reused-atom clusters dropped); `cutoff = Inf` is the whole WS cell. `AllImages`
   (every image, `R`-distinguished) is **only** for the future generalized-Bloch /
   spin-spiral path where `e^{iq·R}` resolves the images. For `cutoff < min_d dᵢ / 2` the
   two coincide. Do **not** "fix" a `> L/2` cutoff by folding aliases into a shorter shell
@@ -99,6 +99,12 @@ Easy to break silently — confirm before touching the algorithm.
   then multiply N-body clusters just as they do pairs. The whole count (candidates and
   symmetry orbits) is pinned against an independent brute force in
   `test/unit/test_ws_nbody.jl`; change the edge rule or the search box and re-check it.
+  **Per-body × per-species-pair cutoffs** layer on top: the neighbor list is built at
+  the element-wise max over body orders (each pair admitted against its own
+  species-pair radius, tie band per pair), and `candidate_clusters` re-checks every
+  edge against *that body order's* radius — so `neighbors` is a superset that the
+  per-order matrices trim. The per-pair admission has its own brute-force gate in
+  `test/unit/test_truncation.jl`; change either side and re-check both pins.
 - **SALC construction ↔ the ground-truth invariance test** (`test/unit/test_salc.jl`,
   `test/unit/test_nbody.jl`, `test/oracle/runtests.jl`): every SALC must satisfy
   `Φ(g·e) = Φ(e)` (non-collinear spins, all `Lf`, **all body orders**) and
@@ -132,7 +138,19 @@ Easy to break silently — confirm before touching the algorithm.
   the stored fractional ops, and the `UInt64` fingerprint is stored as a string and
   **recomputed** on load (never trusted — `hash` is Julia-version dependent). The TOML
   input reader (`io/input.jl`) mirrors only the *setup* structs (crystal + basis spec
-  + symmetry), not the SALCs.
+  + symmetry), not the SALCs. Schema v3 stores `BasisSpec` **resolved and dense**
+  (per-body `cutoff` matrices, `lsum` with `typemax(Int64)` = uncapped, labels) and
+  `_spec_from` still expands legacy v2 scalar-`pair_cutoff` docs — keep that branch
+  alive as long as v2 model files circulate.
+- **BasisSpec sugar resolution ↔ canonical consumers** (`sce/truncation.jl`,
+  `sce/model.jl`, `io/input.jl`): the ergonomic forms (label keys, `"*"` wildcards,
+  body-keyed tables, unordered `"A-B"` pair keys, specificity resolution) are expanded
+  ONCE, in the `BasisSpec` keyword constructor; everything downstream —
+  `SCEBasis`'s fan-out (`_superset_cutoff` → `build_neighbor_list`,
+  `cutoff` → `candidate_clusters` per-edge admission, `lsum` → `_enumerate_ls`),
+  persistence, `show` — reads only the dense fields. Add a sugar form or change the
+  specificity rule → update the TOML reader (`_cutoff_from_input` etc.), the BasisSpec
+  docstring, and `test/unit/test_truncation.jl` together.
 - **`coeftable` columns ↔ `SALCKey` fields** (`sce/coeftable.jl`): each result row is
   read straight off a `SALCKey` (`body` / `orbit_id` / `ls`→comma string / `Lf` /
   `block`) plus `jphi`; the `J` column pairs with `basis.salc_basis.keys` **positionally**

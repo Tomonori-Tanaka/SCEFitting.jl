@@ -38,7 +38,7 @@ end
     rng = MersenneTwister(11)
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-    interaction = BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false)
+    interaction = BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], isotropy = false)
     basis = SCEBasis(crystal, interaction)   # NoSymmetry (P1); small but exercises Lf > 0
     m = length(basis.salc_basis)
     @test m > 0
@@ -83,7 +83,7 @@ end
     end
 
     @testset "empty basis (0 SALCs) round-trips" begin
-        eb = SCEBasis(crystal, BasisSpec(; nbody = 1, pair_cutoff = 0.1, lmax = [0]))
+        eb = SCEBasis(crystal, BasisSpec(; nbody = 1, cutoff = 0.1, lmax = [0]))
         @test length(eb.salc_basis) == 0
         path = tempname() * ".toml"
         MR.save(path, eb)

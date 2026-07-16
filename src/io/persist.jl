@@ -19,7 +19,12 @@ library — no external dependency; Float64 round-trips exactly) by [`save`](@re
 const _SCHEMA_BASIS = "scefitting/sce-basis"
 const _SCHEMA_MODEL = "scefitting/sce-model"
 # v2: the basis-spec section key renamed "interaction" → "spec" (with the SCEBasis field).
-const PERSIST_SCHEMA_VERSION = 2
+# v3: BasisSpec canonical truncation — "pair_cutoff" replaced by per-body-order
+#     "cutoff" matrices (species × species, Inf = no cutoff), plus "lsum" (per body
+#     order, typemax(Int64) = uncapped) and "species_labels". v2 docs are still
+#     readable (`_spec_from` expands the legacy scalar).
+const PERSIST_SCHEMA_VERSION = 3
+const _PERSIST_READABLE_VERSIONS = (2, 3)
 
 # Normalize -0.0 → +0.0 so two builds of the same object serialize byte-identically
 # (eigensolvers on different BLAS can flip a sign of zero); -0.0 == 0.0 anyway.
@@ -72,8 +77,12 @@ function _symmetry_doc(sg::SpaceGroup)
 end
 
 _spec_doc(sp::BasisSpec) = Dict{String,Any}(
-    "nbody" => sp.nbody, "pair_cutoff" => _jnum(sp.pair_cutoff),
-    "lmax" => collect(Int, sp.lmax), "isotropy" => sp.isotropy)
+    "nbody" => sp.nbody, "lmax" => collect(Int, sp.lmax),
+    "lsum" => collect(Int, sp.lsum),                       # typemax(Int64) = uncapped
+    "cutoff" => [[[_jnum(M[i, j]) for j in axes(M, 2)] for i in axes(M, 1)]
+                 for M in sp.cutoff],                       # per body order, row-major
+    "isotropy" => sp.isotropy,
+    "species_labels" => collect(String, sp.species_labels))
 
 function _basis_doc(b::SCEBasis)
     return Dict{String,Any}(
@@ -181,18 +190,31 @@ function _symmetry_from(crystal::Crystal, d)::SpaceGroup
                                 String(d["symbol"]), Int(d["number"]); tol = Float64(d["tol"]))
 end
 
-_spec_from(d)::BasisSpec = BasisSpec(; nbody = Int(d["nbody"]),
-                                     pair_cutoff = Float64(d["pair_cutoff"]),
-                                     lmax = _intvec(d["lmax"]),
-                                     isotropy = Bool(d["isotropy"]))
+function _spec_from(d)::BasisSpec
+    nbody = Int(d["nbody"])
+    lmax = _intvec(d["lmax"])
+    isotropy = Bool(d["isotropy"])
+    if haskey(d, "pair_cutoff")     # legacy v2: one scalar radius, no lsum, no labels
+        return BasisSpec(; nbody = nbody, lmax = lmax, isotropy = isotropy,
+                         cutoff = Float64(d["pair_cutoff"]))
+    end
+    labels = String[String(s) for s in d["species_labels"]]
+    lsum = _intvec(d["lsum"])
+    cutoff = Matrix{Float64}[Matrix{Float64}(reduce(hcat, (_floatvec(row) for row in M))')
+                             for M in d["cutoff"]]           # stored row-major
+    return BasisSpec(labels; nbody = nbody, lmax = lmax,
+                     lsum = [n => v for (n, v) in enumerate(lsum)],
+                     cutoff = cutoff, isotropy = isotropy)
+end
 
 function _check_schema(d, allowed::Tuple)
     s = get(d, "schema", nothing)
     s in allowed ||
         throw(ArgumentError("unexpected schema $(repr(s)); expected one of $(allowed)"))
     v = get(d, "schema_version", nothing)
-    (v isa Integer && Int(v) == PERSIST_SCHEMA_VERSION) ||
-        throw(ArgumentError("unsupported schema_version $(repr(v)); this build reads $PERSIST_SCHEMA_VERSION"))
+    (v isa Integer && Int(v) in _PERSIST_READABLE_VERSIONS) ||
+        throw(ArgumentError("unsupported schema_version $(repr(v)); this build reads " *
+                            "$(_PERSIST_READABLE_VERSIONS)"))
     return nothing
 end
 

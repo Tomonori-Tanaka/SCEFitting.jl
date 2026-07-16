@@ -24,7 +24,7 @@ cutoff = argf(3, 4.0)
 
 inp  = read_setup(joinpath(@__DIR__, "assets", "nd2fe14b.toml"))
 cr   = inp.crystal
-spec = BasisSpec(; nbody = nbody, pair_cutoff = cutoff, lmax = inp.spec.lmax,
+spec = BasisSpec(; nbody = nbody, cutoff = cutoff, lmax = inp.spec.lmax,
                  isotropy = inp.spec.isotropy)
 
 bench_header("Nd2Fe14B — nbody=$nbody, $m configs, cutoff=$cutoff, " *
@@ -35,11 +35,13 @@ println("atoms = $(n_atoms(cr))   species = $(join(cr.species_labels, ","))")
 sg = analyze_symmetry(SpglibBackend(), cr; tol = inp.tol)
 println("symmetry ops = $(SCEFitting.n_ops(sg))")
 bench_one("build_neighbor_list",
-          () -> build_neighbor_list(cr, spec.pair_cutoff, MinimumImage()))
-nl = build_neighbor_list(cr, spec.pair_cutoff, MinimumImage())
+          () -> build_neighbor_list(cr, SCEFitting._superset_cutoff(spec), MinimumImage()))
+nl = build_neighbor_list(cr, SCEFitting._superset_cutoff(spec), MinimumImage())
 bench_one("build_clusters",
-          () -> build_clusters(cr, nl, sg; nbody = spec.nbody, selection = MinimumImage()))
-cs = build_clusters(cr, nl, sg; nbody = spec.nbody, selection = MinimumImage())
+          () -> build_clusters(cr, nl, sg; nbody = spec.nbody, selection = MinimumImage(),
+                         cutoff = spec.cutoff))
+cs = build_clusters(cr, nl, sg; nbody = spec.nbody, selection = MinimumImage(),
+                         cutoff = spec.cutoff)
 println("→ orbits by body = $(sort(collect(k => length(v) for (k, v) in cs.by_body)))")
 bench_one("build_salc_basis", () -> build_salc_basis(cr, sg, cs;
               lmax_by_species = spec.lmax, isotropy = spec.isotropy))

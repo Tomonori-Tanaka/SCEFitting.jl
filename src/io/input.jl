@@ -18,11 +18,32 @@ Schema:
     pbc            = [true,true,true]                      # optional, default all true
 
     [interaction]
-    nbody       = 2
-    pair_cutoff = 3.0                                     # Å, or `inf` for the full Wigner–Seitz cell
-    lmax        = [2,2]                                    # per species
-    isotropy    = false                                   # optional, default false
-    images      = "minimum_image"                          # optional: "minimum_image" (default) or "all_images"
+    nbody    = 2
+    cutoff   = 3.0                # Å; `inf` = the full Wigner–Seitz cell; or a table, below
+    lmax     = [2,2]              # per species (index order), or a label table, below
+    lsum     = 4                  # optional Σl cap per body order (scalar or table)
+    isotropy = false              # optional, default false
+    images   = "minimum_image"    # optional: "minimum_image" (default) or "all_images"
+
+    # Label-keyed alternatives ("*" = fallback; pair keys are unordered, resolved by
+    # specificity: concrete > "A-*" > "*-*"; body orders outside nbody are errors):
+    #
+    #     [interaction.lmax]
+    #     "*" = 3
+    #     B   = 0
+    #
+    #     [interaction.lsum]        # keys = body orders (bare-integer TOML keys)
+    #     1 = 0
+    #     2 = 4
+    #
+    #     [interaction.cutoff]      # body-keyed: scalar per order ...
+    #     2 = 8.0
+    #     [interaction.cutoff.3]    # ... or a species-pair table per order
+    #     "Fe-*" = 6.0
+    #     "*-*"  = 8.0
+    #
+    # A species-pair table directly under [interaction.cutoff] (keys like "Fe-Fe")
+    # applies to every body order.
 
     [symmetry]                                            # optional section
     backend = "spglib"                                    # "none" (default) or "spglib"
@@ -75,12 +96,55 @@ function _crystal_from_input(d)::Crystal
     return Crystal(lattice, fr, species, labels)   # Crystal validates species range etc.
 end
 
-function _interaction_from_input(d)::BasisSpec
+# TOML sub-tables arrive as Dict{String,Any}; body-order keys are digit strings
+# ("2"), species/pair keys anything else. Convert to the BasisSpec sugar forms.
+_is_bodykey(k::AbstractString) = !isnothing(match(r"^\d+$", k))
+
+function _lmax_from_input(x)
+    x isa AbstractDict && return [String(k) => Int(v) for (k, v) in x]
+    return Int[Int(v) for v in x]
+end
+
+function _lsum_from_input(x)
+    x isa Real && return Int(x)
+    x isa AbstractDict || throw(ArgumentError(
+        "[interaction].lsum must be an integer or a body-order table"))
+    return [(_is_bodykey(k) ? parse(Int, k) :
+             throw(ArgumentError("[interaction].lsum: key $(repr(k)) is not a " *
+                                 "body order"))) => Int(v) for (k, v) in x]
+end
+
+_pairtable_from_input(x::AbstractDict, ctx::String) =
+    [String(k) => (v isa Real ? Float64(v) :
+                   throw(ArgumentError("$ctx: $(repr(k)) must be a number"))) for (k, v) in x]
+
+function _cutoff_from_input(x)
+    x isa Real && return Float64(x)
+    x isa AbstractDict ||
+        throw(ArgumentError("[interaction].cutoff must be a number or a table"))
+    ks = collect(keys(x))
+    if all(_is_bodykey, ks)          # body-keyed: scalar or pair table per order
+        return [parse(Int, k) => (v isa Real ? Float64(v) :
+                                  _pairtable_from_input(v, "[interaction].cutoff.$k"))
+                for (k, v) in x]
+    elseif !any(_is_bodykey, ks)     # one species-pair table for every order
+        return _pairtable_from_input(x, "[interaction].cutoff")
+    end
+    throw(ArgumentError("[interaction].cutoff mixes body-order keys with pair keys"))
+end
+
+function _interaction_from_input(d, labels::Vector{String})::BasisSpec
+    haskey(d, "pair_cutoff") &&
+        throw(ArgumentError("[interaction].pair_cutoff was replaced by `cutoff` " *
+                            "(a scalar is equivalent; see the input-schema docstring " *
+                            "for per-body / per-pair tables)"))
     nbody = Int(_input_require(d, "nbody", "interaction"))
-    pair_cutoff = Float64(_input_require(d, "pair_cutoff", "interaction"))
-    lmax = Int[Int(x) for x in _input_require(d, "lmax", "interaction")]
+    lmax = _lmax_from_input(_input_require(d, "lmax", "interaction"))
+    cutoff = _cutoff_from_input(_input_require(d, "cutoff", "interaction"))
+    lsum = haskey(d, "lsum") ? _lsum_from_input(d["lsum"]) : nothing
     isotropy = haskey(d, "isotropy") ? Bool(d["isotropy"]) : false
-    return BasisSpec(; nbody = nbody, pair_cutoff = pair_cutoff, lmax = lmax, isotropy = isotropy)
+    return BasisSpec(labels; nbody = nbody, lmax = lmax, cutoff = cutoff, lsum = lsum,
+                     isotropy = isotropy)
 end
 
 function _backend_from_name(name)::AbstractSymmetryBackend
@@ -120,7 +184,7 @@ function read_setup(path::AbstractString)::@NamedTuple{crystal::Crystal,
     haskey(doc, "interaction") ||
         throw(ArgumentError("input file is missing the [interaction] section"))
     crystal = _crystal_from_input(doc["structure"])
-    spec = _interaction_from_input(doc["interaction"])
+    spec = _interaction_from_input(doc["interaction"], crystal.species_labels)
     length(spec.lmax) == length(crystal.species_labels) ||
         throw(ArgumentError("[interaction].lmax has $(length(spec.lmax)) entries for " *
                             "$(length(crystal.species_labels)) species"))

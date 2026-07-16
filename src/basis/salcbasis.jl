@@ -20,16 +20,28 @@
 # exact-0/1 eigenvalue assertion are the in-band gates; at much higher l these
 # thresholds would want to scale with the coupled-tensor magnitude.
 
+"""
+Sentinel meaning "no `Σl` cap" for a body order (in `BasisSpec.lsum` and
+`build_salc_basis`'s `lsum_by_body`). Only ever compared against (the per-site
+enumeration cap subtracts at most `nbody − 1` from it, which cannot overflow).
+"""
+const LSUM_UNCAPPED = typemax(Int)
+
 # Per-site l-tuples to enumerate for an orbit, one canonical representative per
-# orbit of the site-permutation group `perms` (Σl even = time-reversal even).
-function _enumerate_ls(N::Int, species::Vector{Int}, lmax::Vector{Int},
+# orbit of the site-permutation group `perms` (Σl even = time-reversal even,
+# Σl ≤ lsumN = the body order's angular budget). Each per-site range is also
+# tightened to `lsumN − (N − 1)` (every other site carries l ≥ 1), so an
+# uncapped species lmax does not blow up the product before the filter.
+function _enumerate_ls(N::Int, species::Vector{Int}, lmax::Vector{Int}, lsumN::Int,
                        perms::Vector{Vector{Int}})
-    ranges = ntuple(i -> 1:lmax[species[i]], N)
+    cap = lsumN - (N - 1)
+    ranges = ntuple(i -> 1:min(lmax[species[i]], cap), N)
     seen = Set{Vector{Int}}()
     out = Vector{Int}[]
     for tt in Iterators.product(ranges...)
         t = collect(Int, tt)
-        iseven(sum(t)) || continue
+        s = sum(t)
+        (iseven(s) && s <= lsumN) || continue
         t in seen && continue
         orbit = unique([t[p] for p in perms])
         for o in orbit
@@ -287,7 +299,7 @@ end
 # orbit-local; `wcache` is read-only), so orbits are processed independently — the
 # unit of parallelism in `build_salc_basis`.
 function _orbit_salcs(crystal::Crystal, spacegroup::SpaceGroup, N::Int, orbit_id::Int,
-                      O::ClusterOrbit, lmax::Vector{Int}, isotropy::Bool,
+                      O::ClusterOrbit, lmax::Vector{Int}, lsumN::Int, isotropy::Bool,
                       wcache::_WigCache)::Vector{SALC}
     out = SALC[]
     rep = O.representative
@@ -300,7 +312,7 @@ function _orbit_salcs(crystal::Crystal, spacegroup::SpaceGroup, N::Int, orbit_id
     # (2,1,1) on a mirror-only triangle put l=2 on inequivalent sites), all sharing
     # `ls = sort(t)` but giving distinct SALCs.
     blockcount = Dict{Tuple{Vector{Int},Int},Int}()
-    for t in _enumerate_ls(N, O.species, lmax, perms)
+    for t in _enumerate_ls(N, O.species, lmax, lsumN, perms)
         orderings = unique([t[p] for p in perms])
         # Build the coupled bases for each ordering once. They are reused across every
         # `Lf`; rebuilding them inside `_project_and_fold` per `Lf` recomputed the whole
@@ -337,7 +349,8 @@ function _orbit_salcs(crystal::Crystal, spacegroup::SpaceGroup, N::Int, orbit_id
 end
 
 """
-    build_salc_basis(crystal, spacegroup, clusters; lmax_by_species, isotropy = false) -> SALCBasis
+    build_salc_basis(crystal, spacegroup, clusters; lmax_by_species,
+                     lsum_by_body = nothing, isotropy = false) -> SALCBasis
 
 Construct the symmetry-adapted (and time-reversal-even) SCE basis for every cluster
 orbit and body order. For each `(orbit, l-multiset, Lf)` the stabilizer-invariant
@@ -346,6 +359,9 @@ transported to all orbit members.
 
 # Keyword arguments
 - `lmax_by_species::AbstractVector{<:Integer}`: per-species maximum `l`.
+- `lsum_by_body`: per-body-order cap on `Σl` over the cluster sites, indexed by
+  body order (`nothing` = no cap; entries of `LSUM_UNCAPPED` mean no cap for
+  that order).
 - `isotropy::Bool = false`: keep only the scalar `Lf == 0` channel if `true`.
 
 # Status
@@ -361,8 +377,14 @@ The orbits are built in parallel over `Threads.nthreads()` (set `julia -t` /
 """
 function build_salc_basis(crystal::Crystal, spacegroup::SpaceGroup, clusters::ClusterSet;
                           lmax_by_species::AbstractVector{<:Integer},
+                          lsum_by_body::Union{Nothing,AbstractVector{<:Integer}} = nothing,
                           isotropy::Bool = false)::SALCBasis
     lmax = collect(Int, lmax_by_species)
+    maxbody = isempty(clusters.by_body) ? 0 : maximum(keys(clusters.by_body))
+    lsum_by_body === nothing || length(lsum_by_body) >= maxbody ||
+        throw(ArgumentError("lsum_by_body has $(length(lsum_by_body)) entries; " *
+                            "the clusters reach body order $maxbody"))
+    lsumN(N) = lsum_by_body === nothing ? LSUM_UNCAPPED : Int(lsum_by_body[N])
     # Precompute the Wigner-D cache serially so it is read-only (race-free) below.
     wcache = _build_wig_cache(spacegroup, isempty(lmax) ? 0 : maximum(lmax))
     # Flatten the orbits into one work list, keeping `(N, orbit_id)` for the SALC keys.
@@ -377,7 +399,8 @@ function build_salc_basis(crystal::Crystal, spacegroup::SpaceGroup, clusters::Cl
     parts = Vector{Vector{SALC}}(undef, length(work))
     Threads.@threads for w in eachindex(work)
         (N, orbit_id, O) = work[w]
-        parts[w] = _orbit_salcs(crystal, spacegroup, N, orbit_id, O, lmax, isotropy, wcache)
+        parts[w] = _orbit_salcs(crystal, spacegroup, N, orbit_id, O, lmax, lsumN(N),
+                                isotropy, wcache)
     end
     salcs = isempty(parts) ? SALC[] : reduce(vcat, parts)
     sort!(salcs; by = s -> s.key)

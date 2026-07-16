@@ -32,7 +32,7 @@ lat   = Lattice([8.0 0 0; 0 8.0 0; 0 0 10.0])
 frac  = [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75]
 chain = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
 
-interaction = BasisSpec(; nbody = 2, pair_cutoff = 2.6, lmax = [1], isotropy = true)
+interaction = BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1], isotropy = true)
 basis       = SCEBasis(chain, interaction; backend = SpglibBackend())
 
 (space_group = basis.spacegroup.symbol, n_salc = n_salcs(basis))
@@ -50,7 +50,7 @@ using CairoMakie
 CairoMakie.activate!(type = "png")
 
 cart = cartesian_positions(chain)                                  # 3 × 4, sites along z
-nl   = SCEFitting.build_neighbor_list(chain, interaction.pair_cutoff, MinimumImage())
+nl   = SCEFitting.build_neighbor_list(chain, SCEFitting._superset_cutoff(interaction), MinimumImage())
 z    = cart[3, :]
 cell = chain.lattice.vectors[3, 3]                                 # c = 10 Å, the calculation cell
 

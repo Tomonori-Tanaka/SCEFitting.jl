@@ -1,35 +1,130 @@
 """
-    BasisSpec(; nbody, pair_cutoff, lmax, isotropy = false)
+    BasisSpec([labels_or_crystal]; nbody, lmax, cutoff, lsum = nothing,
+              isotropy = false)
 
-An SCE basis **specification** — the knobs that define the basis, not an interaction
-term itself: maximum body order, the 2-body cutoff (Å), per-species maximum `l`, and
-whether to keep only the isotropic (`Lf = 0`) channel.
+An SCE basis **specification** — the knobs that define the basis, not an
+interaction term itself. Stored in resolved, dense canonical form:
 
-`pair_cutoff` may be `Inf`, meaning "every resolvable pair" — the whole
-Wigner–Seitz cell of the (super)cell — under the default [`MinimumImage`](@ref)
-selection (cf. Magesty's `-1` sentinel).
+- `nbody::Int` — maximum body order.
+- `lmax::Vector{Int}` — per-species maximum `l` (per site, every body order;
+  `0` removes the species from the basis entirely).
+- `lsum::Vector{Int}` — per-body-order cap on `Σl` over the cluster sites
+  (index = body order; `LSUM_UNCAPPED` where uncapped).
+- `cutoff::Vector{Matrix{Float64}}` — per-body-order symmetric species-pair
+  cutoff radii in Å (`cutoff[N - 1][a, b]` for body order `N ≥ 2`); an
+  `N`-body cluster is kept iff **every** internal edge is within its own
+  species-pair radius. `Inf` = no cutoff (every resolvable pair — the whole
+  Wigner–Seitz cell under [`MinimumImage`](@ref)); `0` excludes the pair.
+- `isotropy::Bool` — keep only the scalar (`Lf = 0`) channel.
+- `species_labels::Vector{String}` — the labels the spec was resolved against
+  (empty when constructed index-keyed).
 
-!!! note
-    Renamed from `Interaction` (the old name wrongly suggested a fitted coupling
-    term).
+The keyword constructor also accepts ergonomic forms and resolves them here:
+
+```julia
+BasisSpec(crystal; nbody = 3, isotropy = true,          # or BasisSpec(labels; ...)
+    lmax   = ["*" => 3, "B" => 0],                       # label-keyed, "*" fallback
+    lsum   = [1 => 0, 2 => 4, 3 => 4],                   # body-keyed (or one Int)
+    cutoff = [2 => Inf, 3 => ["Fe-*" => 6.0, "*-*" => 8.0]])
+```
+
+`lmax` may be an `Int` (all species), a per-species `Vector{Int}`, or
+label-keyed pairs; `lsum` an `Int` (all body orders), body-keyed pairs, or
+`nothing` (no cap); `cutoff` a scalar, a pair table (all body orders),
+body-keyed pairs of either, or the canonical `Vector{Matrix}`. Pair keys are
+unordered (`"Fe-Nd" ≡ "Nd-Fe"`) and resolve by specificity (concrete beats
+`"A-*"` beats `"*-*"`); equal-specificity conflicts, unknown labels, uncovered
+species/pairs, and body orders outside `nbody` are errors. Label-keyed forms
+need the labels: pass them (or a `Crystal`) as the first argument.
 """
 struct BasisSpec
     nbody::Int
-    pair_cutoff::Float64
     lmax::Vector{Int}
+    lsum::Vector{Int}
+    cutoff::Vector{Matrix{Float64}}
     isotropy::Bool
+    species_labels::Vector{String}
 
-    # Inner constructor only: validation can't be bypassed via the field constructor.
-    function BasisSpec(; nbody::Integer, pair_cutoff::Real,
-                       lmax::AbstractVector{<:Integer}, isotropy::Bool = false)
+    # Positional canonical-form constructor; all construction paths validate here.
+    function BasisSpec(nbody::Int, lmax::Vector{Int}, lsum::Vector{Int},
+                       cutoff::Vector{Matrix{Float64}}, isotropy::Bool,
+                       species_labels::Vector{String})
         nbody >= 1 || throw(ArgumentError("nbody must be ≥ 1; got $nbody"))
-        (pair_cutoff > 0 && !isnan(pair_cutoff)) ||
-            throw(ArgumentError("pair_cutoff must be positive (or Inf for the full " *
-                                "Wigner–Seitz cell); got $pair_cutoff"))
         isempty(lmax) && throw(ArgumentError("lmax must have one entry per species"))
         all(>=(0), lmax) ||
-            throw(ArgumentError("lmax entries must be ≥ 0; got $(collect(lmax))"))
-        return new(Int(nbody), Float64(pair_cutoff), collect(Int, lmax), isotropy)
+            throw(ArgumentError("lmax entries must be ≥ 0; got $lmax"))
+        length(lsum) == nbody ||
+            throw(ArgumentError("lsum has $(length(lsum)) entries for nbody = $nbody"))
+        all(>=(0), lsum) || throw(ArgumentError("lsum entries must be ≥ 0; got $lsum"))
+        length(cutoff) == nbody - 1 ||
+            throw(ArgumentError("cutoff has $(length(cutoff)) matrices for body " *
+                                "orders 2:$nbody"))
+        nkd = length(lmax)
+        for (k, M) in enumerate(cutoff)
+            size(M) == (nkd, nkd) ||
+                throw(ArgumentError("cutoff body$(k + 1) matrix is $(size(M)), " *
+                                    "expected ($nkd, $nkd)"))
+            M == M' ||
+                throw(ArgumentError("cutoff body$(k + 1) matrix is not symmetric"))
+            all(v -> !isnan(v) && v >= 0, M) ||
+                throw(ArgumentError("cutoff body$(k + 1) entries must be ≥ 0 or Inf"))
+        end
+        isempty(species_labels) || length(species_labels) == nkd ||
+            throw(ArgumentError("$(length(species_labels)) species labels for " *
+                                "$nkd lmax entries"))
+        allunique(species_labels) ||
+            throw(ArgumentError("species labels must be unique; got $species_labels"))
+        return new(nbody, lmax, lsum, cutoff, isotropy, species_labels)
+    end
+end
+
+function BasisSpec(labels::AbstractVector{<:AbstractString} = String[];
+                   nbody::Integer, lmax, cutoff, lsum = nothing,
+                   isotropy::Bool = false, pair_cutoff = nothing)
+    pair_cutoff === nothing ||
+        throw(ArgumentError("`pair_cutoff` was replaced by `cutoff` (a scalar is " *
+                            "equivalent: cutoff = $pair_cutoff; see the BasisSpec " *
+                            "docstring for per-body / per-pair forms)"))
+    nbody >= 1 || throw(ArgumentError("nbody must be ≥ 1; got $nbody"))
+    lv = collect(String, labels)
+    nkd = !isempty(lv) ? length(lv) :
+          lmax isa AbstractVector{<:Integer} ? length(lmax) :
+          throw(ArgumentError("the species count is unknown: pass the labels " *
+                              "(`BasisSpec(labels; ...)` / `BasisSpec(crystal; ...)`) " *
+                              "or give `lmax` as a per-species Vector{Int}"))
+    return BasisSpec(Int(nbody),
+                     _resolve_species_table(lmax, nkd, lv, "lmax"),
+                     _resolve_lsum(lsum, Int(nbody)),
+                     _resolve_cutoff(cutoff, Int(nbody), nkd, lv),
+                     isotropy, lv)
+end
+
+BasisSpec(crystal::Crystal; kwargs...) = BasisSpec(crystal.species_labels; kwargs...)
+
+Base.:(==)(a::BasisSpec, b::BasisSpec) =
+    a.nbody == b.nbody && a.lmax == b.lmax && a.lsum == b.lsum &&
+    a.cutoff == b.cutoff && a.isotropy == b.isotropy &&
+    a.species_labels == b.species_labels
+
+function Base.show(io::IO, ::MIME"text/plain", sp::BasisSpec)
+    nkd = length(sp.lmax)
+    labels = isempty(sp.species_labels) ? ["#$k" for k = 1:nkd] : sp.species_labels
+    println(io, "BasisSpec: nbody = ", sp.nbody, ", isotropy = ", sp.isotropy)
+    println(io, "  lmax:  ", join(("$(labels[k]) = $(sp.lmax[k])" for k = 1:nkd), ", "))
+    lsumstr(v) = v == LSUM_UNCAPPED ? "—" : string(v)
+    println(io, "  lsum:  ",
+            join(("body$N = $(lsumstr(sp.lsum[N]))" for N = 1:sp.nbody), ", "))
+    for N = 2:sp.nbody
+        M = sp.cutoff[N - 1]
+        if all(==(M[1, 1]), M)
+            println(io, "  cutoff body$N: ", M[1, 1], " Å (all pairs)")
+        else
+            println(io, "  cutoff body$N (Å):")
+            for i = 1:nkd
+                println(io, "    ", rpad(labels[i], 6), " ",
+                        join((string(M[i, j]) for j = 1:nkd), "  "))
+            end
+        end
     end
 end
 
@@ -58,11 +153,22 @@ end
 function SCEBasis(crystal::Crystal, spec::BasisSpec;
                  backend::AbstractSymmetryBackend = NoSymmetry(), tol::Real = 1e-5,
                  images::AbstractImageSelection = MinimumImage())::SCEBasis
+    length(spec.lmax) == length(crystal.species_labels) ||
+        throw(ArgumentError("spec covers $(length(spec.lmax)) species, crystal has " *
+                            "$(length(crystal.species_labels))"))
+    isempty(spec.species_labels) || spec.species_labels == crystal.species_labels ||
+        throw(ArgumentError("spec species labels $(spec.species_labels) do not match " *
+                            "the crystal's $(crystal.species_labels)"))
     sg = analyze_symmetry(backend, crystal; tol = tol)
-    nl = build_neighbor_list(crystal, spec.pair_cutoff, images)
-    clusters = build_clusters(crystal, nl, sg; nbody = spec.nbody, selection = images)
+    # The neighbor list is built at the per-pair superset radius (element-wise max
+    # over body orders); each body order's own radii then trim edges per cluster in
+    # `candidate_clusters`.
+    nl = build_neighbor_list(crystal, _superset_cutoff(spec), images)
+    clusters = build_clusters(crystal, nl, sg; nbody = spec.nbody, selection = images,
+                              cutoff = spec.cutoff)
     salcs = build_salc_basis(crystal, sg, clusters;
-                             lmax_by_species = spec.lmax, isotropy = spec.isotropy)
+                             lmax_by_species = spec.lmax, lsum_by_body = spec.lsum,
+                             isotropy = spec.isotropy)
     return SCEBasis(crystal, sg, salcs, spec)
 end
 

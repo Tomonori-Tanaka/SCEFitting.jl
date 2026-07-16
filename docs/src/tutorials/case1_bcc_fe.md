@@ -108,7 +108,7 @@ data   = read_embset(joinpath(inputs, "EMBSET"), poscar.nat)
 ## The structure and the basis
 
 Build the crystal from the parsed `POSCAR`, then the symmetry-adapted SCE basis. We keep an
-**isotropic two-body** model: `nbody = 2`, all pairs (`pair_cutoff = Inf`), on-site angular
+**isotropic two-body** model: `nbody = 2`, all pairs (`cutoff = Inf`), on-site angular
 momentum `lmax = [1]`, and `isotropy = true` to restrict to the rotationally invariant
 (``L_f = 0``) channels — i.e. ordinary isotropic exchange. Spglib detects the cubic
 ``Im\bar 3m`` space group, so the thousands of pairs collapse to a handful of invariants.
@@ -117,7 +117,7 @@ momentum `lmax = [1]`, and `isotropy = true` to restrict to the rotationally inv
 lattice = Lattice(poscar.lattice)
 crystal = Crystal(lattice, poscar.frac, poscar.kinds, poscar.species)
 
-interaction = BasisSpec(; nbody = 2, pair_cutoff = Inf, lmax = [1], isotropy = true)
+interaction = BasisSpec(; nbody = 2, cutoff = Inf, lmax = [1], isotropy = true)
 basis       = SCEBasis(crystal, interaction; backend = SpglibBackend())
 
 (space_group = basis.spacegroup.symbol, n_salc = n_salcs(basis))

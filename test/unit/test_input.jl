@@ -13,7 +13,7 @@ pbc = [true, true, true]
 
 [interaction]
 nbody = 2
-pair_cutoff = 1.5
+cutoff = 1.5
 lmax = [2]
 isotropy = false
 
@@ -32,7 +32,7 @@ species_labels = ["Fe"]
 
 [interaction]
 nbody = 1
-pair_cutoff = 1.5
+cutoff = 1.5
 lmax = [2]
 """
 
@@ -49,7 +49,7 @@ _writetoml(s) = (p = tempname() * ".toml"; write(p, s); p)
         @test inp.crystal.frac_positions[:, 2] ≈ [0.8, 0.0, 0.0]
         @test inp.crystal.lattice.pbc == SVector{3,Bool}(true, true, true)
         @test inp.spec.nbody == 2
-        @test inp.spec.pair_cutoff == 1.5
+        @test inp.spec.cutoff[1][1, 1] == 1.5
         @test inp.spec.lmax == [2]
         @test inp.spec.isotropy == false
         @test inp.backend isa NoSymmetry
@@ -86,7 +86,7 @@ _writetoml(s) = (p = tempname() * ".toml"; write(p, s); p)
     end
 
     @testset "error paths" begin
-        only_interaction = "[interaction]\nnbody = 1\npair_cutoff = 1.5\nlmax = [2]\n"
+        only_interaction = "[interaction]\nnbody = 1\ncutoff = 1.5\nlmax = [2]\n"
         @test_throws ArgumentError read_setup(_writetoml(only_interaction))   # no [structure]
 
         only_structure = """

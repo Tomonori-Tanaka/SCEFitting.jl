@@ -81,6 +81,12 @@ displacement(s) with WS-boundary ties within relative `tol`, trimmed to `cutoff`
 (which may be `Inf`). `search` is the per-periodic-axis image half-range scanned to
 locate the minimum image (with positions wrapped to `[0,1)`, `2` covers the WS cell
 and its boundary ties for non-pathological cells).
+
+`cutoff` is either one radius for every pair or a symmetric per-**species**-pair
+matrix (Å, indexed like `crystal.species`); a pair `(i, j)` is then admitted
+against `cutoff[species[i], species[j]]`, with `Inf` = no cutoff for that pair
+(`MinimumImage` only) and `0` excluding it. The stored `NeighborList.cutoff` is
+the largest radius the list was built with.
 """
 build_neighbor_list(crystal::Crystal, cutoff::Real, ::AllImages;
                     tol::Real = _SAME_DIST_RTOL, search::Integer = 2)::NeighborList =
@@ -88,6 +94,32 @@ build_neighbor_list(crystal::Crystal, cutoff::Real, ::AllImages;
          throw(ArgumentError("AllImages needs a finite cutoff; got $cutoff " *
                              "(use MinimumImage for the full Wigner–Seitz cell)"));
      build_neighbor_list(crystal, cutoff))
+
+# Shared validation for the per-species-pair matrix methods.
+function _check_cutoff_matrix(crystal::Crystal, M::AbstractMatrix{<:Real})
+    nkd = length(crystal.species_labels)
+    size(M) == (nkd, nkd) ||
+        throw(ArgumentError("cutoff matrix is $(size(M)) for $nkd species"))
+    all(v -> !isnan(v) && v >= 0, M) ||
+        throw(ArgumentError("cutoff matrix entries must be ≥ 0 Å or Inf"))
+    M == M' || throw(ArgumentError("cutoff matrix must be symmetric"))
+    return nothing
+end
+
+function build_neighbor_list(crystal::Crystal, cutoff::AbstractMatrix{<:Real},
+                             ::AllImages; tol::Real = _SAME_DIST_RTOL,
+                             search::Integer = 2)::NeighborList
+    _check_cutoff_matrix(crystal, cutoff)
+    all(isfinite, cutoff) ||
+        throw(ArgumentError("AllImages needs finite cutoffs; the matrix has Inf " *
+                            "entries (use MinimumImage for the full Wigner–Seitz cell)"))
+    return _build_nl_allimages(crystal, Float64.(cutoff))
+end
+
+build_neighbor_list(crystal::Crystal, cutoff::AbstractMatrix{<:Real}, ::MinimumImage;
+                    tol::Real = _SAME_DIST_RTOL, search::Integer = 2)::NeighborList =
+    (_check_cutoff_matrix(crystal, cutoff);
+     _build_nl_minimage(crystal, Float64.(cutoff), Float64(tol), Int(search)))
 
 # Minimum distance of a displacement `δ` over the image box `±s` (per axis).
 @inline function _min_image_dist(δ::SVector{3,Float64}, A::SMatrix{3,3,Float64,9},
@@ -113,15 +145,21 @@ end
 function build_neighbor_list(crystal::Crystal, cutoff::Real, ::MinimumImage;
                              tol::Real = _SAME_DIST_RTOL, search::Integer = 2)::NeighborList
     (cutoff > 0 && !isnan(cutoff)) || throw(ArgumentError("`cutoff` must be positive"))
-    rtol = Float64(tol)
+    nkd = length(crystal.species_labels)
+    return _build_nl_minimage(crystal, fill(Float64(cutoff), nkd, nkd), Float64(tol),
+                              Int(search))
+end
+
+function _build_nl_minimage(crystal::Crystal, cutmat::Matrix{Float64}, rtol::Float64,
+                            search::Int)::NeighborList
     lat = crystal.lattice
     A = lat.vectors
     nat = n_atoms(crystal)
+    sp = crystal.species
     cart = cartesian_positions(crystal)
     brow = SVector{3,Float64}(norm(lat.reciprocal[1, :]), norm(lat.reciprocal[2, :]),
                               norm(lat.reciprocal[3, :]))
-    s0 = ntuple(d -> lat.pbc[d] ? Int(search) : 0, 3)
-    cut = Float64(cutoff)
+    s0 = ntuple(d -> lat.pbc[d] ? search : 0, 3)
     pairs = NeighborPair[]
     @inbounds for i = 1:nat
         ri = SVector{3,Float64}(cart[1, i], cart[2, i], cart[3, i])
@@ -131,6 +169,8 @@ function build_neighbor_list(crystal::Crystal, cutoff::Real, ::MinimumImage;
             # 1-body alias otherwise), never an independent pair — drop it. (For the
             # generalized-Bloch `AllImages` seam the spiral makes it independent.)
             i == j && continue
+            cut = cutmat[sp[i], sp[j]]           # this pair's species-pair radius
+            cut > 0 || continue
             δ = SVector{3,Float64}(cart[1, j], cart[2, j], cart[3, j]) - ri
             # pass 1: minimum image distance, with the image box grown to a range
             # that is provably sufficient for this (skewed-cell-safe) pair
@@ -138,6 +178,8 @@ function build_neighbor_list(crystal::Crystal, cutoff::Real, ::MinimumImage;
             s = _sufficient_range(brow, lat.pbc, best, s0)
             s == s0 || (best = _min_image_dist(δ, A, s))
             # minimum image beyond the radial cutoff ⇒ pair contributes nothing
+            # (the tie band is relative to this pair's own radius, so a degenerate
+            # shell at a species-pair-specific cutoff is never split)
             (isfinite(best) && best <= cut * (1 + rtol)) || continue
             # pass 2: emit every image tied with the minimum (the WS-boundary
             # multiplicity), each as its own directed member
@@ -150,7 +192,7 @@ function build_neighbor_list(crystal::Crystal, cutoff::Real, ::MinimumImage;
             end
         end
     end
-    return NeighborList(cut, pairs)
+    return NeighborList(maximum(cutmat), pairs)
 end
 
 """
@@ -171,18 +213,29 @@ shift) are excluded; both `(i,j,R)` and `(j,i,−R)` appear (directed list).
 """
 function build_neighbor_list(crystal::Crystal, cutoff::Real)::NeighborList
     cutoff > 0 || throw(ArgumentError("`cutoff` must be positive"))
-    cut = Float64(cutoff)
+    isfinite(cutoff) || throw(ArgumentError("`cutoff` must be finite"))
+    nkd = length(crystal.species_labels)
+    return _build_nl_allimages(crystal, fill(Float64(cutoff), nkd, nkd))
+end
+
+function _build_nl_allimages(crystal::Crystal, cutmat::Matrix{Float64})::NeighborList
     lat = crystal.lattice
     A = lat.vectors
     nat = n_atoms(crystal)
-    # N_d = ceil(cut / spacingᵈ) = ceil(cut * ‖b_d‖); zero on non-periodic axes.
-    nrange = ntuple(d -> lat.pbc[d] ? ceil(Int, cut * norm(lat.reciprocal[d, :])) : 0, 3)
+    sp = crystal.species
+    # The image box must enclose every in-cutoff image of every pair, so it is
+    # sized from the largest species-pair radius; each pair is then admitted
+    # against its own radius inside. N_d = ceil(cut/spacingᵈ) = ceil(cut·‖b_d‖);
+    # zero on non-periodic axes.
+    cmax = maximum(cutmat)
+    nrange = ntuple(d -> lat.pbc[d] ? ceil(Int, cmax * norm(lat.reciprocal[d, :])) : 0, 3)
     cart = cartesian_positions(crystal)
-    cut2 = cut^2
     pairs = NeighborPair[]
     @inbounds for i = 1:nat
         ri = SVector{3,Float64}(cart[1, i], cart[2, i], cart[3, i])
         for j = 1:nat
+            cut2 = cutmat[sp[i], sp[j]]^2
+            cut2 > 0 || continue
             rj0 = SVector{3,Float64}(cart[1, j], cart[2, j], cart[3, j])
             for n1 = -nrange[1]:nrange[1], n2 = -nrange[2]:nrange[2], n3 = -nrange[3]:nrange[3]
                 (i == j && n1 == 0 && n2 == 0 && n3 == 0) && continue
@@ -195,5 +248,5 @@ function build_neighbor_list(crystal::Crystal, cutoff::Real)::NeighborList
             end
         end
     end
-    return NeighborList(cut, pairs)
+    return NeighborList(cmax, pairs)
 end

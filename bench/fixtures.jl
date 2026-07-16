@@ -23,7 +23,7 @@ using BenchmarkTools: @belapsed, @benchmark
 
 A conventional bcc Fe cell tiled `n × n × n` (`2n³` atoms, one species `"Fe"`).
 `n = 2 → 16`, `n = 3 → 54`, `n = 4 → 128` atoms. The cell is cubic with edge `n·a`
-(Å); the bcc nearest-neighbour distance is `a√3/2 ≈ 2.49 Å`, so `pair_cutoff = 2.6`
+(Å); the bcc nearest-neighbour distance is `a√3/2 ≈ 2.49 Å`, so `cutoff = 2.6`
 keeps the first shell.
 """
 function bcc_fe(n::Integer; a::Real = 2.87)
@@ -57,7 +57,7 @@ A [`BasisSpec`](@ref) for the single-species fixtures (`lmax` is broadcast to th
 species).
 """
 basis_spec(; nbody = 2, cutoff = 2.6, lmax = 1, isotropy = false) =
-    BasisSpec(; nbody = nbody, pair_cutoff = cutoff, lmax = [lmax], isotropy = isotropy)
+    BasisSpec(; nbody = nbody, cutoff = cutoff, lmax = [lmax], isotropy = isotropy)
 
 # ---------------------------------------------------------------------------
 # Timing harness.

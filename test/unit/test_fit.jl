@@ -8,16 +8,16 @@ struct _DummyEstimator <: SCEFitting.AbstractEstimator end
 @testset "fit / predict" begin
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-    spec = BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = true)
+    spec = BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], isotropy = true)
     basis = SCEBasis(crystal, spec)                 # NoSymmetry backend (no Spglib needed)
     m = length(basis.salc_basis)
     @test m > 0
 
     @testset "BasisSpec / Ridge constructor validation" begin
-        @test_throws ArgumentError BasisSpec(; nbody = 0, pair_cutoff = 1.5, lmax = [2])
-        @test_throws ArgumentError BasisSpec(; nbody = 2, pair_cutoff = -1.0, lmax = [2])
-        @test_throws ArgumentError BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = Int[])
-        @test_throws ArgumentError BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [-1])
+        @test_throws ArgumentError BasisSpec(; nbody = 0, cutoff = 1.5, lmax = [2])
+        @test_throws ArgumentError BasisSpec(; nbody = 2, cutoff = -1.0, lmax = [2])
+        @test_throws ArgumentError BasisSpec(; nbody = 2, cutoff = 1.5, lmax = Int[])
+        @test_throws ArgumentError BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [-1])
         @test_throws ArgumentError Ridge(; lambda = -1.0)
         @test_throws ArgumentError Ridge(Inf)
         @test Ridge(; lambda = 0.0).lambda == 0.0
@@ -91,7 +91,7 @@ end
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
     # isotropy = false ⇒ a wide (44-column) basis, so concentration / selection is meaningful
-    interaction = BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false)
+    interaction = BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], isotropy = false)
     basis = SCEBasis(crystal, interaction)
     m = length(basis.salc_basis)
     @test m > 10
@@ -177,7 +177,7 @@ end
 @testset "refit and accessors" begin
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-    interaction = BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [2], isotropy = false)
+    interaction = BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2], isotropy = false)
     basis = SCEBasis(crystal, interaction)
     m = length(basis.salc_basis)
     @test m > 10

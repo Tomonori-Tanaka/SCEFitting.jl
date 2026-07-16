@@ -23,11 +23,13 @@ println("atoms = $(n_atoms(cr))")
 sg = analyze_symmetry(SpglibBackend(), cr)
 
 bench_one("build_neighbor_list",
-          () -> build_neighbor_list(cr, spec.pair_cutoff, MinimumImage()))
-nl = build_neighbor_list(cr, spec.pair_cutoff, MinimumImage())
+          () -> build_neighbor_list(cr, SCEFitting._superset_cutoff(spec), MinimumImage()))
+nl = build_neighbor_list(cr, SCEFitting._superset_cutoff(spec), MinimumImage())
 println("→ neighbour pairs = $(length(nl.pairs))")
 
 bench_one("build_clusters",
-          () -> build_clusters(cr, nl, sg; nbody = nbody, selection = MinimumImage()))
-cs = build_clusters(cr, nl, sg; nbody = nbody, selection = MinimumImage())
+          () -> build_clusters(cr, nl, sg; nbody = nbody, selection = MinimumImage(),
+                         cutoff = spec.cutoff))
+cs = build_clusters(cr, nl, sg; nbody = nbody, selection = MinimumImage(),
+                         cutoff = spec.cutoff)
 println("→ orbits by body = $(sort(collect(k => length(v) for (k, v) in cs.by_body)))")

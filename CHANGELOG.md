@@ -6,6 +6,42 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — BasisSpec truncation: per-body `lsum`, per-body × per-pair `cutoff`
+
+**Breaking**: `BasisSpec`'s `pair_cutoff` keyword (and field) is replaced by
+`cutoff`; passing `pair_cutoff` now throws with a migration hint (a scalar
+`cutoff` is the exact equivalent). The `[interaction]` TOML key moves the same
+way. Persisted documents bump to schema v3; **v2 files still load** (the legacy
+scalar is expanded on read).
+
+- `lsum` — a per-body-order budget on `Σl` over a cluster's sites (Magesty's
+  `lsum`), as `lsum = [1 => 0, 2 => 4, 3 => 4]`, a scalar, or omitted (no cap).
+  Enforced in the SALC `l`-tuple enumeration (`_enumerate_ls`), with the
+  per-site ranges tightened to `lsum − (N − 1)` so oversized `lmax` values are
+  never enumerated. This makes Magesty's l044/l064/l066-class models exactly
+  expressible (`lmax` alone cannot cut `Σl`).
+- `cutoff` — per body order **and** species pair: scalar, one pair table for
+  all orders, or body-keyed (`[2 => Inf, 3 => ["Fe-*" => 6.0, "*-*" => 8.0]]`).
+  Pair keys are unordered and resolve by specificity (concrete > `"A-*"` >
+  `"*-*"`; equal-specificity conflicts error). The neighbor list is built at
+  the element-wise max over orders and admits each pair against its own
+  species-pair radius; `candidate_clusters` then checks **every** edge of an
+  `N`-body cluster against that order's own radius (both image selections),
+  with the `_SAME_DIST_RTOL` band applied per pair. `Inf` = no cutoff, `0`
+  excludes a pair.
+- `lmax` accepts label-keyed forms (`["*" => 3, "B" => 0]`) when the labels are
+  supplied (`BasisSpec(labels; ...)` / `BasisSpec(crystal; ...)`); specs are
+  stored resolved and dense (`lmax::Vector{Int}`, `lsum::Vector{Int}` with
+  `LSUM_UNCAPPED`, `cutoff::Vector{Matrix{Float64}}`, `species_labels`).
+  Unknown labels, uncovered species/pairs, and body orders outside `nbody` are
+  errors (no silently-ignored sections); `display(spec)` prints the resolved
+  truncation table.
+- Gates: `test/unit/test_truncation.jl` — sugar/specificity resolution, the
+  `lsum ≡ lmax` equivalences, per-pair neighbor-list and cluster admission vs
+  an independent brute force, v3 + legacy-v2 persistence round-trips, and the
+  new TOML forms. Validated on the production l044 model (Nd₂Fe₁₄B, nbody = 3,
+  body2/3 `lsum = 4`) against Magesty's own fit.
+
 ### Added — allocation-free harmonics evaluation (cache-threaded variants)
 
 - `Harmonics.Zlm_unsafe(l, m, u, cache)` and `Harmonics.grad_Zlm_unsafe(l, m, u,

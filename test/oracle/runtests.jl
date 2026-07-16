@@ -214,7 +214,7 @@ end
         lat = Lattice(Matrix(Diagonal([8.0, 8.0, 10.0])))
         frac = [zeros(2, 4); [0.0 0.25 0.5 0.75]]
         chain = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
-        interaction = SCEFitting.BasisSpec(; nbody = 2, pair_cutoff = 2.6,
+        interaction = SCEFitting.BasisSpec(; nbody = 2, cutoff = 2.6,
                                                  lmax = [1], isotropy = true)
         basis = SCEFitting.SCEBasis(chain, interaction; backend = SpglibBackend())
         @test length(basis.salc_basis) == 1          # only the nearest-neighbor Heisenberg SALC

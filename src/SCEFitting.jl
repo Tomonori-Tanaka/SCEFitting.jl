@@ -45,6 +45,7 @@ include("basis/salcbasis.jl")
 
 # --- fitting + high-level SCE API ---
 include("fitting/estimators.jl")
+include("sce/truncation.jl")     # BasisSpec sugar → dense canonical resolution
 include("sce/model.jl")          # pipeline types + constructors + config validation
 include("fitting/design.jl")     # design-matrix assembly (X_E / X_T)
 include("fitting/fit.jl")        # fit / refit / predict

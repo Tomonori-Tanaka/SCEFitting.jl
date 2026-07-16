@@ -165,16 +165,16 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
     end
 
     @testset "BasisSpec accepts Inf cutoff; rejects ≤ 0 / NaN" begin
-        @test BasisSpec(; nbody = 2, pair_cutoff = Inf, lmax = [1]).pair_cutoff == Inf
-        @test_throws ArgumentError BasisSpec(; nbody = 2, pair_cutoff = 0.0, lmax = [1])
-        @test_throws ArgumentError BasisSpec(; nbody = 2, pair_cutoff = -1.0, lmax = [1])
-        @test_throws ArgumentError BasisSpec(; nbody = 2, pair_cutoff = NaN, lmax = [1])
+        @test BasisSpec(; nbody = 2, cutoff = Inf, lmax = [1]).cutoff[1][1, 1] == Inf
+        @test BasisSpec(; nbody = 2, cutoff = 0.0, lmax = [1]).cutoff[1][1, 1] == 0.0  # 0 = excluded pair
+        @test_throws ArgumentError BasisSpec(; nbody = 2, cutoff = -1.0, lmax = [1])
+        @test_throws ArgumentError BasisSpec(; nbody = 2, cutoff = NaN, lmax = [1])
     end
 
     @testset "full-WS basis builds; under symmetry it has no collinear columns" begin
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["Fe"])
-        inter = BasisSpec(; nbody = 2, pair_cutoff = Inf, lmax = [1], isotropy = true)
+        inter = BasisSpec(; nbody = 2, cutoff = Inf, lmax = [1], isotropy = true)
         @test n_salcs(SCEBasis(cr, inter)) ≥ 1                    # default (NoSymmetry) build succeeds
         # with the cubic sign symmetry the 8 WS-corner ties collapse to one orbit;
         # the centered energy design matrix must then have full column rank — i.e. the
@@ -191,7 +191,7 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
         @test rank(Xc; rtol = 1e-9) == n_salcs(b)
     end
 
-    @testset "input.toml: pair_cutoff = inf and images key" begin
+    @testset "input.toml: cutoff = inf and images key" begin
         dir = mktempdir()
         body = """
         [structure]
@@ -202,14 +202,14 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
 
         [interaction]
         nbody       = 2
-        pair_cutoff = inf
+        cutoff = inf
         lmax        = [1]
         isotropy    = true
         """
         # default images = MinimumImage
         p1 = joinpath(dir, "mi.toml"); write(p1, body)
         inp = read_setup(p1)
-        @test inp.spec.pair_cutoff == Inf
+        @test inp.spec.cutoff[1][1, 1] == Inf
         @test inp.images isa MinimumImage
         # explicit images = "all_images"
         p2 = joinpath(dir, "all.toml"); write(p2, body * "images = \"all_images\"\n")
@@ -222,14 +222,14 @@ pairset(nl) = Set((p.i, p.j, Tuple(p.shift)) for p in nl.pairs)
         @test_throws ArgumentError SCEBasis(p1; images = AllImages())
     end
 
-    @testset "persistence round-trips a pair_cutoff = Inf basis" begin
+    @testset "persistence round-trips a cutoff = Inf basis" begin
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["Fe"])
-        b = SCEBasis(cr, BasisSpec(; nbody = 2, pair_cutoff = Inf, lmax = [1], isotropy = true))
+        b = SCEBasis(cr, BasisSpec(; nbody = 2, cutoff = Inf, lmax = [1], isotropy = true))
         path = joinpath(mktempdir(), "wsbasis.toml")
         SCEFitting.save(path, b)
         b2 = SCEFitting.load(SCEBasis, path)
-        @test b2.spec.pair_cutoff == Inf
+        @test b2.spec.cutoff[1][1, 1] == Inf
         @test n_salcs(b2) == n_salcs(b)
     end
 end

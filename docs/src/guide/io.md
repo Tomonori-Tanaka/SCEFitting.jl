@@ -44,10 +44,10 @@ species   = [1, 1, 1, 1]
 species_labels = ["Fe"]
 
 [interaction]
-nbody       = 2
-pair_cutoff = 2.6           # or `inf` for the whole Wigner–Seitz cell
-lmax        = [1]
-isotropy    = true
+nbody    = 2
+cutoff   = 2.6              # or `inf` for the whole Wigner–Seitz cell
+lmax     = [1]
+isotropy = true
 
 [symmetry]
 backend = "spglib"          # or "none"
@@ -56,6 +56,33 @@ tol     = 1.0e-5
 
 ```julia
 basis = SCEBasis("input.toml")     # reads [symmetry] backend/tol from the file
+```
+
+The `[interaction]` section also takes the label-keyed / per-body forms (see
+[The interaction specification](basis.md#The-interaction-specification)) — species
+tables with a `"*"` fallback, a per-body-order `lsum`, and cutoffs per body order
+and species pair:
+
+```toml
+[interaction]
+nbody    = 3
+isotropy = true
+
+[interaction.lmax]
+"*" = 3
+B   = 0
+
+[interaction.lsum]          # keys = body orders; omitted orders are uncapped
+1 = 0
+2 = 4
+3 = 4
+
+[interaction.cutoff]        # body-keyed scalars ...
+2 = 8.0
+
+[interaction.cutoff.3]      # ... or a species-pair table per order
+"Fe-*" = 6.0
+"*-*"  = 8.0
 ```
 
 [`read_setup`](@ref) returns the parsed setup (including the image selection) if you want

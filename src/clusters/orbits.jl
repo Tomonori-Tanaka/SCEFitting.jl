@@ -130,14 +130,20 @@ Enumerate candidate clusters and reduce them to symmetry orbits under
 - `selection::AbstractImageSelection = MinimumImage()`: the image-admissibility rule
   for the cluster edges; must match the one that built `neighbors` (the same rule the
   internal `candidate_clusters` enumeration applies).
+- `cutoff = nothing`: optional per-body-order, per-species-pair edge radii (the
+  [`BasisSpec`](@ref) canonical `Vector{Matrix}` form) — see
+  `candidate_clusters`.
 
 # Returns
 - `ClusterSet`: orbits grouped by body order.
 """
 function build_clusters(crystal::Crystal, neighbors::NeighborList, spacegroup::SpaceGroup;
                         nbody::Integer = 2,
-                        selection::AbstractImageSelection = MinimumImage())::ClusterSet
-    cand = candidate_clusters(crystal, neighbors, nbody; selection = selection)
+                        selection::AbstractImageSelection = MinimumImage(),
+                        cutoff::Union{Nothing,AbstractVector{<:AbstractMatrix{<:Real}}} =
+                            nothing)::ClusterSet
+    cand = candidate_clusters(crystal, neighbors, nbody; selection = selection,
+                              cutoff = cutoff)
     by_body = Dict{Int,Vector{ClusterOrbit}}()
     for body in sort(collect(keys(cand)))
         members = cand[body]

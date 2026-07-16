@@ -22,8 +22,9 @@ println("atoms = $(n_atoms(cr))")
 
 # Stage the inputs the SALC build consumes (these are cheap relative to it).
 sg = analyze_symmetry(SpglibBackend(), cr)
-nl = build_neighbor_list(cr, spec.pair_cutoff, MinimumImage())
-cs = build_clusters(cr, nl, sg; nbody = spec.nbody, selection = MinimumImage())
+nl = build_neighbor_list(cr, SCEFitting._superset_cutoff(spec), MinimumImage())
+cs = build_clusters(cr, nl, sg; nbody = spec.nbody, selection = MinimumImage(),
+                         cutoff = spec.cutoff)
 
 bench_one("build_salc_basis", () -> build_salc_basis(cr, sg, cs;
               lmax_by_species = spec.lmax, isotropy = spec.isotropy))

@@ -26,7 +26,7 @@ lat  = Lattice([a -a/2 0.0; 0.0 a*sqrt(3)/2 0.0; 0.0 0.0 c])
 frac = [0.0 0.5 0.5; 0.5 0.0 0.5; 0.0 0.0 0.0]
 kagome = Crystal(lat, frac, [1, 1, 1], ["Fe"])
 
-interaction = BasisSpec(; nbody = 3, pair_cutoff = 1.2, lmax = [2])   # up to 3-body, l ≤ 2
+interaction = BasisSpec(; nbody = 3, cutoff = 1.2, lmax = [2])   # up to 3-body, l ≤ 2
 basis = SCEBasis(kagome, interaction; backend = SpglibBackend())
 
 (space_group = basis.spacegroup.symbol, n_salc = n_salcs(basis))
@@ -58,7 +58,7 @@ end
 # The representative 3-body cluster: home atoms + their periodic lattice shifts.
 # (These construction internals are public but unexported — call them qualified.)
 sg   = SCEFitting.analyze_symmetry(SpglibBackend(), kagome)
-nl   = SCEFitting.build_neighbor_list(kagome, interaction.pair_cutoff, MinimumImage())
+nl   = SCEFitting.build_neighbor_list(kagome, SCEFitting._superset_cutoff(interaction), MinimumImage())
 clus = SCEFitting.build_clusters(kagome, nl, sg; nbody = 3).by_body[3][1].representative
 corners = [Point2f((A * Float64.(clus.shifts[k]) + base[:, clus.atoms[k]])[1:2]...)
            for k in 1:3]

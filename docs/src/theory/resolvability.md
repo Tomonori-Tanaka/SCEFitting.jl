@@ -28,9 +28,9 @@ must exceed ``L/2`` along the faces — exactly where it starts sweeping in the 
 (non-resolvable) images. This face-vs-corner mismatch is the classic source of
 ``L/2``-plane double-counting errors.
 
-So `pair_cutoff` is not a sphere radius applied blindly. The default [`MinimumImage`](@ref)
+So `cutoff` is not a sphere radius applied blindly. The default [`MinimumImage`](@ref)
 selection keeps, per atom pair, only the minimum-image displacement(s), trimmed by the
-radial cutoff; `pair_cutoff = Inf` keeps the whole WS cell (Magesty spells this
+radial cutoff; `cutoff = Inf` keeps the whole WS cell (Magesty spells this
 `cutoff = -1`).
 
 ## Boundary ties

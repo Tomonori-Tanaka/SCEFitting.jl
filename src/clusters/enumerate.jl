@@ -40,8 +40,8 @@ function _dmin2_matrix(neighbors::NeighborList, nat::Int)::Matrix{Float64}
 end
 
 """
-    candidate_clusters(crystal, neighbors, nbody; selection = MinimumImage())
-        -> Dict{Int,Vector{ClusterMember}}
+    candidate_clusters(crystal, neighbors, nbody; selection = MinimumImage(),
+                       cutoff = nothing) -> Dict{Int,Vector{ClusterMember}}
 
 Enumerate candidate clusters per body order (`1:nbody`), anchored with the first
 site in the home cell. 1-body clusters are the individual atoms; an `N`-body
@@ -56,12 +56,27 @@ clique cannot be built from an aliased, non-minimum-image bond — and under
 [`AllImages`](@ref) iff it is within the radial cutoff. The `selection` should match
 the one that built `neighbors`. For a cutoff below half the smallest perpendicular
 cell width the two rules coincide (each in-cutoff image is already the minimum one).
+
+`cutoff` optionally gives per-body-order, per-species-pair radii (Å) as a vector
+of symmetric matrices, `cutoff[N - 1][a, b]` for body order `N ≥ 2` — the
+[`BasisSpec`](@ref) canonical form. Every edge of an `N`-body cluster must then
+*also* fit its own species-pair radius for that order — under [`MinimumImage`](@ref)
+the pair's minimum-image distance is gated (exactly the neighbor-list admission, so
+a WS-boundary tie shell is never split), under [`AllImages`](@ref) each image's own
+distance — so `neighbors` may be built at a superset radius (the element-wise
+max over orders) and trimmed here. `nothing` keeps the single-radius behavior
+(`MinimumImage`: the neighbor list already trimmed; `AllImages`:
+`neighbors.cutoff`).
 """
-function candidate_clusters(crystal::Crystal, neighbors::NeighborList,
-                            nbody::Integer;
-                            selection::AbstractImageSelection =
-                                MinimumImage())::Dict{Int,Vector{ClusterMember}}
+function candidate_clusters(
+        crystal::Crystal, neighbors::NeighborList, nbody::Integer;
+        selection::AbstractImageSelection = MinimumImage(),
+        cutoff::Union{Nothing,AbstractVector{<:AbstractMatrix{<:Real}}} =
+            nothing)::Dict{Int,Vector{ClusterMember}}
     nbody >= 1 || throw(ArgumentError("nbody must be ≥ 1"))
+    cutoff === nothing || length(cutoff) >= nbody - 1 ||
+        throw(ArgumentError("cutoff has $(length(cutoff)) matrices for body " *
+                            "orders 2:$nbody"))
     nat = n_atoms(crystal)
     z = SVector{3,Int}(0, 0, 0)
     out = Dict{Int,Vector{ClusterMember}}()
@@ -89,6 +104,11 @@ function candidate_clusters(crystal::Crystal, neighbors::NeighborList,
     # AllImages edge cutoff with the same relative tolerance as the tie band (so a
     # degenerate shell at the cutoff is admitted whole, not split by round-off).
     cut2 = neighbors.cutoff^2 * fac
+    # Per-body species-pair edge radii, squared and carrying the same relative
+    # band (per pair, so a degenerate shell at a pair-specific radius stays whole).
+    sp = crystal.species
+    percut2 = cutoff === nothing ? nothing :
+              [Float64.(M) .^ 2 .* fac for M in cutoff]
 
     for N = 2:nbody
         members = ClusterMember[]
@@ -116,9 +136,20 @@ function candidate_clusters(crystal::Crystal, neighbors::NeighborList,
                     for y = (x + 1):N
                         ay = full[y][1]
                         d2 = sum(abs2, sitepos(full[y]...) - px)
+                        # This order's own species-pair radius: under MinimumImage it
+                        # gates the PAIR by its minimum-image distance (`dmin2 ≤
+                        # cut²·fac` ⇔ the neighbor-list admission `best ≤ cut·(1+rtol)`,
+                        # so a WS-boundary tie shell is kept or dropped whole and the
+                        # superset-list + per-order trim is exactly a per-order build);
+                        # under AllImages each image is its own edge, banded like the
+                        # single-radius `cut2` (the neighbor-list side is unbanded —
+                        # a pre-existing ~1e-8 asymmetry on the spin-spiral path).
                         admit = use_minimage ?
-                            (isfinite(dmin2[ax, ay]) && d2 <= dmin2[ax, ay] * fac) :
-                            (d2 <= cut2)
+                            (isfinite(dmin2[ax, ay]) && d2 <= dmin2[ax, ay] * fac &&
+                             (percut2 === nothing ||
+                              dmin2[ax, ay] <= percut2[N - 1][sp[ax], sp[ay]])) :
+                            (percut2 === nothing ? d2 <= cut2 :
+                             d2 <= percut2[N - 1][sp[ax], sp[ay]])
                         if !admit
                             ok = false
                             break

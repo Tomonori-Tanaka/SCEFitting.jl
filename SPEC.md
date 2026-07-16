@@ -119,7 +119,8 @@ capability consumed by both the introspection and the Sunny interop.
   Magesty: per-`(body, ls, Lf)` invariant-subspace dimensions agree through 3-body.
 
 ### fitting + SCE API (M8, M9)
-- `BasisSpec` (validated: `nbody ≥ 1`, `pair_cutoff > 0` or `Inf`, nonempty `lmax`
+- `BasisSpec` (validated: `nbody ≥ 1`, symmetric per-body `cutoff` matrices with
+  entries `≥ 0` or `Inf`, `lsum ≥ 0` per body order, nonempty `lmax`
   with entries ≥ 0), `SCEBasis` (carries its spec in the `spec` field), `SCEDataset`
   (energy design matrix `X_E`, and the
   torque design matrix `X_T` via the four-argument form), `SCEPredictor`/`SCEFit`
@@ -145,7 +146,9 @@ capability consumed by both the introspection and the Sunny interop.
 - **Persistence** (`io/persist.jl`): `SCEFitting.save(path, x)` and
   `SCEFitting.load(SCEBasis | SCEPredictor, path)` serialize a self-contained,
   human-readable **TOML** document — the crystal, the space-group ops, the basis spec
-  (document key `"spec"`; schema version 2 renamed it from `"interaction"`),
+  (document key `"spec"`; schema version 2 renamed it from `"interaction"`, version 3
+  stores the resolved truncation — per-body `cutoff` matrices, `lsum`, labels — and
+  still reads v2's scalar `pair_cutoff`),
   and the *full* SALC basis (every member / term / folded tensor); a model adds `j0`
   and per-`SALCKey` coefficients. Reload reconstructs the basis verbatim (no
   re-projection) and re-pairs coefficients to the basis **by key**, not by position.
@@ -156,7 +159,7 @@ capability consumed by both the introspection and the Sunny interop.
 - **TOML input** (`io/input.jl`): `read_setup(path) -> (; crystal, spec, backend, tol, images)`
   and `SCEBasis(path::AbstractString; backend, tol, images)` build a basis from a human-authored
   `input.toml` (`[structure]` inline crystal, `[interaction]` with optional `images`
-  (`"minimum_image"` default / `"all_images"`) and `pair_cutoff = inf` for the full WS
+  (`"minimum_image"` default / `"all_images"`) and `cutoff = inf` for the full WS
   cell, optional `[symmetry]`);
   keyword arguments override the file's backend/tol. Training data and the estimator
   stay in Julia (mirrors the basis/data separation).

@@ -49,7 +49,7 @@ The rebuild makes the selection explicit (`AbstractImageSelection`):
   dropped: in plain PBC both ends share `e_i`, so the term is a constant (`Lf=0`) or a
   1-body alias (`Lf>0`), never an independent pair; likewise an `N`-body cluster must use
   distinct atoms, since a reused atom image aliases a lower-body term. The radial cutoff
-  merely trims this set, and `pair_cutoff = Inf` keeps the whole WS cell (Magesty spells
+  merely trims this set, and `cutoff = Inf` keeps the whole WS cell (Magesty spells
   this `cutoff = -1`). The minimum-image search box is grown adaptively to a provably
   sufficient range (`|n_d| ≤ ‖b_d‖·d_min + 1`), so heavily skewed / non-reduced cells
   cannot silently return a wrong "minimum".
@@ -82,7 +82,7 @@ realize all three minimal edges at once, just as an equilateral triangle does no
 a ring.) On the WS boundary the tied images then multiply the compact N-body clusters the
 way they multiply pairs, and the symmetry reduction must group these without over- or
 under-merging. Because this combinatorics is easy to get subtly wrong, the full count —
-the candidate set for `N = 2, 3, 4` (including `pair_cutoff = Inf`, the whole WS cell) and
+the candidate set for `N = 2, 3, 4` (including `cutoff = Inf`, the whole WS cell) and
 the symmetry-orbit partition — is pinned in `test/unit/test_ws_nbody.jl` against an
 **independent brute-force enumeration** of all compact clusters, on cells deliberately
 seeded with face / edge / corner ties (cubic face-atoms, fcc, skewed hexagonal). The
@@ -216,7 +216,7 @@ zero-dependency format:
 
 - **Input** (`io/input.jl`): a human-authored `input.toml` — `[structure]` (inline
   crystal: `lattice` as a list of the three lattice vectors, fractional `positions`,
-  per-atom `species`, `species_labels`), `[interaction]` (`nbody`, `pair_cutoff`,
+  per-atom `species`, `species_labels`), `[interaction]` (`nbody`, `cutoff`, `lsum`,
   per-species `lmax`, `isotropy`), and optional `[symmetry]` (`backend`, `tol`).
   `SCEBasis("input.toml")` builds the basis; keyword arguments override the file's
   backend/tol. Like Magesty, training data and the estimator are kept **out** of this

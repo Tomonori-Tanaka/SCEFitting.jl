@@ -56,7 +56,7 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
         # dataset-level guards
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-        basis = SCEBasis(cr, BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [1],
+        basis = SCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
                                        isotropy = true))
         @test_throws ArgumentError SCEDataset(basis, SpinDatum[])             # empty data
         # all-zero torque targets with use_torque = true must fail loudly
@@ -70,7 +70,7 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
     @testset "source → dataset round trip carries directions / energies / torques" begin
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
-        basis = SCEBasis(cr, BasisSpec(; nbody = 2, pair_cutoff = 1.5, lmax = [1],
+        basis = SCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
                                        isotropy = true))
         rng = MersenneTwister(5)
         data = [SpinDatum(0.1 * k, randn(rng, 3, 2), 0.1 .* randn(rng, 3, 2)) for k = 1:4]

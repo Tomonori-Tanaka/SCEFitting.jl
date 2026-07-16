@@ -42,7 +42,7 @@ frac = [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75]
 chain = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
 
 # nearest-neighbor 2-body interaction, isotropic (Heisenberg) channel only
-interaction = BasisSpec(; nbody = 2, pair_cutoff = 2.6, lmax = [1], isotropy = true)
+interaction = BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1], isotropy = true)
 basis = SCEBasis(chain, interaction; backend = SpglibBackend())
 
 # synthetic Heisenberg data E = J Σ_⟨ij⟩ e_i·e_j, then fit
@@ -89,7 +89,7 @@ species_labels = ["Fe"]
 
 [interaction]
 nbody = 2
-pair_cutoff = 2.6
+cutoff = 2.6
 lmax = [1]
 isotropy = true
 
@@ -199,7 +199,7 @@ constrained-noncollinear VASP inputs.)
 - **Minimum-image periodic resolvability** — the default `MinimumImage` selection
   enumerates exactly the Wigner–Seitz-cell pairs a finite supercell can resolve (the
   corner `(L/2,L/2,L/2)` at `√3·L/2`, not a sphere of radius `L/2`), so no aliased,
-  collinear interactions enter the fit; `pair_cutoff = Inf` takes the whole cell.
+  collinear interactions enter the fit; `cutoff = Inf` takes the whole cell.
 - **Real Wigner-D from the package's own `Zₗₘ`** by an exact least-squares fit —
   convention-consistent by construction, handles improper rotations natively.
 - **Orbit–stabilizer SALC projection** with a deterministic gauge and canonical
