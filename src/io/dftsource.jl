@@ -61,6 +61,8 @@ are roughly constant across configurations (large longitudinal variation would b
 The zero-moment placeholder direction is a divide-by-zero guard; a *magnetic* site that
 quenches to `‖m_a‖ ≈ 0` in some configuration therefore enters with a fictitious
 direction and a zero torque (a small bias) — prefer dropping such configurations.
+(`SCEDataset` rejects a placeholder on a basis-referenced atom; if you change this
+tolerance, pass the same value to its `zero_moment_atol` so the guard stays aligned.)
 """
 function SpinDatum(energy::Real, moments::AbstractMatrix{<:Real},
                    field::AbstractMatrix{<:Real}; zero_moment_atol::Real = 1e-10)::SpinDatum
@@ -95,8 +97,37 @@ Read all training configurations from a DFT source. Implemented per source type
 read_configs(src::AbstractDFTSource) =
     throw(ArgumentError("read_configs is not implemented for $(typeof(src))"))
 
+# Every atom the SALC basis references must carry a nonzero magnetic moment in every
+# configuration: a quenched (‖m‖ ≈ 0) moment on a referenced atom enters the design
+# matrix through the ẑ placeholder direction of `SpinDatum` and silently biases the
+# fit. Unreferenced atoms (species removed with `lmax = 0`, or sites outside every
+# admitted cluster) may be non-magnetic — their moments are never consulted.
+function _check_referenced_moments(basis::SCEBasis, data::AbstractVector{SpinDatum};
+                                   atol::Real)
+    ref = _referenced_atoms(basis)
+    nat = length(ref)
+    labels = basis.crystal.species_labels
+    for (i, d) in enumerate(data)
+        length(d.magmoms) == nat ||
+            throw(DimensionMismatch("config $i has $(length(d.magmoms)) atoms, " *
+                                    "basis expects $nat"))
+        for a = 1:nat
+            (ref[a] && d.magmoms[a] <= atol) || continue
+            lab = labels[basis.crystal.species[a]]
+            throw(ArgumentError(
+                "config $i: atom $a ($lab) has a zero magnetic moment " *
+                "(‖m‖ = $(d.magmoms[a]) ≤ $atol) but is referenced by the SALC basis " *
+                "— its placeholder ẑ direction would silently bias the fit. Drop the " *
+                "configuration, or, if the species is non-magnetic, remove it from " *
+                "the basis with lmax = 0"))
+        end
+    end
+    return nothing
+end
+
 """
-    SCEDataset(basis, data::AbstractVector{SpinDatum}; use_torque = true) -> SCEDataset
+    SCEDataset(basis, data::AbstractVector{SpinDatum}; use_torque = true,
+               zero_moment_atol = 1e-10) -> SCEDataset
     SCEDataset(basis, src::AbstractDFTSource; use_torque = true) -> SCEDataset
 
 Build a fit-ready [`SCEDataset`](@ref) from training data (or directly from a DFT
@@ -105,10 +136,21 @@ energies the energy targets; with `use_torque = true` the per-atom torque target
 are included as well (for an energy+torque co-fit — see [`fit`](@ref)). Pass
 `use_torque = false` for an energy-only dataset (e.g. unconstrained data with no
 meaningful field).
+
+Every atom the SALC basis references must carry a nonzero moment (`> zero_moment_atol`,
+μ_B) in every configuration — a quenched moment would otherwise enter the fit through
+the `ẑ` placeholder direction of [`SpinDatum`](@ref) and silently bias it, so it is an
+error. Atoms the basis never reads (a species removed with `lmax = 0`, or sites outside
+every admitted cluster) are exempt. The guard re-derives quenched atoms from the stored
+magnitudes, so if the `SpinDatum`s were built with a custom `zero_moment_atol`, pass the
+same value here — a looser build tolerance with the default guard tolerance would let a
+placeholder direction through (both default to `1e-10`).
 """
 function SCEDataset(basis::SCEBasis, data::AbstractVector{SpinDatum};
-                    use_torque::Bool = true)::SCEDataset
+                    use_torque::Bool = true,
+                    zero_moment_atol::Real = 1e-10)::SCEDataset
     isempty(data) && throw(ArgumentError("no training data"))
+    _check_referenced_moments(basis, data; atol = zero_moment_atol)
     configs = [d.directions for d in data]
     energies = Float64[d.energy for d in data]
     if use_torque

@@ -201,6 +201,11 @@ torque design matrix `X_T` for an energy+torque co-fit (see [`fit`](@ref)). Its
 rows are flattened config-major, then atom-major, then `xyz`:
 `row = 3·n_atoms·(config−1) + 3·(atom−1) + component`. Torque-free datasets leave
 `X_T`/`y_T` empty.
+
+Datasets support `length` (number of configs), configuration slicing
+`dataset[idx]` (integer vector/range, `Bool` mask, or `:`), and `vcat` of parts
+built on the same basis — see those methods for train/test splitting and
+incremental data addition.
 """
 struct SCEDataset
     basis::SCEBasis
@@ -218,6 +223,90 @@ Whether `dataset` carries torque training data (so an energy+torque co-fit is
 possible).
 """
 has_torque(d::SCEDataset) = !isempty(d.y_T)
+
+# Atoms that appear in some SALC member of `basis` — the sites whose spin the model
+# actually reads. A species removed by `lmax = 0` (or a site that never enters an
+# admitted cluster) is unreferenced, and its training moments are never consulted.
+function _referenced_atoms(basis::SCEBasis)::BitVector
+    ref = falses(n_atoms(basis.crystal))
+    for s in salcs(basis), mem in s.members, a in mem.atoms
+        ref[a] = true
+    end
+    return ref
+end
+
+# --- dataset views: length / slicing / concatenation ---------------------------
+
+"""
+    length(dataset::SCEDataset) -> Int
+
+The number of training configurations in `dataset`.
+"""
+Base.length(d::SCEDataset) = length(d.configs)
+
+Base.firstindex(d::SCEDataset) = 1
+Base.lastindex(d::SCEDataset) = length(d)
+
+"""
+    dataset[idx] -> SCEDataset
+
+Select the configurations `idx` — an integer vector or range, a `Bool` mask, or `:`
+— into a new [`SCEDataset`](@ref) on the same basis. Design-matrix rows are sliced,
+never recomputed, so train/test splits and filters are cheap:
+`train, test = dataset[1:80], dataset[81:end]`. Duplicate indices are allowed
+(bootstrap-style resampling). See also `vcat` for the reverse operation.
+"""
+function Base.getindex(d::SCEDataset, idx::AbstractVector{<:Integer})::SCEDataset
+    isempty(idx) && throw(ArgumentError("empty configuration selection"))
+    cfgs = d.configs[idx]                       # BoundsError on an out-of-range index
+    X_E = d.X_E[idx, :]
+    y_E = d.y_E[idx]
+    has_torque(d) || return SCEDataset(d.basis, cfgs, X_E, y_E, d.X_T, d.y_T)
+    # torque rows come in per-config blocks of 3·n_atoms (config-major layout)
+    nrow = 3 * n_atoms(d.basis.crystal)
+    rows = reduce(vcat, [(nrow * (i - 1) + 1):(nrow * i) for i in idx])
+    return SCEDataset(d.basis, cfgs, X_E, y_E, d.X_T[rows, :], d.y_T[rows])
+end
+
+function Base.getindex(d::SCEDataset, mask::AbstractVector{Bool})::SCEDataset
+    length(mask) == length(d) ||
+        throw(DimensionMismatch("mask has $(length(mask)) entries, dataset has " *
+                                "$(length(d)) configs"))
+    return d[findall(mask)]
+end
+
+Base.getindex(d::SCEDataset, ::Colon)::SCEDataset = d[1:length(d)]
+
+"""
+    vcat(a::SCEDataset, b::SCEDataset...) -> SCEDataset
+
+Concatenate datasets built on the **same basis** — checked by the SALC-basis
+fingerprint, so a dataset built from a persisted-and-reloaded basis concatenates
+with one built in-session. All parts must agree on carrying torque data or not.
+Together with `dataset[idx]` this supports incremental data addition and
+resampling without rebuilding design matrices.
+"""
+function Base.vcat(a::SCEDataset, rest::SCEDataset...)::SCEDataset
+    isempty(rest) && return a
+    parts = (a, rest...)
+    for (k, b) in enumerate(parts)
+        b.basis.salc_basis.fingerprint == a.basis.salc_basis.fingerprint ||
+            throw(ArgumentError("dataset $k was built on a different basis " *
+                                "(SALC fingerprint mismatch)"))
+        n_atoms(b.basis.crystal) == n_atoms(a.basis.crystal) ||
+            throw(ArgumentError("dataset $k has $(n_atoms(b.basis.crystal)) atoms " *
+                                "per config, dataset 1 has $(n_atoms(a.basis.crystal))"))
+        has_torque(b) == has_torque(a) ||
+            throw(ArgumentError("cannot vcat torque-bearing and energy-only datasets " *
+                                "(dataset $k differs from dataset 1)"))
+    end
+    return SCEDataset(a.basis,
+                      reduce(vcat, [p.configs for p in parts]),
+                      reduce(vcat, [p.X_E for p in parts]),
+                      reduce(vcat, [p.y_E for p in parts]),
+                      reduce(vcat, [p.X_T for p in parts]),
+                      reduce(vcat, [p.y_T for p in parts]))
+end
 
 # Spin configurations must be `3 × n_atoms` with finite, unit-norm columns — the
 # contract the harmonic kernels assume (they call `Zlm_unsafe`, skipping per-call

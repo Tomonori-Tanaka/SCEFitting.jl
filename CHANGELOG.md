@@ -6,6 +6,23 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — dataset slicing / `vcat`, zero-moment guard
+
+- `SCEDataset` now supports `length` (configuration count), configuration
+  slicing `dataset[idx]` (integer vector/range, `Bool` mask, or `:`; duplicate
+  indices allowed for bootstrap-style resampling), and `vcat` of datasets built
+  on the same basis (checked by SALC fingerprint, so parts built from a
+  persisted-and-reloaded basis concatenate; torque-bearing and energy-only
+  parts do not mix). Design-matrix rows are sliced, never recomputed — the
+  cheap path for train/test splits, filtering, and incremental data addition.
+- `SCEDataset(basis, data::Vector{SpinDatum})` (and the `AbstractDFTSource`
+  path through it) now **errors** when an atom referenced by the SALC basis
+  carries a (near-)zero magnetic moment in some configuration
+  (`zero_moment_atol = 1e-10` μ_B): such an atom previously entered the design
+  matrix through `SpinDatum`'s placeholder `ẑ` direction and silently biased
+  the fit. Unreferenced atoms (species removed with `lmax = 0`, sites outside
+  every admitted cluster) are exempt. Matches Magesty's guard.
+
 ### Changed — BasisSpec truncation: per-body `lsum`, per-body × per-pair `cutoff`
 
 **Breaking**: `BasisSpec`'s `pair_cutoff` keyword (and field) is replaced by

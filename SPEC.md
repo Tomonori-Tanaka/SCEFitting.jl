@@ -123,7 +123,11 @@ capability consumed by both the introspection and the Sunny interop.
   entries `≥ 0` or `Inf`, `lsum ≥ 0` per body order, nonempty `lmax`
   with entries ≥ 0), `SCEBasis` (carries its spec in the `spec` field), `SCEDataset`
   (energy design matrix `X_E`, and the
-  torque design matrix `X_T` via the four-argument form), `SCEPredictor`/`SCEFit`
+  torque design matrix `X_T` via the four-argument form; supports `length`,
+  configuration slicing `dataset[idx]` — integer/`Bool`/`:` — and `vcat` of
+  same-fingerprint parts, all without recomputing design rows; the
+  `SpinDatum`/source path rejects a zero moment on a basis-referenced atom),
+  `SCEPredictor`/`SCEFit`
   (plus the public constructor `SCEPredictor(basis, j0, jphi)` for synthetic models —
   keys filled in from the basis),
   `fit(SCEFit, dataset, estimator; torque_weight)`, `refit(f, estimator; threshold)`

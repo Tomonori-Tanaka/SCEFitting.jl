@@ -67,6 +67,37 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
         @test !has_torque(ds)
     end
 
+    @testset "zero-moment guard: referenced atoms must stay magnetic" begin
+        lat = Lattice(Matrix(3.0 * I(3)))
+        # Fe + B; B is removed from the basis via lmax = 0 (non-magnetic species),
+        # so only the Fe single-ion SALCs reference an atom (no Fe–Fe pair exists:
+        # a single Fe atom has no self-pair under MinimumImage).
+        cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 2], ["Fe", "B"])
+        basis = SCEBasis(cr, BasisSpec(cr; nbody = 2, cutoff = 1.5,
+                                       lmax = ["Fe" => 2, "B" => 0]))
+        # quenched B is fine — the basis never reads it
+        m_okay = [2.0 0.0; 0.0 0.0; 0.0 0.0]
+        ds = SCEDataset(basis, [SpinDatum(0.0, m_okay, zeros(3, 2))];
+                        use_torque = false)
+        @test length(ds) == 1
+        # quenched Fe is an error naming the config, atom, and species
+        m_bad = [0.0 0.0; 0.0 1.0; 0.0 0.0]
+        err = try
+            SCEDataset(basis, [SpinDatum(0.0, m_okay, zeros(3, 2)),
+                               SpinDatum(0.0, m_bad, zeros(3, 2))];
+                       use_torque = false)
+            nothing
+        catch e
+            e
+        end
+        @test err isa ArgumentError
+        @test occursin("config 2", err.msg) && occursin("(Fe)", err.msg)
+        # atom-count mismatch is caught at the same boundary
+        @test_throws DimensionMismatch SCEDataset(
+            basis, [SpinDatum(0.0, zeros(3, 3) .+ 1.0, zeros(3, 3))];
+            use_torque = false)
+    end
+
     @testset "source → dataset round trip carries directions / energies / torques" begin
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])

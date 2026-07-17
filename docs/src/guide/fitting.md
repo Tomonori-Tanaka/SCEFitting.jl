@@ -26,7 +26,30 @@ dataset = SCEDataset(basis, configs, energies, torques)   # torques: each 3 × n
 ```
 
 You can also go straight from a DFT source (see [Persistence and I/O](io.md)):
-`SCEDataset(basis, src)`.
+`SCEDataset(basis, src)`. On that path every atom the SALC basis references must
+carry a nonzero magnetic moment in every configuration — a quenched moment would
+enter the fit through a placeholder direction and silently bias it, so it is an
+error. Species that are genuinely non-magnetic belong outside the basis
+(`lmax = 0`), and their moments are then never consulted.
+
+### Slicing and concatenation
+
+Datasets slice by configuration and concatenate without recomputing design
+matrices, which makes train/test splits, filtering, and incremental data addition
+cheap:
+
+```julia
+train, test = dataset[1:80], dataset[81:end]   # ranges, index vectors, Bool masks, :
+f = fit(SCEFit, train, OLS())
+rmse_holdout = sqrt(sum(abs2, predict_energy(f, test.configs) .- test.y_E) / length(test))
+
+more = SCEDataset(basis2, new_configs, new_energies)
+dataset = vcat(dataset, more)     # basis2 must be the same basis (fingerprint-checked)
+```
+
+`vcat` accepts parts built on a persisted-and-reloaded basis (the check is the
+SALC-basis fingerprint, not object identity); mixing torque-bearing and
+energy-only datasets is an error.
 
 ## The fit and the analytic intercept
 

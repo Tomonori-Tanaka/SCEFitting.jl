@@ -88,6 +88,15 @@ salcs
 read_setup
 ```
 
+Datasets slice and concatenate without recomputing design rows (see
+[Slicing and concatenation](guide/fitting.md#Slicing-and-concatenation)):
+
+```@docs
+Base.length(::SCEDataset)
+Base.getindex(::SCEDataset, ::AbstractVector{<:Integer})
+Base.vcat(::SCEDataset, ::SCEDataset...)
+```
+
 ## Fitting
 
 `fit` and `islinear` extend the [StatsAPI](https://github.com/JuliaStats/StatsAPI.jl)
