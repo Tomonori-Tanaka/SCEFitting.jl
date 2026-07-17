@@ -155,4 +155,17 @@ Adding another code is one more sibling adapter in SCETools — the core and its
 not change. SCETools.VASP also writes the *inverse* direction (sampled configurations →
 constrained-noncollinear INCAR / input sets) for generating new training data.
 
+### Legacy Magesty training sets (EMBSET)
+
+The one concrete format the core ships is Magesty's **EMBSET** training set — it is
+DFT-code-agnostic (energies plus per-atom moment and constraining-field vectors, exactly
+what [`SpinDatum`](@ref) stores), so an existing Magesty data set drops straight in:
+
+```julia
+dataset = SCEDataset(basis, EmbsetFile("EMBSET"))        # or read_embset("EMBSET")
+```
+
+See [`read_embset`](@ref) for the format and its validation rules (the reader is
+cross-checked against Magesty's own in the oracle suite).
+
 Next: [Sunny export](sunny.md).

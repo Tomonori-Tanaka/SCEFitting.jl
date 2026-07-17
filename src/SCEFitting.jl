@@ -73,6 +73,7 @@ include("interop/sunny.jl")
 include("io/persist.jl")
 include("io/input.jl")
 include("io/dftsource.jl")
+include("io/embset.jl")
 
 # --- Public API (exported) --------------------------------------------------------
 # The fitting workflow a user reaches for. Construction internals (cluster / neighbor /
@@ -102,8 +103,11 @@ export to_sunny
 export MultipoleTerm, multipole_terms, bilinear_terms
 # DFT data I/O: only the code-agnostic boundary is exported; per-code adapters live in
 # downstream packages as namespaced submodules (e.g. `SCETools.VASP.read_poscar`), so
-# adding a code touches neither the core nor this export list.
+# adding a code touches neither the core nor this export list. The one in-core format
+# is Magesty's EMBSET training set — code-agnostic (it carries exactly what SpinDatum
+# stores), kept here for legacy-data reuse.
 export AbstractDFTSource, SpinDatum, read_configs
+export EmbsetFile, read_embset
 
 # --- Public, unexported -----------------------------------------------------------
 # Reachable as `SCEFitting.<name>` (and documented), but kept out of the flat `using`

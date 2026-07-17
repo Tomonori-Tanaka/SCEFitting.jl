@@ -181,7 +181,9 @@ capability consumed by both the introspection and the Sunny interop.
   package** (`SCETools.VASP`: `read_poscar`/`write_poscar`, `Oszicar` with SAXIS rotation,
   and the INCAR writer), not in the core. Adding a DFT code is one sibling adapter there —
   neither the core nor its export list changes; the VASP parsers are cross-checked bit-for-bit
-  against Magesty in SCETools's oracle.
+  against Magesty in SCETools's oracle. The one in-core concrete format is Magesty's
+  code-agnostic EMBSET training set (`io/embset.jl`): `read_embset` + the `EmbsetFile`
+  source, cross-checked against `Magesty.read_embset` in this package's oracle.
 - Validated: basis / model / fit round-trips (predictions bit-identical, coefficients
   re-paired by key under scrambled order, multi-op space-group ops, empty basis), input
   parsing + defaults + keyword overrides + error paths.

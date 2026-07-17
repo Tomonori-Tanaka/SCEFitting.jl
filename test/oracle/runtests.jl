@@ -334,4 +334,34 @@ end
 
     # The VASP POSCAR / OSZICAR parsers moved to SCETools.jl; their bit-for-bit cross-check
     # against Magesty lives in `SCETools.jl/test/oracle/`.
+
+    @testset "EMBSET reader vs Magesty" begin
+        # Same file through both readers: energies, unit directions, magnitudes, and the
+        # constraining field must agree bit-for-bit (both split m into ‖m‖ · e). The
+        # torque convention is NOT compared — each package derives its own from (m, B).
+        rng = MersenneTwister(7)
+        nat, nconf = 5, 3
+        dir = mktempdir()
+        path = joinpath(dir, "EMBSET")
+        open(path, "w") do io
+            for c = 1:nconf
+                println(io, "# config $c")
+                println(io, " ", -10.0 - c)
+                for a = 1:nat
+                    m = a == 4 ? zeros(3) : randn(rng, 3)      # one non-magnetic atom
+                    B = 0.1 .* randn(rng, 3)
+                    println(io, " $a  ", join(m, " "), "  ", join(B, " "))
+                end
+            end
+        end
+        ours = SCEFitting.read_embset(path)
+        theirs = Magesty.read_embset(path)
+        @test length(ours) == length(theirs) == nconf
+        for c = 1:nconf
+            @test ours[c].energy == theirs[c].energy
+            @test ours[c].magmoms == theirs[c].magmom_size
+            @test ours[c].directions == theirs[c].spin_directions
+            @test ours[c].field == theirs[c].local_magfield
+        end
+    end
 end

@@ -6,6 +6,21 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — EMBSET reader (legacy Magesty training sets)
+
+- `read_embset(path; n_atoms = nothing, zero_moment_atol = 1e-10)` and the
+  `EmbsetFile` `AbstractDFTSource`, so a legacy Magesty training set drops
+  straight into the pipeline: `SCEDataset(basis, EmbsetFile("EMBSET"))`. The
+  format is code-agnostic (energy + per-atom moment and constraining-field
+  vectors — exactly what `SpinDatum` stores), hence in-core rather than an
+  SCETools adapter. Stricter than Magesty's reader on malformed input: the
+  atom-index column must match the position in its block (Magesty silently
+  ignores it), every numeric field must be finite (`NaN`/`Inf` — a failed SCF —
+  is an error, not a silent training row), and every failure names the
+  config/atom. More lenient on shape: block detection is token-based, so files
+  without `#` separators parse (Magesty requires them). Cross-checked against
+  `Magesty.read_embset` in the oracle suite.
+
 ### Added — dataset slicing / `vcat`, zero-moment guard
 
 - `SCEDataset` now supports `length` (configuration count), configuration

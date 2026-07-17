@@ -244,6 +244,14 @@ SpinDatum
 read_configs
 ```
 
+The one in-core concrete format is Magesty's (code-agnostic) EMBSET training set,
+for legacy-data reuse:
+
+```@docs
+EmbsetFile
+read_embset
+```
+
 ## Persistence
 
 `save` / `load` are intentionally **not exported** (the names clash with FileIO / JLD2 /
