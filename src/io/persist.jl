@@ -23,8 +23,13 @@ const _SCHEMA_MODEL = "scefitting/sce-model"
 #     "cutoff" matrices (species × species, Inf = no cutoff), plus "lsum" (per body
 #     order, typemax(Int64) = uncapped) and "species_labels". v2 docs are still
 #     readable (`_spec_from` expands the legacy scalar).
-const PERSIST_SCHEMA_VERSION = 3
-const _PERSIST_READABLE_VERSIONS = (2, 3)
+# v4: SALC members stored in the canonical duplicate-free form
+#     (`_canonicalize_members`): one member per physical cluster instance instead of
+#     one per ordered image (up to N! smaller). Older docs are still readable —
+#     `_basis_from_doc` folds v2/v3 members on load (exact regrouping; SALC keys,
+#     coefficients, and the fingerprint are unaffected).
+const PERSIST_SCHEMA_VERSION = 4
+const _PERSIST_READABLE_VERSIONS = (2, 3, 4)
 
 # Normalize -0.0 → +0.0 so two builds of the same object serialize byte-identically
 # (eigensolvers on different BLAS can flip a sign of zero); -0.0 == 0.0 anyway.
@@ -233,6 +238,13 @@ function _basis_from_doc(d)::SCEBasis
     sg = _symmetry_from(crystal, d["symmetry"])
     spec = _spec_from(d["spec"])
     salcs = SALC[_salc_from(s) for s in d["salcs"]]
+    if Int(d["schema_version"]) < 4
+        # Pre-v4 docs store one member per ordered image; fold them to the canonical
+        # form (exact regrouping — see `_canonicalize_members`). A SALC is kept even
+        # if folding empties it, so the stored coefficients still pair by key.
+        salcs = SALC[SALC(s.key, s.body, s.ls, s.Lf, _canonicalize_members(s.members))
+                     for s in salcs]
+    end
     keyvec = SALCKey[s.key for s in salcs]
     if !issorted(keyvec)
         p = sortperm(keyvec)

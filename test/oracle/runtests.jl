@@ -197,11 +197,14 @@ end
             end
         end
 
-        # the isotropic (1,1)/Lf=0 SALC is the Heisenberg invariant: Φ = √3 Σ_members e_i·e_j
+        # the isotropic (1,1)/Lf=0 SALC is the Heisenberg invariant. Canonical members
+        # are one per undirected bond (the two directed images fold together), so
+        # Φ = 2√3 Σ_members e_i·e_j.
         heis = only(filter(s -> s.ls == [1, 1] && s.Lf == 0, basis.salcs))
         for _ = 1:10
             e = randcfg()
-            ref = sqrt(3.0) * sum(dot(e[:, m.atoms[1]], e[:, m.atoms[2]]) for m in heis.members)
+            ref = 2 * sqrt(3.0) *
+                  sum(dot(e[:, m.atoms[1]], e[:, m.atoms[2]]) for m in heis.members)
             @test isapprox(evaluate_salc(heis, e), ref; atol = 1e-9, rtol = 1e-8)
         end
     end
@@ -225,8 +228,9 @@ end
                  for a = 1:4; v = randn(rng, 3); M[:, a] = v / norm(v); end; M)
         J_true = 0.0137
         configs = [cfg() for _ = 1:30]
-        # physical Heisenberg energies E = J Σ_{undirected nn} e_i·e_j
-        E = [J_true * 0.5 * sum(dot(c[:, m.atoms[1]], c[:, m.atoms[2]]) for m in heis.members)
+        # physical Heisenberg energies E = J Σ_{undirected nn} e_i·e_j (canonical
+        # members are exactly the undirected nearest-neighbor bonds)
+        E = [J_true * sum(dot(c[:, m.atoms[1]], c[:, m.atoms[2]]) for m in heis.members)
              for c in configs]
 
         ds = SCEFitting.SCEDataset(basis, configs, E)
@@ -238,15 +242,15 @@ end
         @test isapprox(J_recovered, J_true; rtol = 1e-8)
 
         # torque from the fitted model vs the Heisenberg closed form. With
-        # E = J·0.5·Σ_members e_i·e_j, ∂E/∂e_a = J·0.5·Σ_members(δ_{a,i} e_j + δ_{a,j} e_i)
+        # E = J·Σ_members e_i·e_j, ∂E/∂e_a = J·Σ_members(δ_{a,i} e_j + δ_{a,j} e_i)
         # and the physical / Landau–Lifshitz torque τ_a = −e_a × ∂E/∂e_a = ∂E/∂e_a × e_a.
         function analytic_torque(c, J)
             nat = size(c, 2)
             G = zeros(3, nat)
             for mem in heis.members
                 i, j = mem.atoms[1], mem.atoms[2]
-                G[:, i] .+= (J * 0.5) .* c[:, j]
-                G[:, j] .+= (J * 0.5) .* c[:, i]
+                G[:, i] .+= J .* c[:, j]
+                G[:, j] .+= J .* c[:, i]
             end
             return reduce(hcat, cross(SVector{3}(G[:, a]), SVector{3}(c[:, a])) for a = 1:nat)
         end

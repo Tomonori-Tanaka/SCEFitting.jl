@@ -22,11 +22,11 @@ Base.hash(k::SALCKey, h::UInt) = hash(_keytuple(k), h)
 """
     SALCTerm
 
-One `l`-ordering contributing to a (member of a) SALC: per-site angular momenta
-`ls` and the transported real coefficient tensor `folded` (rank `N`, `Mf` axis
-already contracted against the SALC coefficient). A SALC built from an `l`-multiset
-with unequal `l`'s on symmetry-equivalent sites carries one term per ordering; the
-common case (1/2-body, or equal `l`'s) is a single term.
+One `l`-assignment contributing to a (member of a) SALC: per-site angular momenta
+`ls` and the real coefficient tensor `folded` (rank `N`, `Mf` axis already
+contracted against the SALC coefficient). A SALC built from an `l`-multiset with
+unequal `l`'s on symmetry-equivalent sites carries one term per site→`l`
+assignment; the common case (1/2-body, or equal `l`'s) is a single term.
 """
 struct SALCTerm
     ls::Vector{Int}
@@ -36,9 +36,11 @@ end
 """
     SALCMember
 
-One concrete cluster instance contributing to a SALC's orbit sum: `atoms` and
-per-site lattice `shifts` (in the representative's site order), with this member's
-list of transported [`SALCTerm`](@ref)s (one per `l`-ordering).
+One concrete cluster instance contributing to a SALC's orbit sum, in the
+**canonical form** produced by `_canonicalize_members`: sites sorted by
+`(atom, shift)`, shifts re-anchored so `shifts[1] = 0`, and one
+[`SALCTerm`](@ref) per distinct site→`l` assignment (each physical instance
+appears exactly once per SALC).
 """
 struct SALCMember
     atoms::Vector{Int}
@@ -47,13 +49,74 @@ struct SALCMember
 end
 
 """
+    _canonicalize_members(members) -> Vector{SALCMember}
+
+Fold a SALC's transported members into the canonical, duplicate-free form.
+
+The projection/transport construction works with **ordered, anchored** cluster
+images (the space in which a stabilizer operation acts by simply permuting site
+axes — see `basis/salcbasis.jl`), so the same physical cluster instance arrives
+here once per site ordering (`N!` times at `N` distinct sites), each copy
+carrying an axis-permuted tensor. The contraction `Σ_μ folded[μ] ∏ᵢ Z_{lsᵢ,μᵢ}`
+is invariant under jointly permuting the site slots and the tensor axes, so the
+copies fold *exactly* into one member per physical instance:
+
+- sites sorted by `(atom, shift)`; shifts re-anchored to the first sorted site
+  (restoring the `shifts[1] = 0` home-cell convention — under periodic
+  evaluation and supercell tiling a re-anchored member is the same instance);
+- each term's `ls` and `folded` axes carried through the same permutation
+  (`permutedims`) and summed per resulting site→`l` assignment.
+
+Terms whose merged tensor is exactly zero are dropped (they contribute
+nothing), and members left with no terms are dropped. Accumulation follows the
+stored member/term order and the output is sorted, so the result is
+deterministic and idempotent. `Φ(e)` and its gradient are unchanged up to
+floating-point regrouping (the merge pre-sums tensors that were previously
+summed after contraction).
+"""
+function _canonicalize_members(members::Vector{SALCMember})::Vector{SALCMember}
+    Key = Tuple{Vector{Int},Vector{NTuple{3,Int}}}
+    acc = Dict{Key,Vector{Pair{Vector{Int},Array{Float64}}}}()
+    for m in members
+        N = length(m.atoms)
+        perm = sortperm(1:N; by = i -> (m.atoms[i], Tuple(m.shifts[i])))
+        catoms = m.atoms[perm]
+        s0 = m.shifts[perm[1]]
+        cshifts = NTuple{3,Int}[Tuple(m.shifts[perm[i]] - s0) for i = 1:N]
+        terms = get!(() -> Pair{Vector{Int},Array{Float64}}[], acc, (catoms, cshifts))
+        for t in m.terms
+            cls = t.ls[perm]
+            pf = perm == 1:N ? copy(t.folded) : permutedims(t.folded, perm)
+            slot = findfirst(p -> first(p) == cls, terms)
+            if slot === nothing
+                push!(terms, cls => pf)
+            else
+                terms[slot].second .+= pf
+            end
+        end
+    end
+    out = SALCMember[]
+    for k in sort!(collect(keys(acc)))
+        tl = SALCTerm[]
+        for (ls, F) in sort(acc[k]; by = p -> Tuple(first(p)))
+            any(!=(0.0), F) || continue
+            push!(tl, SALCTerm(ls, F))
+        end
+        isempty(tl) && continue
+        shifts = SVector{3,Int}[SVector{3,Int}(s) for s in k[2]]
+        push!(out, SALCMember(k[1], shifts, tl))
+    end
+    return out
+end
+
+"""
     SALC
 
 One symmetry-adapted, time-reversal-even scalar basis function over a cluster
 orbit. The function is the orbit sum `Φ(e) = (4π)^(N/2) Σ_members Σ_terms Σ_μ
-folded[μ] ∏ᵢ Z_{lsᵢ,μᵢ}(e_{site})`, where each member contributes one or more
-`l`-ordering terms. `SALC.ls` is the sorted `l`-multiset label (the per-term `ls`
-are its orderings). See [`build_salc_basis`](@ref).
+folded[μ] ∏ᵢ Z_{lsᵢ,μᵢ}(e_{site})`, where each member contributes one term per
+site→`l` assignment. `SALC.ls` is the sorted `l`-multiset label (the per-term
+`ls` are its assignments). See [`build_salc_basis`](@ref).
 """
 struct SALC
     key::SALCKey

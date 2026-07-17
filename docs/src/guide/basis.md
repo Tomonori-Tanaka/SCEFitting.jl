@@ -122,6 +122,12 @@ permute equivalent sites, mixing the coupling paths and — for unequal `l` — 
 [kagome three-body tutorial](../tutorials/kagome_threebody.md) shows such a multi-term
 channel; the mechanism is described in [Architecture](../theory/architecture.md).
 
+The projection's internal ordered-image bookkeeping never reaches the user: the
+construction's last step folds the members into a **canonical, duplicate-free form**
+— one member per physical cluster instance (sites sorted, `shifts[1] = 0` anchored),
+one term per site→`l` assignment — so evaluation, model files, and downstream
+consumers pay for each instance exactly once.
+
 ## What `SCEBasis` produces
 
 [`SCEBasis`](@ref) bundles the crystal, the space group, the SALC basis, and the

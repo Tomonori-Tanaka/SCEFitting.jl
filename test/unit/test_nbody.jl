@@ -118,6 +118,15 @@ end
         @test any(s -> length(s.members[1].terms) > 1, basis.salcs)
     end
 
+    @testset "members are canonical and fold exactly (3-body)" begin
+        perms = Dict(1 => ([1], [1]), 2 => ([2, 1], [1, 2]),
+                     3 => ([2, 3, 1], [1, 3, 2]))
+        for s in basis.salcs
+            check_canonical_members(s)
+            split_roundtrip_exact(s, perms)
+        end
+    end
+
     @testset "ground-truth invariance Φ(g·e)=Φ(e) and Φ(-e)=Φ(e)" begin
         rng = MersenneTwister(3)
         for _ = 1:25

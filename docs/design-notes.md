@@ -155,6 +155,23 @@ puts `l = 2` on the apex vs. on a base site — two distinct SALCs that share th
 sorted label `[1,1,2]`); `SALCKey` keeps `block` running across them so it stays
 injective (the by-key column contract, §4).
 
+**Canonical member folding.** The ordered-image space is the right place to *run*
+the projection (a stabilizer op is a plain axis permutation there), but it is a
+redundant place to *leave the output*: transporting to every ordered, anchored image
+delivers each physical cluster instance `N!` times (once per site ordering at `N`
+distinct sites), each copy an axis-permuted tensor. Since the contraction
+`Σ_μ folded[μ] ∏ᵢ Z_{lsᵢμᵢ}` is invariant under jointly permuting site slots and
+tensor axes, the construction's last step (`_canonicalize_members`) folds the copies
+exactly: sites sorted by `(atom, shift)`, shifts re-anchored to `shifts[1] = 0`,
+tensors `permutedims`-aligned and summed per site→`l` assignment. This is a pure
+regrouping — `Φ`, gradients, invariance, keys, and fingerprints are unchanged (up to
+last-ulp reassociation) — but everything downstream of the basis (design matrices,
+torque assembly, model files, Monte-Carlo contraction programs) shrinks by the
+ordering multiplicity: measured 5.7–5.9× on the Nd₂Fe₁₄B `l044` production model
+(this is also exactly Magesty's sorted-cluster bookkeeping, recovered here as a
+single post-pass instead of being woven through the construction). Pre-v4 persisted
+documents carry the redundant members and are folded on load (§ persist v4).
+
 This was **cross-validated against Magesty**: for a kagome `P6/mmm` cell the number
 of independent invariants per `(body, ls, Lf)` channel — a convention-free integer —
 matches exactly through 3-body (all 42 channels, including the multi-term and

@@ -152,7 +152,9 @@ capability consumed by both the introspection and the Sunny interop.
   human-readable **TOML** document — the crystal, the space-group ops, the basis spec
   (document key `"spec"`; schema version 2 renamed it from `"interaction"`, version 3
   stores the resolved truncation — per-body `cutoff` matrices, `lsum`, labels — and
-  still reads v2's scalar `pair_cutoff`),
+  still reads v2's scalar `pair_cutoff`; version 4 stores SALC members in the
+  canonical duplicate-free form — one member per physical cluster instance, up to
+  `N!`× smaller — and folds v2/v3 members on load),
   and the *full* SALC basis (every member / term / folded tensor); a model adds `j0`
   and per-`SALCKey` coefficients. Reload reconstructs the basis verbatim (no
   re-projection) and re-pairs coefficients to the basis **by key**, not by position.

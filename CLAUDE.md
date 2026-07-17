@@ -111,7 +111,18 @@ Easy to break silently — confirm before touching the algorithm.
   `Φ(−e) = Φ(e)`. The combined-space projection action (`_project_and_fold`) and the
   member transport (`_transport_term`) must use the *same* rotation direction and
   axis-relabel convention (`invperm(perm)`); the eigenvalue-exactly-0/1 idempotency
-  assertion and the invariance test are the gates. At `N ≥ 3` also confirm SALCs are
+  assertion and the invariance test are the gates. **The construction's last step is
+  `_canonicalize_members`** (`basis/salc.jl`): the ordered, anchored images (one per
+  site ordering — the space the projection needs) are folded to one member per
+  physical instance (sites sorted by `(atom, shift)`, `shifts[1] == 0` re-anchored,
+  tensors `permutedims`-aligned and summed per site→`l` assignment — an exact
+  regrouping). Everything downstream (evaluate/gradient kernels, introspection,
+  persistence, analytic test references like the oracle's Heisenberg
+  `Φ = 2√3 Σ_undirected`) assumes the canonical form: one member per undirected
+  instance, tensors carrying the whole (formerly per-image) weight. Gates:
+  `check_canonical_members` / `split_roundtrip_exact` (shared helpers in
+  `test/unit/testutils.jl`, applied by `test_salc.jl` and 3-body `test_nbody.jl`)
+  and the pre-v4 fold test in `test_persist.jl`. At `N ≥ 3` also confirm SALCs are
   linearly independent (design-matrix rank = #SALC). **The orbit loop in
   `build_salc_basis` is threaded** (`Threads.@threads`, one task per orbit via
   `_orbit_salcs`): orbits are independent and the output is sorted by `SALCKey`, so the
@@ -141,7 +152,10 @@ Easy to break silently — confirm before touching the algorithm.
   + symmetry), not the SALCs. Schema v3 stores `BasisSpec` **resolved and dense**
   (per-body `cutoff` matrices, `lsum` with `typemax(Int64)` = uncapped, labels) and
   `_spec_from` still expands legacy v2 scalar-`pair_cutoff` docs — keep that branch
-  alive as long as v2 model files circulate.
+  alive as long as v2 model files circulate. Schema v4 stores SALC members in the
+  canonical duplicate-free form; `_basis_from_doc` folds pre-v4 members on load
+  (`_canonicalize_members`) — keep that branch alive as long as v3 model files
+  circulate, and never write a non-canonical basis.
 - **BasisSpec sugar resolution ↔ canonical consumers** (`sce/truncation.jl`,
   `sce/model.jl`, `io/input.jl`): the ergonomic forms (label keys, `"*"` wildcards,
   body-keyed tables, unordered `"A-B"` pair keys, specificity resolution) are expanded

@@ -6,6 +6,30 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — canonical SALC members (up to `N!`× smaller basis, persist v4)
+
+- The SALC construction now folds its output into a **canonical, duplicate-free
+  member form** (`_canonicalize_members`): the projection/transport still runs
+  in the ordered-image space (where a stabilizer operation is a plain axis
+  permutation — unchanged numerics), but the emitted members are normalized to
+  one per physical cluster instance — sites sorted by `(atom, shift)`, shifts
+  re-anchored to `shifts[1] = 0`, tensors axis-permuted and summed per site→`l`
+  assignment. Previously every instance appeared once per site ordering (`N!`
+  copies at `N` distinct sites), a construction-internal redundancy that leaked
+  into evaluation. `Φ(e)`, gradients, fits, and SALC keys/fingerprints are
+  unchanged up to floating-point regrouping (the merge pre-sums tensors that
+  were previously summed after contraction); nothing is approximated.
+  Measured on the production Nd₂Fe₁₄B `l044` model (nbody 3): 405,312 → 70,680
+  multipole terms (5.73×), 4,392,744 → 744,636 tensor entries (5.90×) — the
+  same factors apply to design-matrix/torque evaluation, model files, and
+  downstream Monte-Carlo sweep cost.
+- **Persist schema v4**: models/bases are saved in the canonical form (~6×
+  smaller files for 3-body bases). v2/v3 documents remain readable — members
+  are folded on load, so existing model files get the same speedups without a
+  refit. Note the regrouping means energies of a reloaded pre-v4 model can
+  differ from the previous build at the last-ulp level (bit-identical
+  checkpoint resume across this version boundary is not preserved).
+
 ### Added — EMBSET reader (legacy Magesty training sets)
 
 - `read_embset(path; n_atoms = nothing, zero_moment_atol = 1e-10)` and the

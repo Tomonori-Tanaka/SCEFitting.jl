@@ -327,17 +327,19 @@ function _orbit_salcs(crystal::Crystal, spacegroup::SpaceGroup, N::Int, orbit_id
             for terms_rep in blocks
                 isempty(terms_rep) && continue
                 members = SALCMember[]
-                anynz = false
                 for (m, (g, perm)) in zip(O.members, conns)
                     mterms = SALCTerm[]
                     for (o, F) in terms_rep
                         mls, G = _transport_term(o, F, g, perm, wcache)
-                        norm(G) > 1e-10 && (anynz = true)
                         push!(mterms, SALCTerm(mls, G))
                     end
                     push!(members, SALCMember(m.atoms, m.shifts, mterms))
                 end
-                anynz || continue
+                # Fold the ordered, anchored images into the canonical duplicate-free
+                # form (exact regrouping; empty ⇒ the channel vanished — skip it, as
+                # the previous per-term `norm > 1e-10` check did).
+                members = _canonicalize_members(members)
+                isempty(members) && continue
                 block = get(blockcount, (lab, Lf), 0) + 1
                 blockcount[(lab, Lf)] = block
                 key = SALCKey(N, orbit_id, lab, Lf, block)

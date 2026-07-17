@@ -12,7 +12,8 @@ const TEST_MODE = get(ENV, "TEST_MODE", "default")
 
 @testset "SCEFitting.jl" begin
     if TEST_MODE in ("default", "all", "unit")
-        include("unit/testutils.jl")     # shared helpers (rand_unit / rand_rotation / randcfg)
+        include("unit/testutils.jl")     # shared helpers (rand_unit / randcfg /
+                                         # canonical-member gates)
         include("unit/test_geometry.jl")
         include("unit/test_harmonics.jl")
         include("unit/test_angmom.jl")

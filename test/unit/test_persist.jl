@@ -121,6 +121,33 @@ end
         @test predict_energy(m2, testcfgs) == predict_energy(model, testcfgs)
     end
 
+    @testset "pre-v4 docs fold to canonical members on load" begin
+        # Fabricate a v3-style document: every member expanded into two permuted,
+        # de-anchored, half-weight ordered images (the pre-v4 redundancy). Loading
+        # must fold it back to the canonical members bit-exactly (0.5·T + 0.5·T).
+        doc = MR._to_doc(model)
+        doc["schema_version"] = 3
+        R0 = SVector(1, 0, -1)
+        red = map(model.basis.salc_basis.salcs) do s
+            members = MR.SALCMember[]
+            for m in s.members
+                N = length(m.atoms)
+                p = collect(N:-1:1)
+                push!(members, MR.SALCMember(m.atoms, m.shifts,
+                    [MR.SALCTerm(t.ls, 0.5 .* t.folded) for t in m.terms]))
+                push!(members, MR.SALCMember(m.atoms[p], [sh + R0 for sh in m.shifts[p]],
+                    [MR.SALCTerm(t.ls[p], 0.5 .* permutedims(t.folded, p))
+                     for t in m.terms]))
+            end
+            MR.SALC(s.key, s.body, s.ls, s.Lf, members)
+        end
+        doc["salcs"] = [MR._salc_doc(s) for s in red]
+        b2 = MR._basis_from_doc(doc)
+        @test _basis_identical(b2, model.basis)
+        # a v4 document is NOT re-folded (loaded verbatim) — and is already canonical
+        @test Int(MR._to_doc(model)["schema_version"]) == 4
+    end
+
     @testset "space-group ops round-trip (multi-op P-1)" begin
         # the 2-atom cell is inversion-symmetric (inversion swaps the two sites)
         ops_rot = [SMatrix{3,3,Float64}(I), SMatrix{3,3,Float64}(-1.0 * I)]

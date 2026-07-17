@@ -1,6 +1,6 @@
 using Test
 using SCEFitting
-using SCEFitting: _assemble_spacegroup, evaluate_salc
+using SCEFitting: _assemble_spacegroup, evaluate_salc, _canonicalize_members
 using StaticArrays
 using LinearAlgebra
 using Random
@@ -62,6 +62,15 @@ end
     @testset "no odd-Σl channels survive (time reversal)" begin
         for s in basis.salcs
             @test iseven(sum(s.ls))
+        end
+    end
+
+    @testset "members are canonical and fold exactly" begin
+        perms = Dict(1 => ([1], [1]), 2 => ([2, 1], [1, 2]))
+        for s in basis.salcs
+            check_canonical_members(s)
+            @test same_members(_canonicalize_members(s.members), s.members)  # idempotent
+            split_roundtrip_exact(s, perms)
         end
     end
 
