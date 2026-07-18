@@ -52,3 +52,6 @@ deps/src/
 
 # Note: paper PDFs live under references/papers/ and are ignored there
 # (references/.gitignore).
+
+# agent-internal scratch notes (local only)
+.claude/
