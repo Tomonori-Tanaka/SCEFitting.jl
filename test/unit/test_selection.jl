@@ -394,4 +394,89 @@ end
         @test_throws ArgumentError select_fit(ds_tiny, est_p; lambdas = [1.0, 0.1],
                                               criterion = :cv)
     end
+
+    @testset "select_support: threshold-swept refit front" begin
+        ds_tr2 = ds_p[1:30]
+        ds_ev = ds_p[31:40]                       # held-out evaluation slice
+        f = fit(SCEFit, ds_tr2, GroupAdaptiveRidge(basis; lambda = 1e-4))
+        sp = select_support(f; thresholds = 8, evalset = ds_ev)
+
+        nt = length(sp.threshold)
+        @test issorted(sp.threshold; rev = true)                  # sparsest first
+        @test length(sp.n_alive) == length(sp.cost) == nt
+        @test length(sp.score) == length(sp.rmse_energy) == nt
+        @test issorted(sp.n_alive) && issorted(sp.cost)           # nested supports
+        @test sp.threshold[end] == 0.0                            # full-support anchor
+        @test sp.n_alive[end] == maximum(salc_groups(basis))
+        @test minimum(sp.n_alive) < maximum(sp.n_alive)           # front discriminates
+        @test all(isnan, sp.rmse_torque)                          # energy-only evalset
+        @test sp.score ≈ sp.rmse_energy .^ 2                      # w = 0 objective
+        @test 1 <= sp.selected <= nt
+        @test isfinite(sp.score[sp.selected])
+        # the returned fit is the refit at the selected threshold, byte-for-byte
+        @test sp.fit.jphi == refit(f; threshold = sp.threshold[sp.selected]).jphi
+        # in-span group-sparse target: the selected sparse refit generalizes, and
+        # beats the full-support refit (which is an underdetermined min-norm OLS
+        # here, n = 30 rows < p = 44 columns — it overfits the held-out slice)
+        @test sp.rmse_energy[sp.selected] < 1e-2
+        @test sp.rmse_energy[sp.selected] < sp.rmse_energy[end]
+        # Pareto: widening delta can only cheapen the selection
+        spw = select_support(f; thresholds = 8, evalset = ds_ev, delta = 0.5)
+        @test spw.cost[spw.selected] <= sp.cost[sp.selected]
+
+        # explicit thresholds vector; single full-support point
+        sp1 = select_support(f; thresholds = [0.0])
+        @test length(sp1.threshold) == 1 && sp1.selected == 1
+
+        # Tables + show smoke
+        cols = Tables.columntable(sp)
+        @test keys(cols) == (:threshold, :n_alive, :cost, :score, :rmse_energy,
+                             :rmse_torque, :selected)
+        @test count(cols.selected) == 1
+        @test occursin("← selected", sprint(show, MIME"text/plain"(), sp))
+
+        # coupled-site pin: the selected row re-derives from the returned refit —
+        # groups with a nonzero de-biased coefficient are exactly the alive groups
+        lab_b = salc_groups(basis)
+        cg_b = group_costs(basis, lab_b)
+        ag = unique(lab_b[findall(!=(0.0), sp.fit.jphi)])
+        @test length(ag) == sp.n_alive[sp.selected]
+        @test sum(cg_b[ag]) == sp.cost[sp.selected]
+
+        # the auto grid: midpoints between distinct magnitudes + the 0.0 anchor;
+        # exact ties collapse (tied groups die together, no empty-support point)
+        st = SCEFitting._support_thresholds
+        @test st(5, [3.0, 2.0, 1.0]) == [2.5, 1.5, 0.0]
+        @test st(4, [2.0]) == [0.0]                       # G = 1 → anchor only
+        @test st(9, [1.0, 1.0, 0.5]) == [0.75, 0.0]       # tie: no t = 1.0 point
+        @test_throws ArgumentError st(1, [1.0])
+
+        # torque co-fit: rmse_torque populated; energy-only evalset rejected
+        rngs = MersenneTwister(53)
+        cfg_s = [Matrix(randcfg(rngs, 2)) for _ = 1:12]
+        en_s = randn(rngs, 12)
+        tq_s = [randn(rngs, 3, 2) for _ = 1:12]
+        ds_cofit = SCEDataset(small, cfg_s, en_s, tq_s)
+        glab = salc_groups(small)
+        fco = fit(SCEFit, ds_cofit, GroupAdaptiveRidge(glab, ones(maximum(glab));
+                                                       lambda = 1e-3);
+                  torque_weight = 0.4)
+        spc = select_support(fco; thresholds = 3)
+        @test all(isfinite, spc.rmse_torque)
+        @test length(spc.threshold) == 1        # single-group basis: grid collapses
+        @test_throws ArgumentError select_support(fco;
+                                                  evalset = SCEDataset(small, cfg_s, en_s))
+
+        # validation errors
+        @test_throws ArgumentError select_support(f; delta = -0.1)
+        @test_throws ArgumentError select_support(f; thresholds = Float64[])
+        @test_throws ArgumentError select_support(f; thresholds = [-1.0])
+        @test_throws ArgumentError select_support(f; thresholds = 1)
+        @test_throws ArgumentError select_support(f; costs = [1.0])
+        @test_throws ArgumentError select_support(f; estimator = PrecomputedPilot(
+            zeros(n_salcs(basis))))
+        ds_other = SCEDataset(small, [Matrix(randcfg(rngs, 2)) for _ = 1:4],
+                              randn(rngs, 4))
+        @test_throws ArgumentError select_support(f; evalset = ds_other)
+    end
 end

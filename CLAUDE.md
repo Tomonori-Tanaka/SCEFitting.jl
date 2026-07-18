@@ -234,7 +234,9 @@ Easy to break silently — confirm before touching the algorithm.
   derivation, and the dense-hat-matrix tests in `test/unit/test_selection.jl` move
   together. `select_fit`'s alive-group rule is the `refit` scaled-magnitude support rule
   (`|jϕⱼ|·‖X[:,j]‖ > threshold`) applied per group — change one side and the other (and
-  the E2E cost-recomputation test) follows. `salc_groups`/`group_costs` assume sorted
+  the E2E cost-recomputation test) follows; `select_support` reuses the same rule for its
+  per-point alive/cost columns while delegating each point's fit to `refit` itself
+  (column-wise), so all three move together. `salc_groups`/`group_costs` assume sorted
   `SALCBasis.keys` and canonical (v4) members; the entry key `(atoms, shifts, ls, index)`
   mirrors what the SCEMonteCarlo adjacency merge folds — change either representation
   and re-check the brute-force union test and the cross-package entry-count script.

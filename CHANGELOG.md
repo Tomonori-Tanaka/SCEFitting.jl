@@ -50,6 +50,15 @@ release, so everything lives under *Unreleased*.
   support. `SelectionPath` is a Tables.jl source (one row per λ). Intended
   workflow: `GroupAdaptiveRidge(basis; theta)` → `select_fit` → `refit`,
   sweeping `theta` to trace the (MC cost, error) Pareto front.
+- **`select_support(f; thresholds, delta, evalset, …)` / `SupportPath`**
+  (exported) — the second knob: sweep the alive threshold at a fixed fit and
+  trace the (cost, error) front of de-biased `refit`s (one OLS per point),
+  scored on an evaluation dataset (pass a held-out slice) with the same
+  Pareto rule. On real data the group-magnitude spectrum is continuous — no
+  alive/dead gap for the λ path to expose — so this is where most of the
+  cost–error trade is realized (validated on the production l044 model:
+  38 % MC cost at a held-out torque RMSE better than the full model; 3 % at
+  +19 %).
 
 ### Changed — canonical SALC members (up to `N!`× smaller basis, persist v4)
 

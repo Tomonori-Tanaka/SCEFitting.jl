@@ -301,6 +301,16 @@ capability consumed by both the introspection and the Sunny interop.
   that cold solve and the effective absolute threshold is returned as
   `path.threshold`, so `refit(path.fit; threshold = path.threshold)` realizes exactly
   the reported support; `SelectionPath` is a Tables.jl source.
+- **Threshold front** (exported): `select_support(f; thresholds = 25, delta, labels,
+  costs, evalset = f.dataset, estimator = OLS()) -> SupportPath` — the second knob:
+  sweeps the alive threshold at a fixed fit (auto grid = log-rank-spaced points on
+  the per-group scaled-magnitude spectrum + the full-support anchor, or an explicit
+  vector), de-biases with `refit` per point, scores each refit by the fit's own
+  `(1−w)·MSE_E + w·MSE_T` objective on `evalset` (pass a held-out slice for an honest
+  axis; fingerprint-checked against the training basis), and applies the same
+  Pareto rule. Needed because real-data group-magnitude spectra are continuous (no
+  alive/dead gap for the λ path to expose). `SupportPath` is a Tables.jl source
+  (`threshold`/`n_alive`/`cost`/`score`/`rmse_energy`/`rmse_torque`/`selected`).
 - Validated in `test/unit/test_selection.jl`: construction/validation, exact
   `AdaptiveRidge` degeneration, group-sparse recovery + weight monotonicity, label/cost
   hand counts + additivity, `θ` endpoints, dense-hat-matrix trace agreement, the

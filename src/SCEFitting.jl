@@ -97,8 +97,9 @@ export coef, intercept, nobs, dof, predict, residuals, r2,
     r2_energy, rmse_energy, r2_torque, rmse_torque,
     rss_energy, rss_torque, residuals_energy, residuals_torque
 export coeftable, SCECoefficients
-# model selection: GCV / effective dof (linear estimators) and the cost-aware λ path
-export gcv, effective_dof, select_fit, SelectionPath
+# model selection: GCV / effective dof (linear estimators), the cost-aware λ path,
+# and the threshold-swept refit front
+export gcv, effective_dof, select_fit, SelectionPath, select_support, SupportPath
 export to_sunny
 # Fitted-model introspection: a code-neutral view of the multipole / bilinear terms of a
 # fitted SCE, the stable contract downstream packages (e.g. the SCETools.jl mean-field

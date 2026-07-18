@@ -216,6 +216,25 @@ The returned [`SelectionPath`](@ref) is a Tables.jl source with one row per λ
 the lower envelope of the per-θ paths traces the full (cost, error) Pareto front. For
 a torque co-fit prefer `criterion = :cv` — see the caveat in [`gcv`](@ref).
 
+On real data the group-magnitude spectrum is usually **continuous** — there is no
+clean alive/dead gap for the λ path to expose, and most of the cost–error trade
+lives in the support threshold itself. [`select_support`](@ref) is the second knob:
+it sweeps the alive threshold at a fixed fit, de-biases with [`refit`](@ref) at each
+point (one cheap OLS per point — no re-solving the penalty), scores each refit on an
+evaluation dataset, and applies the same Pareto rule:
+
+```julia
+train, held = dataset[1:80], dataset[81:100]        # dataset slicing
+f     = fit(SCEFit, train, GroupAdaptiveRidge(basis; lambda = 1e-5, theta = 1.0))
+front = select_support(f; thresholds = 25, evalset = held, delta = 0.05)
+front.fit                                           # the selected de-biased refit
+```
+
+Pass a held-out `evalset` for an honest error axis (the default is the in-sample
+training set). On a production Nd₂Fe₁₄B model this front offered, e.g., 38 % of the
+Monte-Carlo cost at a held-out torque RMSE *better* than the full model, and 3 % of
+the cost at +19 % — trades the λ path alone cannot see.
+
 ## Diagnostics
 
 A fitted [`SCEFit`](@ref) answers the usual questions:

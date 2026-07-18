@@ -561,3 +561,169 @@ function select_fit(dataset::SCEDataset, est::GroupAdaptiveRidge;
     return SelectionPath(lams, score, criterion, edof, n_alive, cost, Float64(delta),
                          t_sel, sel, fsel)
 end
+
+# --- threshold sweep: the (cost, error) front of de-biased refits -----------------
+
+# The auto threshold grid for `select_support`: at most `n` log-rank-spaced points on
+# the sorted per-group scaled magnitudes, each threshold the midpoint between
+# consecutive *distinct* magnitudes (a midpoint at an exact tie would equal the tied
+# value and, under the strict `>` rule, exclude the whole tie — tied groups die
+# together instead), plus `0.0` for the full-support anchor. Returned descending
+# (sparsest refit first); duplicates and degenerate ranks collapse, so fewer than `n`
+# points can come back (always ≥ 1: the anchor).
+function _support_thresholds(n::Integer, m_g::Vector{Float64})::Vector{Float64}
+    n >= 2 || throw(ArgumentError("thresholds count must be ≥ 2; got $n"))
+    ms = sort(m_g; rev = true)
+    G = length(ms)
+    thr = Float64[]
+    for r in unique(round.(Int, exp.(range(log(1), log(G); length = n))))
+        if r == G
+            push!(thr, 0.0)
+        elseif ms[r] > ms[r+1]
+            push!(thr, (ms[r] + ms[r+1]) / 2)
+        end
+    end
+    return sort!(unique(thr); rev = true)
+end
+
+"""
+    SupportPath
+
+Result of [`select_support`](@ref): the descending threshold sweep with, per point,
+the alive-group count, predicted Monte-Carlo cost `Σ_{g alive} c_g`, the selection
+`score` (the fit's own `(1−w)·MSE_E + w·MSE_T` objective on the evaluation dataset),
+and the energy / torque RMSEs (`rmse_torque` is `NaN` when the evaluation dataset
+carries no torque data); plus the tolerance `delta`, the `selected` index, and the
+de-biased refit `fit` at the selected threshold. A Tables.jl source with one row per
+threshold (columns `threshold`, `n_alive`, `cost`, `score`, `rmse_energy`,
+`rmse_torque`, `selected`).
+"""
+struct SupportPath
+    threshold::Vector{Float64}    # descending (sparsest first)
+    n_alive::Vector{Int}
+    cost::Vector{Float64}
+    score::Vector{Float64}
+    rmse_energy::Vector{Float64}
+    rmse_torque::Vector{Float64}  # NaN per entry when the evalset has no torque
+    delta::Float64
+    selected::Int
+    fit::SCEFit
+end
+
+Tables.istable(::Type{SupportPath}) = true
+Tables.columnaccess(::Type{SupportPath}) = true
+Tables.columns(p::SupportPath) =
+    (; threshold = p.threshold, n_alive = p.n_alive, cost = p.cost, score = p.score,
+       rmse_energy = p.rmse_energy, rmse_torque = p.rmse_torque,
+       selected = [i == p.selected for i in eachindex(p.threshold)])
+
+function Base.show(io::IO, ::MIME"text/plain", p::SupportPath)
+    print(io, "SupportPath (delta = ", p.delta, "; ", length(p.threshold),
+          " thresholds):")
+    for i in eachindex(p.threshold)
+        print(io, "\n  thr = ", round(p.threshold[i]; sigdigits = 4),
+              "  score = ", round(p.score[i]; sigdigits = 5),
+              "  n_alive = ", p.n_alive[i],
+              "  cost = ", round(p.cost[i]; sigdigits = 5))
+        i == p.selected && print(io, "   ← selected")
+    end
+end
+
+"""
+    select_support(f::SCEFit; thresholds = 25, delta = 0.05, labels = nothing,
+                   costs = nothing, evalset = f.dataset, estimator = OLS())
+        -> SupportPath
+
+Trace the (predicted Monte-Carlo cost, error) front of **de-biased refits** of `f`
+over a sweep of alive thresholds, and select the cheapest point whose score is within
+`(1 + delta)` of the front minimum — the same Pareto rule as [`select_fit`](@ref).
+This is the second knob of the cost-aware workflow: [`select_fit`](@ref) sweeps the
+penalty λ, while this sweeps the support directly. On real data the group-magnitude
+spectrum is typically continuous (no clean alive/dead gap), so most of the
+cost–error trade lives here.
+
+Per threshold `t`: the alive groups are those with any column satisfying
+`|jϕⱼ|·‖X[:, j]‖ > t` on `f`'s assembled design (the [`refit`](@ref) rule, grouped),
+the predicted cost is `Σ_{g alive} c_g`, and the point's fit is
+`refit(f, estimator; threshold = t)` — note the refit keeps *columns* above `t`, so a
+weak column of an alive group may still be dropped (the group's cost is paid either
+way). The `score` is the fit's own objective `(1 − w)·MSE_E + w·MSE_T`
+(`w = f.torque_weight`) evaluated on `evalset` — pass a held-out `SCEDataset` (built
+on the same basis; see dataset slicing) for an honest error axis; the default is the
+in-sample training set. `thresholds` is either a point count for the automatic grid
+(**at most** that many points, log-rank-spaced on the per-group magnitude spectrum
+plus the full-support anchor — duplicate ranks and exact magnitude ties collapse) or
+an explicit vector of absolute thresholds. `labels`/`costs` default to
+`SCEFitting.salc_groups` / `SCEFitting.group_costs` of the training basis.
+"""
+function select_support(f::SCEFit;
+                        thresholds::Union{Integer,AbstractVector{<:Real}} = 25,
+                        delta::Real = 0.05,
+                        labels::Union{Nothing,AbstractVector{<:Integer}} = nothing,
+                        costs::Union{Nothing,AbstractVector{<:Real}} = nothing,
+                        evalset::SCEDataset = f.dataset,
+                        estimator::AbstractEstimator = OLS())::SupportPath
+    delta >= 0 || throw(ArgumentError("delta must be ≥ 0; got $delta"))
+    _reject_precomputed_pilot(estimator)
+    isempty(evalset.y_E) && throw(ArgumentError("evalset has no observations"))
+    basis = f.dataset.basis
+    lab = labels === nothing ? salc_groups(basis) : Vector{Int}(labels)
+    G = _validate_labels(lab, length(f.jphi), "select_support")
+    cg = costs === nothing ? Float64.(group_costs(basis, lab)) : Float64.(costs)
+    length(cg) == G ||
+        throw(ArgumentError("costs length $(length(cg)) ≠ number of groups $G"))
+    evalset.basis.salc_basis.fingerprint == basis.salc_basis.fingerprint ||
+        throw(ArgumentError("evalset was built on a different SCEBasis than the fit"))
+    w = f.torque_weight
+    if w > 0 && !has_torque(evalset)
+        throw(ArgumentError("f is a torque co-fit (torque_weight = $w) but evalset " *
+                            "has no torque data"))
+    end
+
+    # per-group max scaled magnitude on the assembled training design (refit's rule)
+    X, _, _, _, _ = _assemble_problem(f.dataset, w)
+    m_g = zeros(Float64, G)
+    for j in eachindex(f.jphi)
+        m = abs(f.jphi[j]) * norm(view(X, :, j))
+        g = lab[j]
+        m > m_g[g] && (m_g[g] = m)
+    end
+    thr = if thresholds isa Integer
+        _support_thresholds(thresholds, m_g)
+    else
+        isempty(thresholds) && throw(ArgumentError("thresholds must be nonempty"))
+        all(t -> isfinite(t) && t >= 0, thresholds) ||
+            throw(ArgumentError("thresholds must be finite and ≥ 0"))
+        sort!(unique(Float64.(thresholds)); rev = true)
+    end
+
+    nt = length(thr)
+    n_alive = Vector{Int}(undef, nt)
+    cost = Vector{Float64}(undef, nt)
+    score = Vector{Float64}(undef, nt)
+    rmseE = Vector{Float64}(undef, nt)
+    rmseT = fill(NaN, nt)
+    fits = Vector{SCEFit}(undef, nt)
+    for i = 1:nt
+        alive = falses(G)
+        for g = 1:G
+            m_g[g] > thr[i] && (alive[g] = true)
+        end
+        n_alive[i] = count(alive)
+        cost[i] = sum(cg[g] for g = 1:G if alive[g]; init = 0.0)
+        fr = refit(f, estimator; threshold = thr[i])
+        fits[i] = fr
+        mseE = mean(abs2, evalset.y_E .- (fr.j0 .+ evalset.X_E * fr.jphi))
+        rmseE[i] = sqrt(mseE)
+        if has_torque(evalset)
+            mseT = mean(abs2, evalset.y_T .- evalset.X_T * fr.jphi)
+            rmseT[i] = sqrt(mseT)
+            score[i] = (1 - w) * mseE + w * mseT
+        else
+            score[i] = mseE
+        end
+    end
+    sel = _select_pareto(score, cost, Float64(delta))
+    return SupportPath(thr, n_alive, cost, score, rmseE, rmseT, Float64(delta), sel,
+                       fits[sel])
+end

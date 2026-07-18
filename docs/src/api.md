@@ -164,6 +164,8 @@ gcv
 effective_dof
 select_fit
 SelectionPath
+select_support
+SupportPath
 SCEFitting.salc_groups
 SCEFitting.group_costs
 SCEFitting.cost_weights

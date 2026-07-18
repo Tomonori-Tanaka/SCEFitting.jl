@@ -465,3 +465,17 @@ take the lower envelope of the per-θ paths, and the (cost, error) Pareto front 
 explicit rather than implicit in a penalty default. The selected fit is re-solved cold
 at the chosen λ so that `fit(SCEFit, dataset, estimator)` reproduces it verbatim, and
 the de-biasing `refit` closes the workflow.
+
+**Postscript: the threshold is the second knob (`select_support`).** The clean
+alive/dead magnitude gap that makes the λ path's relative floor sufficient exists on
+group-sparse *synthetic* targets; on real DFT data the per-group magnitude spectrum
+is continuous (production l044: the sorted spectrum decays smoothly over four orders
+with no knee), so along the λ path nothing ever dies and GCV simply prefers the full
+model. The trade the λ path cannot see is exposed by sweeping the support threshold
+directly at a fixed fit: each point is one cheap de-biasing `refit`, scored on a
+held-out slice, with the same "cheapest within (1+δ)" rule — `select_support`. On
+l044 this front offered 38 % of the Monte-Carlo cost at a held-out torque RMSE
+*better* than the full model (de-biasing beats the interpolating tail) and 3 % of the
+cost at +19 %. The λ path (`select_fit`) remains the tool that *shapes* coefficients
+group-wise before thresholding; the threshold front is where the cost is actually
+harvested.
