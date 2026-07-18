@@ -311,6 +311,16 @@ capability consumed by both the introspection and the Sunny interop.
   Pareto rule. Needed because real-data group-magnitude spectra are continuous (no
   alive/dead gap for the λ path to expose). `SupportPath` is a Tables.jl source
   (`threshold`/`n_alive`/`cost`/`score`/`rmse_energy`/`rmse_torque`/`selected`).
+- **Generic CV** (exported): `cross_validate(dataset, estimator; torque_weight,
+  nfolds = 5, seed = 1) -> CVResult` — configuration-grouped K-fold assessment of any
+  `fit` call: each fold refits from scratch (fold-local centering/whitening, no
+  leakage) and scores the held-out configurations in prediction space. Reports the
+  per-fold and pooled out-of-fold energy **and** torque RMSEs independently of
+  `torque_weight`, plus the `(1−w)·MSE_E + w·MSE_T` score. Deterministic seeded
+  folds (`_grouped_folds`); fold reduction warns, `< 6` configs errors; a
+  `PrecomputedPilot` is rejected (fold-independent coefficients would leak).
+  `CVResult` is a Tables.jl source. Unlike `select_fit(criterion = :cv)` (global
+  whitening, λ ranking only), this is the honest generalization-error estimate.
 - Validated in `test/unit/test_selection.jl`: construction/validation, exact
   `AdaptiveRidge` degeneration, group-sparse recovery + weight monotonicity, label/cost
   hand counts + additivity, `θ` endpoints, dense-hat-matrix trace agreement, the

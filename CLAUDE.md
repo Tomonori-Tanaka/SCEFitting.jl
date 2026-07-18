@@ -236,7 +236,11 @@ Easy to break silently — confirm before touching the algorithm.
   (`|jϕⱼ|·‖X[:,j]‖ > threshold`) applied per group — change one side and the other (and
   the E2E cost-recomputation test) follows; `select_support` reuses the same rule for its
   per-point alive/cost columns while delegating each point's fit to `refit` itself
-  (column-wise), so all three move together. `salc_groups`/`group_costs` assume sorted
+  (column-wise), so all three move together. `select_support`'s evalset score and
+  `cross_validate`'s holdout score share the prediction-space convention
+  (`y_E − (j0 + X_E·jϕ)`, `y_T − X_T·jϕ`, combined as `(1−w)·MSE_E + w·MSE_T`) —
+  change `fit`'s objective normalization and both scores must follow.
+  `salc_groups`/`group_costs` assume sorted
   `SALCBasis.keys` and canonical (v4) members; the entry key `(atoms, shifts, ls, index)`
   mirrors what the SCEMonteCarlo adjacency merge folds — change either representation
   and re-check the brute-force union test and the cross-package entry-count script.

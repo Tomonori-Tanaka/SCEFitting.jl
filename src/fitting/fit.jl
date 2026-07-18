@@ -124,6 +124,12 @@ function refit(f::SCEFit, estimator::AbstractEstimator = OLS();
     return SCEFit(dataset, j0, jphi, estimator, residuals, w)
 end
 
+# A `PrecomputedPilot` carries a fixed, full-design coefficient vector. `refit` and
+# `cross_validate` must both reject it (with rationales of their own), so the predicate
+# lives here as the single definition both rejection sites share.
+_carries_precomputed_pilot(e::AbstractEstimator)::Bool =
+    e isa PrecomputedPilot || (e isa AdaptiveLasso && e.pilot isa PrecomputedPilot)
+
 # `refit` re-solves on a column sub-matrix `X[:, support]`, so a `PrecomputedPilot` —
 # whose fixed coefficient vector carries the original full column count — would throw a
 # `DimensionMismatch` deep in `solve_coefficients`, and is meaningless once a support has

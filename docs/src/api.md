@@ -157,7 +157,9 @@ The fit-accuracy-vs-Monte-Carlo-cost workflow: `salc_groups` / `group_costs` /
 `cost_weights` (public, unexported — call as `SCEFitting.salc_groups` etc.) build the
 per-group cost weights of a [`GroupAdaptiveRidge`](@ref); `gcv` / `effective_dof` are
 the closed-form hat-matrix diagnostics of the linear estimators; `select_fit` drives
-the λ path and applies the cost-aware Pareto rule.
+the λ path and applies the cost-aware Pareto rule; `cross_validate` is the generic
+configuration-grouped K-fold assessment for comparing any estimators or
+`torque_weight` settings on both error axes.
 
 ```@docs
 gcv
@@ -166,6 +168,8 @@ select_fit
 SelectionPath
 select_support
 SupportPath
+cross_validate
+CVResult
 SCEFitting.salc_groups
 SCEFitting.group_costs
 SCEFitting.cost_weights

@@ -235,6 +235,30 @@ training set). On a production Nd₂Fe₁₄B model this front offered, e.g., 38
 Monte-Carlo cost at a held-out torque RMSE *better* than the full model, and 3 % of
 the cost at +19 % — trades the λ path alone cannot see.
 
+## Cross-validation
+
+[`cross_validate`](@ref) is the generic, honest assessment behind all of the above:
+configuration-grouped K-fold CV of any `fit` call, refitting each fold from scratch
+(centering and torque whitening stay inside the training fold — nothing leaks) and
+scoring the held-out configurations in prediction space:
+
+```julia
+cv = cross_validate(dataset, GroupAdaptiveRidge(basis; lambda = 1e-5);
+                    torque_weight = 1.0, nfolds = 5)
+cv.pooled_rmse_energy, cv.pooled_rmse_torque   # both error axes, out-of-fold
+cv.score                                       # per-fold (1−w)·MSE_E + w·MSE_T
+```
+
+Both RMSEs are reported whenever the dataset carries torque data, **independent of
+`torque_weight`** — an energy-only fit still gets its torque error measured, which
+is exactly what comparing `torque_weight` settings needs. The `pooled_*` fields
+aggregate the out-of-fold residuals (every configuration is held out exactly once);
+the per-fold columns give the spread. Use it where a single train/holdout split is
+too noisy — e.g. to back a [`select_support`](@ref) point with a K-fold error bar,
+or to rank estimators on an equal footing. It differs from
+`select_fit(criterion = :cv)`, which whitens globally and only *ranks* a λ path;
+`cross_validate` is the generalization-error estimate.
+
 ## Diagnostics
 
 A fitted [`SCEFit`](@ref) answers the usual questions:

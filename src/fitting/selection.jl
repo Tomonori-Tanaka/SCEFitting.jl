@@ -727,3 +727,145 @@ function select_support(f::SCEFit;
     return SupportPath(thr, n_alive, cost, score, rmseE, rmseT, Float64(delta), sel,
                        fits[sel])
 end
+
+# --- configuration-grouped K-fold cross-validation (generic) -----------------------
+
+"""
+    CVResult
+
+Result of [`cross_validate`](@ref): per-fold holdout scores plus the pooled
+out-of-fold error. `score` is the fit's own objective `(1 − w)·MSE_E + w·MSE_T`
+(`w = torque_weight`) on each fold's held-out configurations; `rmse_energy` and
+`rmse_torque` report the two error axes separately whenever the dataset carries the
+data, independent of `torque_weight` (`rmse_torque` is `NaN` per entry for an
+energy-only dataset). The `pooled_*` fields aggregate the out-of-fold residuals of
+all folds — every configuration is held out exactly once, so they are single
+whole-dataset numbers, not means of the per-fold columns. A Tables.jl source with
+one row per fold (columns `fold`, `n_holdout`, `score`, `rmse_energy`,
+`rmse_torque`).
+"""
+struct CVResult
+    nfolds::Int                   # effective fold count (see cross_validate)
+    seed::Int
+    torque_weight::Float64
+    n_holdout::Vector{Int}        # held-out configurations per fold
+    score::Vector{Float64}
+    rmse_energy::Vector{Float64}
+    rmse_torque::Vector{Float64}  # NaN per entry for an energy-only dataset
+    pooled_score::Float64
+    pooled_rmse_energy::Float64
+    pooled_rmse_torque::Float64   # NaN for an energy-only dataset
+end
+
+Tables.istable(::Type{CVResult}) = true
+Tables.columnaccess(::Type{CVResult}) = true
+Tables.columns(r::CVResult) =
+    (; fold = collect(eachindex(r.score)), n_holdout = r.n_holdout, score = r.score,
+       rmse_energy = r.rmse_energy, rmse_torque = r.rmse_torque)
+
+function Base.show(io::IO, ::MIME"text/plain", r::CVResult)
+    print(io, "CVResult (", r.nfolds, " folds, seed = ", r.seed,
+          ", torque_weight = ", r.torque_weight, "):")
+    for k in eachindex(r.score)
+        print(io, "\n  fold ", k, ": n = ", r.n_holdout[k],
+              "  score = ", round(r.score[k]; sigdigits = 5),
+              "  rmse_E = ", round(r.rmse_energy[k]; sigdigits = 5))
+        isnan(r.rmse_torque[k]) ||
+            print(io, "  rmse_T = ", round(r.rmse_torque[k]; sigdigits = 5))
+    end
+    print(io, "\n  pooled: score = ", round(r.pooled_score; sigdigits = 5),
+          "  rmse_E = ", round(r.pooled_rmse_energy; sigdigits = 5))
+    isnan(r.pooled_rmse_torque) ||
+        print(io, "  rmse_T = ", round(r.pooled_rmse_torque; sigdigits = 5))
+end
+
+"""
+    cross_validate(dataset::SCEDataset, estimator::AbstractEstimator;
+                   torque_weight = 0.0, nfolds = 5, seed = 1) -> CVResult
+
+Configuration-grouped `nfolds`-fold cross-validation of
+`fit(SCEFit, dataset, estimator; torque_weight)`: each fold's model is fit from
+scratch on the training configurations only (energy centering and torque whitening
+included — nothing leaks across the split), then scored on the held-out
+configurations in prediction space. A configuration is one resampling unit, so its
+energy row and its `3·n_atoms` torque rows always land on the same side of the
+split. Fold assignment is deterministic in `seed` (seeded-hash round-robin, the
+same rule as [`select_fit`](@ref)'s `:cv`); when the dataset has fewer than
+`3·nfolds` configurations the fold count is reduced (with a warning) so every fold
+keeps ≥ 3 configurations, and fewer than 6 configurations is an error.
+
+Use it to compare estimators, `torque_weight` settings, or a [`refit`](@ref)-style
+support on an equal footing: `rmse_energy` and `rmse_torque` report both error axes
+regardless of `torque_weight` (a `torque_weight = 0` fit still gets its torque
+error measured when the dataset carries torque data). This differs from
+`select_fit(...; criterion = :cv)`, which ranks a λ path under **global**
+centering/whitening for speed — `cross_validate` is the honest
+generalization-error estimate.
+
+A `PrecomputedPilot` (or an `AdaptiveLasso` carrying one) is rejected: its fixed,
+full-data coefficient vector does not depend on the training fold, so the holdout
+score would leak the held-out data.
+"""
+function cross_validate(dataset::SCEDataset, estimator::AbstractEstimator;
+                        torque_weight::Real = 0.0, nfolds::Integer = 5,
+                        seed::Integer = 1)::CVResult
+    w = Float64(torque_weight)
+    (0.0 <= w <= 1.0) || throw(ArgumentError("torque_weight must be in [0, 1]; got $w"))
+    if w > 0 && !has_torque(dataset)
+        throw(ArgumentError("torque_weight = $w but the dataset has no torque data"))
+    end
+    nfolds >= 2 || throw(ArgumentError("nfolds must be ≥ 2; got $nfolds"))
+    if _carries_precomputed_pilot(estimator)
+        throw(ArgumentError("cross_validate does not accept a PrecomputedPilot (or " *
+            "an AdaptiveLasso carrying one): its fixed full-data coefficient vector " *
+            "does not depend on the training fold, so the holdout score would leak. " *
+            "Pass the estimator that produced the pilot instead."))
+    end
+    nc = length(dataset)
+    nf = min(Int(nfolds), div(nc, 3))
+    nf >= 2 || throw(ArgumentError(
+        "cross-validation needs at least 6 configurations for ≥ 2 folds; got $nc"))
+    nf < Int(nfolds) &&
+        @warn "cross_validate: reducing CV folds so every fold keeps ≥ 3 " *
+              "configurations" requested = Int(nfolds) effective = nf configs = nc
+
+    folds = _grouped_folds(collect(1:nc), nf, seed)
+    hastq = has_torque(dataset)
+    n_holdout = Vector{Int}(undef, nf)
+    score = Vector{Float64}(undef, nf)
+    rmseE = Vector{Float64}(undef, nf)
+    rmseT = fill(NaN, nf)
+    sseE = 0.0
+    sseT = 0.0
+    nE = 0
+    nT = 0
+    for k = 1:nf
+        ho = findall(==(k), folds)
+        tr = findall(!=(k), folds)
+        f = fit(SCEFit, dataset[tr], estimator; torque_weight = w)
+        hset = dataset[ho]
+        residE = hset.y_E .- (f.j0 .+ hset.X_E * f.jphi)
+        mseE = mean(abs2, residE)
+        n_holdout[k] = length(ho)
+        rmseE[k] = sqrt(mseE)
+        sseE += sum(abs2, residE)
+        nE += length(residE)
+        if hastq
+            residT = hset.y_T .- hset.X_T * f.jphi
+            mseT = mean(abs2, residT)
+            rmseT[k] = sqrt(mseT)
+            sseT += sum(abs2, residT)
+            nT += length(residT)
+            score[k] = (1 - w) * mseE + w * mseT
+        else
+            score[k] = mseE
+        end
+    end
+    pE = sseE / nE
+    if hastq
+        pT = sseT / nT
+        return CVResult(nf, Int(seed), w, n_holdout, score, rmseE, rmseT,
+                        (1 - w) * pE + w * pT, sqrt(pE), sqrt(pT))
+    end
+    return CVResult(nf, Int(seed), w, n_holdout, score, rmseE, rmseT, pE, sqrt(pE), NaN)
+end

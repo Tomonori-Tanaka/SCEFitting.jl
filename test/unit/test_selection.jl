@@ -479,4 +479,87 @@ end
                               randn(rngs, 4))
         @test_throws ArgumentError select_support(f; evalset = ds_other)
     end
+
+    @testset "cross_validate" begin
+        # energy-only fixture: 12 configs so nfolds = 3 needs no reduction
+        rngc = MersenneTwister(67)
+        nconf_c = 12
+        cfg_c = [Matrix(randcfg(rngc, 2)) for _ = 1:nconf_c]
+        ds0_c = SCEDataset(small, cfg_c, zeros(nconf_c))
+        en_c = 0.2 .+ ds0_c.X_E * fill(0.3, n_salcs(small)) .+
+               0.01 .* randn(rngc, nconf_c)
+        ds_c = SCEDataset(small, cfg_c, en_c)
+
+        cv = cross_validate(ds_c, OLS(); nfolds = 3)
+        @test cv.nfolds == 3 && cv.seed == 1 && cv.torque_weight == 0.0
+        @test sum(cv.n_holdout) == nconf_c
+        @test all(isfinite, cv.score) && all(isfinite, cv.rmse_energy)
+        @test all(isnan, cv.rmse_torque) && isnan(cv.pooled_rmse_torque)
+        # energy-only: score = MSE_E (rmse stores the sqrt, so equality is to 1 ulp)
+        @test cv.score ≈ cv.rmse_energy .^ 2 rtol = 1e-14
+        @test cv.pooled_score ≈ cv.pooled_rmse_energy^2 rtol = 1e-14
+
+        # manual reconstruction of one fold: same folds, same fit, same residuals
+        folds_c = SCEFitting._grouped_folds(collect(1:nconf_c), 3, 1)
+        ho1 = findall(==(1), folds_c)
+        f1 = fit(SCEFit, ds_c[findall(!=(1), folds_c)], OLS())
+        h1 = ds_c[ho1]
+        @test cv.n_holdout[1] == length(ho1)
+        @test cv.rmse_energy[1] ≈
+              sqrt(mean(abs2, h1.y_E .- (f1.j0 .+ h1.X_E * f1.jphi))) rtol = 1e-12
+
+        # pooled MSE = holdout-size-weighted mean of the per-fold MSEs
+        @test cv.pooled_rmse_energy^2 ≈
+              sum(cv.n_holdout .* cv.rmse_energy .^ 2) / nconf_c rtol = 1e-12
+
+        # deterministic in the seed; a different seed re-deals the folds
+        @test cross_validate(ds_c, OLS(); nfolds = 3).rmse_energy == cv.rmse_energy
+        @test cross_validate(ds_c, OLS(); nfolds = 3, seed = 2).rmse_energy !=
+              cv.rmse_energy
+
+        # torque co-fit fixture: both error axes reported, even at torque_weight = 0
+        tq_c = [randn(rngc, 3, 2) for _ = 1:nconf_c]
+        ds_ct = SCEDataset(small, cfg_c, en_c, tq_c)
+        cvt = cross_validate(ds_ct, OLS(); torque_weight = 0.4, nfolds = 3)
+        @test all(isfinite, cvt.rmse_torque) && isfinite(cvt.pooled_rmse_torque)
+        @test cvt.score ≈ 0.6 .* cvt.rmse_energy .^ 2 .+ 0.4 .* cvt.rmse_torque .^ 2
+        @test cvt.pooled_score ≈ 0.6 * cvt.pooled_rmse_energy^2 +
+                                 0.4 * cvt.pooled_rmse_torque^2
+        cvt0 = cross_validate(ds_ct, OLS(); torque_weight = 0.0, nfolds = 3)
+        @test all(isfinite, cvt0.rmse_torque)           # measured despite w = 0
+        @test cvt0.score ≈ cvt0.rmse_energy .^ 2 rtol = 1e-14
+
+        # works with a penalized estimator (the intended comparison use)
+        glab_c = salc_groups(small)
+        est_c = GroupAdaptiveRidge(glab_c, ones(maximum(glab_c)); lambda = 1e-4)
+        cvg = cross_validate(ds_c, est_c; nfolds = 3)
+        @test all(isfinite, cvg.score)
+
+        # fold reduction: 7 configs support only 2 folds of >= 3 configs
+        ds7 = ds_c[1:7]
+        cv7 = @test_logs (:warn, r"reducing CV folds") match_mode = :any begin
+            cross_validate(ds7, OLS(); nfolds = 5)
+        end
+        @test cv7.nfolds == 2 && sum(cv7.n_holdout) == 7
+        # minimum valid size: 6 configs at nfolds = 2 succeeds without a warning
+        cv6 = @test_logs cross_validate(ds_c[1:6], OLS(); nfolds = 2)
+        @test cv6.nfolds == 2 && sum(cv6.n_holdout) == 6
+
+        # Tables + show smoke
+        tbl = Tables.columntable(cv)
+        @test tbl.fold == [1, 2, 3] && tbl.rmse_energy == cv.rmse_energy
+        @test occursin("pooled", sprint(show, MIME"text/plain"(), cvt))
+        @test occursin("rmse_T", sprint(show, MIME"text/plain"(), cvt))
+        @test !occursin("rmse_T", sprint(show, MIME"text/plain"(), cv))
+
+        # validation errors
+        @test_throws ArgumentError cross_validate(ds_c, OLS(); torque_weight = 1.5)
+        @test_throws ArgumentError cross_validate(ds_c, OLS(); torque_weight = 0.5)
+        @test_throws ArgumentError cross_validate(ds_c, OLS(); nfolds = 1)
+        @test_throws ArgumentError cross_validate(ds_c[1:5], OLS())
+        @test_throws ArgumentError cross_validate(ds_c, PrecomputedPilot(
+            zeros(n_salcs(small))))
+        @test_throws ArgumentError cross_validate(ds_c, AdaptiveLasso(
+            pilot = PrecomputedPilot(zeros(n_salcs(small)))))
+    end
 end

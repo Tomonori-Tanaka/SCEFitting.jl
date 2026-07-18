@@ -100,6 +100,7 @@ export coeftable, SCECoefficients
 # model selection: GCV / effective dof (linear estimators), the cost-aware λ path,
 # and the threshold-swept refit front
 export gcv, effective_dof, select_fit, SelectionPath, select_support, SupportPath
+export cross_validate, CVResult
 export to_sunny
 # Fitted-model introspection: a code-neutral view of the multipole / bilinear terms of a
 # fitted SCE, the stable contract downstream packages (e.g. the SCETools.jl mean-field

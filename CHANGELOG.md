@@ -59,6 +59,16 @@ release, so everything lives under *Unreleased*.
   cost–error trade is realized (validated on the production l044 model:
   38 % MC cost at a held-out torque RMSE better than the full model; 3 % at
   +19 %).
+- **`cross_validate(dataset, estimator; torque_weight, nfolds, seed)` /
+  `CVResult`** (exported) — generic configuration-grouped K-fold CV of any
+  `fit` call: each fold refits from scratch (fold-local centering/whitening —
+  nothing leaks across the split) and scores the held-out configurations in
+  prediction space. Per-fold **and** pooled out-of-fold energy and torque
+  RMSEs are reported independently of `torque_weight` (an energy-only fit
+  still gets its torque error measured), alongside the fit's own
+  `(1−w)·MSE_E + w·MSE_T` score. Deterministic seeded folds; `CVResult` is a
+  Tables.jl source. Complements `select_fit(criterion = :cv)`, which whitens
+  globally and only ranks a λ path.
 
 ### Changed — canonical SALC members (up to `N!`× smaller basis, persist v4)
 
