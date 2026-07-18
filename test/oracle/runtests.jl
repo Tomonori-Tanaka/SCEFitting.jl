@@ -368,4 +368,97 @@ end
             @test ours[c].field == theirs[c].local_magfield
         end
     end
+
+    @testset "fit parity: same data + same span ⇒ same held-out predictions" begin
+        # End-to-end cross-check on the anisotropic chain: both packages build a basis
+        # with the SAME channel content, train on one shared EMBSET, fit OLS, and must
+        # return the same predictions on held-out configurations. Raw SALC coefficients
+        # are gauge-dependent and are NOT compared; but with equal spans and a full-rank
+        # design the fitted least-squares *function* is unique, so any prediction gap
+        # is a real convention divergence (harmonics, folding, design assembly, torque
+        # gradient, or the OLS objective), not gauge.
+        #
+        # Channel-content mapping (the truncation semantics differ):
+        #   Magesty:    body1 lmax = 2 (even l only), body2 lsum = 4 with per-site l
+        #               uncapped (partitions of total l ∈ {2, 4} over 2 sites)
+        #   SCEFitting: per-site lmax applies to every body order, so lmax = [3]
+        #               (= lsum₂ − 1, leaves body 2 uncapped) + per-body
+        #               lsum = [2, 4] (body 1: even l ≤ 2 ⇒ {2})
+        # Both give body-1 {2} and body-2 {(1,1), (1,3), (2,2), (3,1)}.
+        lat_m = Matrix(Diagonal([8.0, 8.0, 10.0]))
+        frac = [zeros(2, 4); [0.0 0.25 0.5 0.75]]
+        rcut = 2.6
+
+        chain = SCEFitting.Crystal(SCEFitting.Lattice(lat_m), frac, [1, 1, 1, 1], ["Fe"])
+        spec = SCEFitting.BasisSpec(; nbody = 2, cutoff = rcut, lmax = [3],
+                                    lsum = [1 => 2, 2 => 4], isotropy = false)
+        ours_basis = SCEFitting.SCEBasis(chain, spec;
+                                         backend = SCEFitting.SpglibBackend())
+        theirs_basis = Magesty.SCEBasis(;
+            lattice = lat_m, kd = [:Fe], kd_list = [1, 1, 1, 1],
+            positions = [frac[:, a] for a = 1:4],
+            interaction = (body1 = (lmax = Dict(:Fe => 2),),
+                           body2 = (lsum = 4, cutoff = Dict((:Fe, :Fe) => rcut))),
+            isotropy = false, verbosity = false)
+        @test SCEFitting.n_salcs(ours_basis) ==
+              length(theirs_basis.salcbasis.salc_list)
+
+        # Shared EMBSET: unit-magnitude moments so the torque target m × B is
+        # magnitude-convention-free, random constraining fields, random energies
+        # (parity needs no physical consistency — both sides fit the same targets).
+        rng = MersenneTwister(23)
+        nat, nconf = 4, 80
+        runit() = (v = randn(rng, 3); v ./ norm(v))
+        dir = mktempdir()
+        path = joinpath(dir, "EMBSET")
+        open(path, "w") do io
+            for c = 1:nconf
+                println(io, "# config $c")
+                println(io, " ", -25.0 + 0.1 * randn(rng))
+                for a = 1:nat
+                    println(io, " $a  ", join(runit(), " "), "  ",
+                            join(0.2 .* randn(rng, 3), " "))
+                end
+            end
+        end
+        ours_ds = SCEFitting.SCEDataset(ours_basis, SCEFitting.EmbsetFile(path))
+        theirs_ds = Magesty.SCEDataset(theirs_basis, path)
+
+        heldout = [reduce(hcat, [runit() for _ = 1:nat]) for _ = 1:5]
+
+        # The endpoints w = 0 (energy-only) and w = 1 (torque-only) are single-block
+        # least squares, so the two packages' block-whitening conventions drop out of
+        # the argmin; intermediate w would additionally pin the whitening convention
+        # and is deliberately not asserted here.
+        f0_ours = SCEFitting.fit(SCEFitting.SCEFit, ours_ds, SCEFitting.OLS();
+                                 torque_weight = 0.0)
+        f0_theirs = Magesty.fit(Magesty.SCEFit, theirs_ds, Magesty.OLS();
+                                torque_weight = 0.0)
+        for c in heldout
+            @test isapprox(SCEFitting.predict_energy(f0_ours, c),
+                           Magesty.predict_energy(f0_theirs, c);
+                           rtol = 1e-6, atol = 1e-10)
+        end
+
+        f1_ours = SCEFitting.fit(SCEFitting.SCEFit, ours_ds, SCEFitting.OLS();
+                                 torque_weight = 1.0)
+        f1_theirs = Magesty.fit(Magesty.SCEFit, theirs_ds, Magesty.OLS();
+                                torque_weight = 1.0)
+        # Known, deliberate convention difference: Magesty's torque target and
+        # prediction use `τ = −m (e × B)` (see its SpinConfig docstring), while
+        # SCEFitting flipped to the physical / Landau–Lifshitz `τ = m × B`
+        # (2026-06-28). Both sides flip target AND predictor, so the fitted
+        # function is identical — the intercept and the energy surface agree
+        # directly, and the reported torque agrees up to the global sign.
+        @test isapprox(f1_ours.j0, Magesty.intercept(f1_theirs);
+                       rtol = 1e-10, atol = 1e-12)
+        for c in heldout
+            @test isapprox(SCEFitting.predict_energy(f1_ours, c),
+                           Magesty.predict_energy(f1_theirs, c);
+                           rtol = 1e-6, atol = 1e-10)
+            @test isapprox(SCEFitting.predict_torque(f1_ours, c),
+                           -Magesty.predict_torque(f1_theirs, c);
+                           rtol = 1e-6, atol = 1e-10)
+        end
+    end
 end

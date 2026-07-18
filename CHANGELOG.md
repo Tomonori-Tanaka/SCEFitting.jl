@@ -6,6 +6,20 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — oracle fit-parity testset vs Magesty
+
+- `test/oracle/`: an end-to-end **fit parity** testset — one shared EMBSET
+  through both packages, bases with identical channel content (Magesty
+  `body1 lmax = 2` + `body2 lsum = 4` ⟺ SCEFitting `lmax = [3]`,
+  `lsum = [1 => 2, 2 => 4]`; SALC counts asserted equal), OLS at the
+  single-block endpoints `torque_weight = 0` and `1`. Held-out energy
+  predictions and the intercept must agree; held-out torques agree up to the
+  **known global sign convention** (SCEFitting reports the physical/LL
+  `τ = m × B`, Magesty reports `τ = −m (e × B)`; both flip target and
+  predictor together, so the fitted function is identical). Closes the gap
+  between the kernel-level oracle checks and "do the two packages return the
+  same model".
+
 ### Changed — `SALCScratch`: allocation-free harmonic tables in the design hot loop
 
 - The per-term `Z`/`∇Z` site tables of `evaluate_salc`/`accumulate_grad!` —
