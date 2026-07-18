@@ -322,6 +322,10 @@ end
         est_s = GroupAdaptiveRidge(est_p.column_groups, est_p.group_weights;
                                    lambda = path.lambda[path.selected])
         @test path.fit.jphi == fit(SCEFit, ds_p, est_s).jphi
+        # the selected row's score/edof are re-derived from that cold fit, so the
+        # displayed row is self-consistent (not the warm path value)
+        @test path.score[path.selected] ≈ gcv(path.fit) rtol = 1e-12
+        @test path.edof[path.selected] ≈ effective_dof(path.fit) rtol = 1e-12
         # alive count grows (weakly) as λ decreases along the descending path
         @test all(diff(path.n_alive) .>= 0)
     end

@@ -105,9 +105,12 @@ _accum!(d, key, m::SMatrix{3,3,Float64,9}) =
 
 Walk the fitted SALCs and fold each bilinear-representable channel onto the training
 supercell: an `ls=[1,1]` member `(a, b, R)` contributes `jϕ·(4π)^(N/2)·_l1_pair_matrix`
-to the bond, summed over the two directed members `(a,b,R)`/`(b,a,−R)` into one
-matrix on the canonical `a ≤ b` bond (the reverse member transposed); an `ls=[2]`
-member contributes `jϕ·(4π)^(N/2)·_l2_onsite_matrix` to its atom. The energy is then
+to the bond `(a, b, R)`, an `ls=[2]` member contributes
+`jϕ·(4π)^(N/2)·_l2_onsite_matrix` to its atom. Canonical (v4) members present each
+physical bond as **one** member with sites sorted by `(atom, shift)` — the two
+directed contributions are already summed into its `folded` tensor by
+`_canonicalize_members`, so `a ≤ b` holds by construction and the fold is direct
+(a non-canonical member is an internal error, not merged). The energy is then
 `Σ eₐ'·M·e_b + Σ eₐ'·A·eₐ`, matching `predict_energy − j0` for a model with only
 these channels.
 """
@@ -131,13 +134,13 @@ function _bilinear_terms(model::SCEPredictor)::BilinearTerms
             for t in m.terms
                 if cls === :pair
                     a, b = m.atoms[1], m.atoms[2]
-                    C = scale * _l1_pair_matrix(t.folded)
+                    # canonical (v4) members sort sites by (atom, shift), so the
+                    # a > b reverse-transpose merge of the pre-v4 layout is gone
+                    a <= b || error("internal: non-canonical SALC member atoms " *
+                                    "$(m.atoms); canonical members sort sites by " *
+                                    "(atom, shift)")
                     R = m.shifts[2] - m.shifts[1]
-                    if a <= b
-                        _accum!(pairs, (a, b, R), C)
-                    else
-                        _accum!(pairs, (b, a, -R), SMatrix{3,3,Float64}(transpose(C)))
-                    end
+                    _accum!(pairs, (a, b, R), scale * _l1_pair_matrix(t.folded))
                 else # :onsite
                     _accum!(onsites, m.atoms[1], scale * _l2_onsite_matrix(t.folded))
                 end

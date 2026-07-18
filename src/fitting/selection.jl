@@ -556,8 +556,23 @@ function select_fit(dataset::SCEDataset, est::GroupAdaptiveRidge;
     fsel = fit(SCEFit, dataset, est_sel; torque_weight = w)
     # Re-derive the selected row from the cold re-solve, so `fit` / `threshold` /
     # `n_alive[selected]` / `cost[selected]` are mutually consistent (warm and cold
-    # agree only within the IRLS tol — a knife-edge coefficient could differ).
+    # agree only within the IRLS tol — a knife-edge coefficient could differ). Under
+    # :gcv the score/edof are functions of the returned fit, so re-derive them too
+    # (`path.score[selected] == gcv(path.fit)` exactly); the :cv score aggregates
+    # fold models and does not depend on the full-data solve — leave it.
     n_alive[sel], cost[sel], t_sel = alive_stats!(alive, fsel.jphi)
+    if criterion === :gcv
+        if lams[sel] == 0.0
+            score[sel], edof[sel] = _gcv_score(X, y, fsel.jphi, 0.0, nothing)
+        else
+            wv = Vector{Float64}(undef, length(Xty))
+            normsq = Vector{Float64}(undef, G)
+            _gar_weights!(wv, fsel.jphi, est.column_groups, est.group_weights,
+                          est.group_sizes, est.epsilon, normsq)
+            score[sel], edof[sel] = _gcv_score(X, y, fsel.jphi, lams[sel], wv;
+                                               XtX = XtX)
+        end
+    end
     return SelectionPath(lams, score, criterion, edof, n_alive, cost, Float64(delta),
                          t_sel, sel, fsel)
 end

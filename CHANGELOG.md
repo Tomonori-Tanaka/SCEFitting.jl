@@ -6,6 +6,21 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — review-pass hardening (whole-package review, 2026-07-18)
+
+- `clebsch_gordan` now throws an `ArgumentError` for momenta beyond the `Float64`
+  factorial range (`j1 + j2 + J + 1 > 170`) and on any internal overflow, instead
+  of silently returning `Inf`/`NaN`. Far outside the validated small-`l` regime;
+  in-range values are unchanged.
+- `select_fit`: the selected row's `score`/`edof` (under `criterion = :gcv`) are
+  now re-derived from the cold re-solve, like `n_alive`/`cost` already were, so
+  `path.score[path.selected] == gcv(path.fit)` exactly. The selection decision
+  itself still uses the warm path scores and is unchanged.
+- `_bilinear_terms`: removed the dead `a > b` reverse-member transpose branch
+  (canonical v4 members sort sites by `(atom, shift)`, so it was unreachable);
+  a non-canonical member is now an internal error. Docstrings updated to the
+  one-canonical-member-per-bond reality. No behavior change for real models.
+
 ### Added — cost-weighted group selection (`GroupAdaptiveRidge` + GCV + Pareto λ path)
 
 - **`GroupAdaptiveRidge(column_groups, group_weights; lambda, epsilon, max_iter,

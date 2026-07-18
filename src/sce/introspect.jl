@@ -67,8 +67,9 @@ The bilinear pair (`ls=[1,1]`: Heisenberg + Dzyaloshinskii–Moriya + symmetric-
 and single-ion (`ls=[2]`) channels of a fitted SCE, extracted as Cartesian `3×3` matrices
 and folded onto the training supercell. Returns a named tuple `(; pairs, onsites, skipped)`:
 
-- `pairs::Dict{Tuple{Int,Int,SVector{3,Int}}, SMatrix{3,3}}` — one matrix `M` per directed
-  bond `(a, b, R)` (canonicalized to `a ≤ b`), energy `Σ eₐ'·M·e_b`;
+- `pairs::Dict{Tuple{Int,Int,SVector{3,Int}}, SMatrix{3,3}}` — one matrix `M` per bond
+  `(a, b, R)` with `a ≤ b` (canonical members carry each physical bond once, both
+  directed contributions pre-summed), energy `Σ eₐ'·M·e_b`;
 - `onsites::Dict{Int, SMatrix{3,3}}` — one single-ion matrix `A` per atom, energy `eₐ'·A·eₐ`;
 - `skipped::Vector{String}` — the higher-order / higher-`l` SALCs not representable as a
   bilinear pair or single-ion term.

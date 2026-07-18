@@ -37,7 +37,10 @@ end
     clebsch_gordan(j1, m1, j2, m2, J, M) -> Float64
 
 Clebsch–Gordan coefficient `⟨j1 m1 j2 m2 | J M⟩` (integer angular momenta), via the
-Racah single-sum formula. Returns `0.0` outside the selection rules.
+Racah single-sum formula. Returns `0.0` outside the selection rules. The `Float64`
+factorials cap the admissible momenta at `j1 + j2 + J + 1 ≤ 170` (beyond, `n!`
+overflows to `Inf`); larger inputs throw instead of silently returning `NaN` —
+far outside the small-`l` regime this package targets.
 
 # Arguments
 - `j1, m1, j2, m2, J, M::Integer`: the coupling quantum numbers.
@@ -51,6 +54,10 @@ function clebsch_gordan(j1::Integer, m1::Integer, j2::Integer, m2::Integer,
     (j1 >= 0 && j2 >= 0 && J >= 0) || return 0.0
     (abs(m1) <= j1 && abs(m2) <= j2 && abs(M) <= J) || return 0.0
     (abs(j1 - j2) <= J <= j1 + j2) || return 0.0
+    # largest factorial argument below; 171! overflows Float64 to Inf — fail loudly
+    j1 + j2 + J + 1 <= 170 || throw(ArgumentError(
+        "clebsch_gordan: j1 + j2 + J = $(j1 + j2 + J) exceeds the Float64 " *
+        "factorial range (n! overflows at n = 171)"))
 
     tri = _fact(j1 + j2 - J) * _fact(j1 - j2 + J) * _fact(-j1 + j2 + J) /
           _fact(j1 + j2 + J + 1)
@@ -66,7 +73,13 @@ function clebsch_gordan(j1::Integer, m1::Integer, j2::Integer, m2::Integer,
                 _fact(j2 + m2 - k) * _fact(J - j2 + m1 + k) * _fact(J - j1 - m2 + k)
         s += (isodd(k) ? -1.0 : 1.0) / denom
     end
-    return pref * s
+    c = pref * s
+    # factorial *products* can still overflow inside the admitted range; never
+    # return a silent Inf/NaN
+    isfinite(c) || throw(ArgumentError(
+        "clebsch_gordan: Float64 overflow in the Racah sum for (j1, j2, J) = " *
+        "($j1, $j2, $J); momenta this large are outside the supported range"))
+    return c
 end
 
 # Deterministic, well-spread sample directions on the unit sphere (Fibonacci

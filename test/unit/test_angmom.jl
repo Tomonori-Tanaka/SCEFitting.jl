@@ -19,6 +19,10 @@ const Dreal = AngularMomentum.wignerD_real
         @test CG(1, 1, 1, 1, 0, 0) == 0.0      # M = 2 ≠ 0
         @test CG(1, 0, 1, 0, 3, 0) == 0.0      # J > j1+j2
         @test CG(1, 0, 1, 0, 1, 0) == 0.0      # ⟨1010|10⟩ vanishes
+        # Float64 factorial range: overflow throws instead of returning Inf/NaN
+        @test_throws ArgumentError CG(60, 0, 60, 0, 60, 0)   # 3l + 1 = 181 > 170
+        @test isfinite(CG(20, 0, 20, 0, 20, 0))              # comfortably in range
+        @test CG(60, 0, 60, 0, 200, 0) == 0.0                # rule fails first: 0, no throw
     end
 
     @testset "CG orthonormality" begin
