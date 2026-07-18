@@ -6,6 +6,51 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — cost-weighted group selection (`GroupAdaptiveRidge` + GCV + Pareto λ path)
+
+- **`GroupAdaptiveRidge(column_groups, group_weights; lambda, epsilon, max_iter,
+  tol)`** — in-core group extension of `AdaptiveRidge`: iterative reweighted
+  ridge with one shared weight `wⱼ = v_g/(‖β_g‖² + p_g·ε)` per column group,
+  approximating the weighted group-L0 penalty `λ·Σ_g v_g·1{β_g ≠ 0}` (at
+  convergence a surviving group pays exactly `λ·v_g`). Degenerates exactly to
+  `AdaptiveRidge` for singleton groups with unit weights; `lambda = 0` ⇒ OLS;
+  `islinear` ⇒ `true`. Motivation: Monte-Carlo sweep cost is paid per
+  contraction entry, and entries vanish only when a whole `(body, orbit, ls)`
+  SALC group is zero — group-level elimination is the only sparsity that
+  reduces MC cost.
+- **Basis helpers** (public, unexported): `SCEFitting.salc_groups(basis)`
+  (column → group labels by `(body, orbit_id, ls)`),
+  `SCEFitting.group_costs(basis[, labels])` (per-group distinct-contraction-
+  entry union over the canonical members; additive across groups), and
+  `SCEFitting.cost_weights(basis; theta)` with `v_g = √p_g·(c_g/c̄)^θ` —
+  `θ ∈ [0, 1]` tilts the penalty from cost-blind (`0`) to cost-proportional
+  (`1`). Convenience constructor `GroupAdaptiveRidge(basis; lambda, theta, …)`.
+- **`gcv(f)` / `effective_dof(f)`** (exported) — closed-form hat-matrix
+  diagnostics for the linear estimators (`OLS` / `Ridge` / `AdaptiveRidge` /
+  `GroupAdaptiveRidge`; adaptive members in the standard converged-weight
+  sense): `effective_dof` = `tr(X(X'X+λD)⁻¹X') + 1`, `gcv` = `n·RSS/(n−df)²`
+  on the assembled problem, `Inf` in the near-interpolating regime. The trace
+  is an eigenproblem on the smaller Gram side — usable at `n < p`. `dof(f)`
+  (the raw parametric count) is unchanged. On torque co-fits GCV is optimistic
+  (correlated within-configuration rows); grouped CV is the documented ground
+  truth there.
+- **`select_fit(dataset, est; lambdas, criterion = :gcv|:cv, delta, …)` /
+  `SelectionPath`** (exported) — warm-started descending λ path on a
+  once-assembled Gram, scoring each fit by GCV or configuration-grouped K-fold
+  CV (in core, deterministic seeded folds, per-fold Gram downdates), tracking
+  alive groups (the `refit` scaled-magnitude support rule) and the predicted MC
+  cost `Σ_{g alive} c_g`, then selecting the **cheapest λ within `(1 + delta)`
+  of the minimum score** — the cost-aware generalization of `:lambda_1se`.
+  Because the reweighted ridge crushes dead groups to tiny nonzero values, the
+  default alive rule is a per-λ *relative* floor (1e-6 of the largest scaled
+  magnitude); the effective absolute threshold at the selected λ is returned as
+  `path.threshold`. The selected fit is re-solved cold (reproducible by a plain
+  `fit`, its path row re-derived from that solve); follow with
+  `refit(path.fit; threshold = path.threshold)` to de-bias exactly the reported
+  support. `SelectionPath` is a Tables.jl source (one row per λ). Intended
+  workflow: `GroupAdaptiveRidge(basis; theta)` → `select_fit` → `refit`,
+  sweeping `theta` to trace the (MC cost, error) Pareto front.
+
 ### Changed — canonical SALC members (up to `N!`× smaller basis, persist v4)
 
 - The SALC construction now folds its output into a **canonical, duplicate-free

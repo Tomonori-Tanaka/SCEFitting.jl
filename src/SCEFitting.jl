@@ -10,7 +10,7 @@ diagnostics, persistence, Sunny export, introspection) is realized; see `SPEC.md
 """
 module SCEFitting
 
-using LinearAlgebra: norm, det, I, eigen, Symmetric, Diagonal, dot, cross
+using LinearAlgebra: norm, det, I, eigen, eigvals, svdvals, Symmetric, Diagonal, dot, cross
 using StaticArrays
 using Statistics: mean
 using Random: AbstractRNG, default_rng
@@ -50,6 +50,7 @@ include("sce/model.jl")          # pipeline types + constructors + config valida
 include("fitting/design.jl")     # design-matrix assembly (X_E / X_T)
 include("fitting/fit.jl")        # fit / refit / predict
 include("fitting/diagnostics.jl")  # coef / intercept / residuals / R² / RMSE
+include("fitting/selection.jl")  # MC-cost group labels/costs, GCV, λ-path + Pareto
 
 # --- tabular results (Tables.jl source) ---
 include("sce/coeftable.jl")
@@ -89,13 +90,15 @@ export BasisSpec, SCEBasis, SCEDataset, SCEPredictor, SCEFit, fit, refit, n_salc
 export predict_energy, predict_torque, has_torque
 # estimators
 export AbstractEstimator, OLS, Ridge, ElasticNet, Lasso, AdaptiveLasso, AdaptiveRidge,
-    PrecomputedPilot
+    GroupAdaptiveRidge, PrecomputedPilot
 # fit diagnostics (predict / residuals / r2 are StatsAPI generics defaulting to the
 # energy block; the explicit *_energy / *_torque forms are the full surface)
 export coef, intercept, nobs, dof, predict, residuals, r2,
     r2_energy, rmse_energy, r2_torque, rmse_torque,
     rss_energy, rss_torque, residuals_energy, residuals_torque
 export coeftable, SCECoefficients
+# model selection: GCV / effective dof (linear estimators) and the cost-aware λ path
+export gcv, effective_dof, select_fit, SelectionPath
 export to_sunny
 # Fitted-model introspection: a code-neutral view of the multipole / bilinear terms of a
 # fitted SCE, the stable contract downstream packages (e.g. the SCETools.jl mean-field
@@ -120,6 +123,7 @@ public analyze_symmetry, n_ops, SymOp, SpaceGroup, AbstractTrainingDatum
 public build_clusters, ClusterMember, ClusterOrbit, ClusterSet
 public build_salc_basis, evaluate_salc, salcs, SALC, SALCKey, SALCBasis
 public islinear, solve_coefficients
+public salc_groups, group_costs, cost_weights                        # MC-cost grouping
 public save, load                                                    # TOML persistence
 
 end # module SCEFitting

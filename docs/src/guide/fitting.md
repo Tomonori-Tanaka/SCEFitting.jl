@@ -91,7 +91,7 @@ end-to-end.
 
 ## Estimators
 
-The estimator is the regression strategy, dispatched on [`AbstractEstimator`](@ref). Three
+The estimator is the regression strategy, dispatched on [`AbstractEstimator`](@ref). Four
 are in-tree (closed form, no dependencies):
 
 | Estimator | Penalty | Notes |
@@ -99,6 +99,7 @@ are in-tree (closed form, no dependencies):
 | [`OLS`](@ref) | none | ordinary least squares (QR) |
 | [`Ridge`](@ref) | ``\lambda\lVert\beta\rVert_2^2`` | L2, closed form |
 | [`AdaptiveRidge`](@ref) | ``\lambda\sum_j w_j\beta_j^2`` | iterative reweighted ridge, an L0 approximation |
+| [`GroupAdaptiveRidge`](@ref) | as above, ``w`` shared per group | group-L0, fixed cost weights |
 
 [`AdaptiveRidge`](@ref) (Frommlet & Nuel 2016) repeatedly refits a per-coefficient
 weighted ridge with ``w_j = 1/(\beta_j^2 + \varepsilon)``, so large coefficients get a
@@ -108,6 +109,12 @@ zero. Each subproblem is the analytic weighted ridge, so it needs no extension:
 ```julia
 fit(SCEFit, dataset, AdaptiveRidge(lambda = 1e-3))     # L0-like selection, closed form
 ```
+
+[`GroupAdaptiveRidge`](@ref) is its group extension: all columns of a group share one
+weight ``w_j = v_g/(\lVert\beta_g\rVert^2 + p_g\varepsilon)``, so whole groups — not
+individual columns — are driven to zero, and the fixed multiplier ``v_g`` prices each
+group (at convergence a surviving group pays exactly ``\lambda v_g``). This is the
+estimator behind the Monte-Carlo-cost-aware selection workflow below.
 
 The penalized-path estimators — the Lasso, the elastic net, and the adaptive Lasso — are
 provided by a **GLMNet extension** that lights up under `using GLMNet`:
@@ -170,6 +177,45 @@ A column survives when its scaled-magnitude contribution `|coef(f)[j]|·‖X[:, 
 prune further. `refit` reuses the dataset and `torque_weight` of the input fit, so the
 co-fit whitening is identical.
 
+## Cost-weighted group selection
+
+A Monte-Carlo sweep over a fitted SCE pays per **contraction entry**, and an entry
+vanishes only when *every* SALC of its `(body, orbit, l-multiset)` group has a zero
+coefficient — so the quantity to minimize alongside the fit error is the summed cost of
+the surviving groups, not the coefficient count. The workflow prices each group up
+front and lets the penalty act at exactly that granularity:
+
+```julia
+est  = GroupAdaptiveRidge(basis; lambda = 1.0, theta = 1.0)   # cost-proportional weights
+path = select_fit(dataset, est; lambdas = 10.0 .^ range(2, -8; length = 25))
+fbest = refit(path.fit; threshold = path.threshold)   # de-bias exactly the alive support
+```
+
+(The reweighted ridge crushes dead groups to tiny — not exactly zero — values, so
+"alive" is decided by a relative floor on the scaled magnitudes; `path.threshold` is
+the effective absolute value at the selected λ, and passing it to [`refit`](@ref)
+realizes exactly the support the path reported.)
+
+The convenience constructor bundles `SCEFitting.salc_groups` (the column → group
+labels) with `SCEFitting.cost_weights`, which sets the fixed per-group weights to
+``v_g = \sqrt{p_g}\,(c_g/\bar c)^\theta`` — ``c_g`` being the group's a-priori
+Monte-Carlo cost (its distinct contraction entries, `SCEFitting.group_costs`). Two
+independent knobs shape the cost–accuracy trade:
+
+- **`theta ∈ [0, 1]`** tilts the *penalty*: `theta = 0` ignores cost (plain group
+  selection), `theta = 1` makes an expensive group earn its keep with a
+  correspondingly larger error reduction. Different `theta` change the *order* in
+  which groups die along the λ path.
+- **`delta ≥ 0`** tilts the *selection*: [`select_fit`](@ref) scores every λ (GCV by
+  default, or configuration-grouped CV with `criterion = :cv`) and picks the
+  **cheapest** λ whose score is within `(1 + delta)` of the path minimum — the
+  cost-aware generalization of the conventional `:lambda_1se` rule.
+
+The returned [`SelectionPath`](@ref) is a Tables.jl source with one row per λ
+(`lambda`, `score`, `edof`, `n_alive`, `cost`, `selected`); sweeping `theta` and taking
+the lower envelope of the per-θ paths traces the full (cost, error) Pareto front. For
+a torque co-fit prefer `criterion = :cv` — see the caveat in [`gcv`](@ref).
+
 ## Diagnostics
 
 A fitted [`SCEFit`](@ref) answers the usual questions:
@@ -181,7 +227,17 @@ nobs(f)                              # number of energy observations
 dof(f)                               # degrees of freedom: length(coef(f)) + 1
 rss_energy(f);  rss_torque(f)        # residual sums of squares
 residuals_energy(f);  residuals_torque(f)   # the raw residual vectors
+effective_dof(f)                     # hat-matrix trace + 1 (linear estimators)
+gcv(f)                               # generalized cross-validation score
 ```
+
+For a *linear* estimator (`islinear`: `OLS` / `Ridge` / `AdaptiveRidge` /
+`GroupAdaptiveRidge`) two closed-form model-selection diagnostics come for free:
+[`effective_dof`](@ref) is the trace of the hat matrix plus the intercept — the
+*effective* parameter count a penalized fit actually spends, as opposed to
+[`dof`](@ref)'s raw count — and [`gcv`](@ref) is the generalized cross-validation
+score `n·RSS/(n − df)²` built on it, the fast λ-selection criterion used by
+[`select_fit`](@ref).
 
 The energy and torque blocks are reported separately throughout (the rebuild does not fold
 them into one combined residual): `residuals_energy(f)` is `y_E − (j0 + X_E·jϕ)` and

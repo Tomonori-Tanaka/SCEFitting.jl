@@ -223,6 +223,21 @@ Easy to break silently — confirm before touching the algorithm.
   centered-`X` contract. Validated in the separate `test/glmnet/` env (GLMNet-backed) and
   `test/unit/test_fit.jl` (core `AdaptiveRidge` / `PrecomputedPilot` solves), never mixing
   the two (GLMNet absent in the core suite).
+- **GCV ↔ `_assemble_problem` ↔ `islinear` ↔ the GAR weight map** (`fitting/selection.jl`,
+  `fitting/estimators.jl`): `gcv`/`effective_dof` reassemble the design through
+  `_assemble_problem` (change the centering/whitening and the score moves with `fit`),
+  are gated by `islinear`, and recompute the converged penalty diagonal through the
+  **same** functions the solvers iterate — `_gar_weights!` (the single definition of
+  `wⱼ = v_g/(‖β_g‖² + p_g·ε)`; `_penalty_diagonal` has one method per linear estimator,
+  and `AdaptiveRidge`'s `1/(β² + ε)` must stay in sync with its solve loop). Change a
+  weight formula in the solver and the `_penalty_diagonal` method, the design-notes §13
+  derivation, and the dense-hat-matrix tests in `test/unit/test_selection.jl` move
+  together. `select_fit`'s alive-group rule is the `refit` scaled-magnitude support rule
+  (`|jϕⱼ|·‖X[:,j]‖ > threshold`) applied per group — change one side and the other (and
+  the E2E cost-recomputation test) follows. `salc_groups`/`group_costs` assume sorted
+  `SALCBasis.keys` and canonical (v4) members; the entry key `(atoms, shifts, ls, index)`
+  mirrors what the SCEMonteCarlo adjacency merge folds — change either representation
+  and re-check the brute-force union test and the cross-package entry-count script.
 - **`fit` ↔ `refit` share `_assemble_problem`** (`fitting/fit.jl`): the `(X, y, xbar, ybar,
   groups)` centering/whitening assembly lives in one helper so the two build identical
   designs — change the centering or whitening there and **both** move together (the oracle

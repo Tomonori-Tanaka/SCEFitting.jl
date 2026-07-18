@@ -231,6 +231,82 @@ function AdaptiveRidge(; lambda::Real, epsilon::Real = 1e-8, max_iter::Integer =
     return AdaptiveRidge(Float64(lambda), Float64(epsilon), Int(max_iter), Float64(tol))
 end
 
+"""
+    GroupAdaptiveRidge(column_groups, group_weights; lambda, epsilon = 1e-8,
+                       max_iter = 50, tol = 1e-6)
+
+Group extension of [`AdaptiveRidge`](@ref): iterative reweighted ridge approximating the
+weighted **group-L0** penalty `lambda·Σ_g v_g·1{β_g ≠ 0}`. Each reweighting step solves
+the analytic weighted ridge
+
+    min_b ‖y − Xb‖² + lambda·Σⱼ wⱼ·bⱼ²,    wⱼ = v_g / (‖β_g‖² + p_g·epsilon)
+
+where `g = column_groups[j]`, `β_g` is the current coefficient sub-vector of group `g`,
+`p_g` its column count, and `v_g = group_weights[g]` a **fixed** positive per-group
+weight. At a converged fixed point the penalty contribution of a surviving group tends
+to `lambda·v_g` (a constant per alive group), so `v_g` is exactly the group-L0 weight —
+e.g. a Monte-Carlo cost weight from `SCEFitting.cost_weights`. The denominator equals
+`p_g·(mean_j βⱼ² + epsilon)`, so `epsilon` is a per-coefficient magnitude floor
+independent of the group size (the same calibration as [`AdaptiveRidge`](@ref), whose
+update this reproduces exactly for singleton groups with unit weights).
+
+`column_groups` labels the design-matrix **columns** with contiguous group ids `1:G`
+(every label present; for an SCE fit use `SCEFitting.salc_groups`); it is unrelated to
+the per-**row** `groups` keyword of [`solve_coefficients`](@ref), which this estimator
+ignores. `group_weights` has length `G`. Both vectors are copied at construction.
+`lambda = 0` reduces to [`OLS`](@ref). Like `AdaptiveRidge`, the converged fit is a
+linear smoother in the fixed-weight sense ([`islinear`](@ref) is `true`), so
+[`gcv`](@ref) applies. Iterating to convergence drives whole groups toward zero; follow
+with [`refit`](@ref) to select the support and de-bias the survivors, or drive the λ
+path with [`select_fit`](@ref).
+"""
+struct GroupAdaptiveRidge <: AbstractEstimator
+    lambda::Float64
+    column_groups::Vector{Int}
+    group_weights::Vector{Float64}
+    epsilon::Float64
+    max_iter::Int
+    tol::Float64
+    group_sizes::Vector{Int}     # p_g, derived and cached by the inner constructor
+
+    function GroupAdaptiveRidge(lambda::Real, column_groups::AbstractVector{<:Integer},
+                                group_weights::AbstractVector{<:Real}, epsilon::Real,
+                                max_iter::Integer, tol::Real)
+        (lambda >= 0 && isfinite(lambda)) ||
+            throw(ArgumentError("lambda must be finite and ≥ 0; got $lambda"))
+        epsilon > 0 || throw(ArgumentError("epsilon must be > 0; got $epsilon"))
+        max_iter >= 1 || throw(ArgumentError("max_iter must be ≥ 1; got $max_iter"))
+        tol > 0 || throw(ArgumentError("tol must be > 0; got $tol"))
+        isempty(column_groups) &&
+            throw(ArgumentError("column_groups must be nonempty (one label per column)"))
+        minimum(column_groups) >= 1 ||
+            throw(ArgumentError("column_groups labels must be ≥ 1; got " *
+                                "$(minimum(column_groups))"))
+        G = Int(maximum(column_groups))
+        sizes = zeros(Int, G)
+        for g in column_groups
+            sizes[g] += 1
+        end
+        all(>(0), sizes) ||
+            throw(ArgumentError("column_groups labels must cover 1:$G with no gaps; " *
+                                "empty group(s): $(findall(==(0), sizes))"))
+        length(group_weights) == G ||
+            throw(ArgumentError("group_weights length $(length(group_weights)) ≠ " *
+                                "number of groups $G"))
+        all(v -> isfinite(v) && v > 0, group_weights) ||
+            throw(ArgumentError("group_weights must be finite and > 0"))
+        return new(Float64(lambda), Vector{Int}(column_groups),
+                   Vector{Float64}(group_weights), Float64(epsilon), Int(max_iter),
+                   Float64(tol), sizes)
+    end
+end
+function GroupAdaptiveRidge(column_groups::AbstractVector{<:Integer},
+                            group_weights::AbstractVector{<:Real};
+                            lambda::Real, epsilon::Real = 1e-8, max_iter::Integer = 50,
+                            tol::Real = 1e-6)
+    return GroupAdaptiveRidge(lambda, column_groups, group_weights, epsilon, max_iter, tol)
+end
+
 # Compact display: the default struct printer would dump the whole `beta` vector
 # (hundreds–thousands of entries) and recurse into the nested pilot.
 Base.show(io::IO, p::PrecomputedPilot) =
@@ -238,14 +314,19 @@ Base.show(io::IO, p::PrecomputedPilot) =
 Base.show(io::IO, e::AdaptiveLasso) =
     print(io, "AdaptiveLasso(pilot=", e.pilot, ", lambda=", e.lambda, ", gamma=",
           e.gamma, ", epsilon=", e.epsilon, ", standardize=", e.standardize, ")")
+Base.show(io::IO, e::GroupAdaptiveRidge) =
+    print(io, "GroupAdaptiveRidge(", length(e.column_groups), " columns in ",
+          length(e.group_weights), " groups, lambda=", e.lambda,
+          ", epsilon=", e.epsilon, ")")
 
 """
     islinear(est) -> Bool
 
 Whether `est` is a linear (closed-form) estimator — one whose fitted values are
-`ŷ = H·y` with a hat matrix `H` independent of `y`. Gates closed-form diagnostics.
-[`OLS`](@ref), [`Ridge`](@ref), and [`AdaptiveRidge`](@ref) (linear in the
-converged-weight sense, the standard adaptive-ridge approximation) return `true`;
+`ŷ = H·y` with a hat matrix `H` independent of `y`. Gates closed-form diagnostics
+(e.g. [`gcv`](@ref) / [`effective_dof`](@ref)). [`OLS`](@ref), [`Ridge`](@ref),
+[`AdaptiveRidge`](@ref), and [`GroupAdaptiveRidge`](@ref) (the latter two linear in
+the converged-weight sense, the standard adaptive-ridge approximation) return `true`;
 the penalty-path / pilot estimators ([`ElasticNet`](@ref) / [`Lasso`](@ref) /
 [`AdaptiveLasso`](@ref)) are not linear. Extends `StatsAPI.islinear`.
 """
@@ -253,6 +334,7 @@ islinear(::AbstractEstimator) = false
 islinear(::OLS) = true
 islinear(::Ridge) = true
 islinear(::AdaptiveRidge) = true
+islinear(::GroupAdaptiveRidge) = true
 
 """
     solve_coefficients(est, X, y; groups = nothing) -> Vector{Float64}
@@ -309,6 +391,78 @@ function solve_coefficients(est::AdaptiveRidge, X::AbstractMatrix, y::AbstractVe
         rel < est.tol && break
     end
     return beta
+end
+
+# The group-adaptive-ridge weight map — the ONLY definition of the update
+# `wⱼ = v_g / (‖β_g‖² + p_g·ε)`. The GCV / effective-dof diagnostics recompute the
+# converged penalty diagonal through this same function (`_penalty_diagonal` in
+# fitting/selection.jl); change the formula here and nowhere else. `normsq` is a
+# reusable length-`G` accumulator; fills `w` in place and returns it.
+function _gar_weights!(w::Vector{Float64}, beta::Vector{Float64},
+                       column_groups::Vector{Int}, group_weights::Vector{Float64},
+                       group_sizes::Vector{Int}, epsilon::Float64,
+                       normsq::Vector{Float64})::Vector{Float64}
+    fill!(normsq, 0.0)
+    @inbounds for j in eachindex(beta)
+        normsq[column_groups[j]] += abs2(beta[j])
+    end
+    @inbounds for j in eachindex(beta)
+        g = column_groups[j]
+        w[j] = group_weights[g] / (normsq[g] + group_sizes[g] * epsilon)
+    end
+    return w
+end
+
+# The reweighted-ridge iteration on a precomputed Gram system, shared by
+# `solve_coefficients(::GroupAdaptiveRidge, …)` (`beta0 = nothing`, cold start) and the
+# `select_fit` λ-path driver (`beta0` = the previous λ's solution, warm start; the
+# caller forms `XtX`/`Xty` once for the whole path). Requires `lambda > 0` — the
+# callers route the exact `lambda == 0` case to OLS.
+function _solve_gar(XtX::Matrix{Float64}, Xty::Vector{Float64}, lambda::Float64,
+                    column_groups::Vector{Int}, group_weights::Vector{Float64},
+                    group_sizes::Vector{Int}, epsilon::Float64, max_iter::Int,
+                    tol::Float64;
+                    beta0::Union{Nothing,Vector{Float64}} = nothing)::Vector{Float64}
+    p = length(Xty)
+    w = Vector{Float64}(undef, p)
+    normsq = Vector{Float64}(undef, length(group_weights))
+    # Iteration 0 (cold start): the fixed-weight ridge `wⱼ = v_g` — with unit weights
+    # this is numerically Ridge(lambda), matching the AdaptiveRidge initialization. A
+    # warm start replaces it with the caller's `beta0` and enters the loop directly.
+    # With lambda > 0 and every wⱼ > 0 (epsilon > 0), the shifted matrix is SPD
+    # throughout — do NOT widen the callers' `lambda == 0` routing to a tolerance.
+    beta = if beta0 === nothing
+        @inbounds for j = 1:p
+            w[j] = group_weights[column_groups[j]]
+        end
+        Symmetric(XtX + lambda * Diagonal(w)) \ Xty
+    else
+        copy(beta0)
+    end
+    for _ = 1:max_iter
+        _gar_weights!(w, beta, column_groups, group_weights, group_sizes, epsilon, normsq)
+        beta_new = Symmetric(XtX + lambda * Diagonal(w)) \ Xty
+        # Relative ∞-norm change; the eps floor only guards the all-zero β case.
+        rel = mapreduce((a, b) -> abs(a - b), max, beta_new, beta) /
+              max(maximum(abs, beta_new), eps(Float64))
+        beta = beta_new
+        rel < tol && break
+    end
+    return beta
+end
+
+function solve_coefficients(est::GroupAdaptiveRidge, X::AbstractMatrix, y::AbstractVector;
+                            groups = nothing)::Vector{Float64}
+    length(est.column_groups) == size(X, 2) || throw(DimensionMismatch(
+        "GroupAdaptiveRidge column_groups length $(length(est.column_groups)) does not " *
+        "match design-matrix column count $(size(X, 2)); the labels were likely built " *
+        "on a different SCEBasis."))
+    # Exact zero only (see the AdaptiveRidge method above): at lambda = 0 the penalty
+    # diagonal is gone and the Gram matrix may be singular — route to QR (min-norm) OLS.
+    est.lambda == 0.0 && return solve_coefficients(OLS(), X, y)
+    return _solve_gar(Matrix{Float64}(X' * X), Vector{Float64}(X' * y), est.lambda,
+                      est.column_groups, est.group_weights, est.group_sizes,
+                      est.epsilon, est.max_iter, est.tol)
 end
 
 function solve_coefficients(est::PrecomputedPilot, X::AbstractMatrix, y::AbstractVector;

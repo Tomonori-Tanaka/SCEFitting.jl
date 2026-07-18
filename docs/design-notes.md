@@ -400,3 +400,68 @@ env: the analytic-`j0` centering invariant (`mean(predict) = ȳ`, estimator-inde
 and support recovery — a 1-sparse signal in a 44-column basis is recovered (the signal
 column dominates, the model is genuinely sparse), with `:lambda_1se` shrinking more than
 `:lambda_min`.
+
+## 13. Cost-weighted group selection: Group Adaptive Ridge + GCV + a Pareto λ rule
+
+**The objective is a weighted group-L0, so approximate that — not a surrogate.** A
+Monte-Carlo sweep over a fitted SCE pays per surviving *contraction entry*, and an
+entry is shared by every SALC of one `(body, orbit_id, ls)` group (the MC engine folds
+their coefficients into a single contraction weight). The entry vanishes only when the
+*whole group* is zero, so the real objective is
+
+    ‖y − Xβ‖² + λ·Σ_g c_g·1{β_g ≠ 0}
+
+with `c_g` the group's a-priori cost — the union count of its distinct
+`(member sites, l-assignment, nonzero tensor index)` entries over the canonical (v4)
+members. Distinct groups never share an entry key, so the costs are additive and the
+"predicted MC cost" of any support is a plain sum. Neither an L1 group penalty (the
+convex relaxation) nor per-column selection matches this: shrinking a surviving group
+saves nothing, and killing single columns of a group saves nothing either.
+
+**Why iterated reweighted ridge in core.** `GroupAdaptiveRidge` extends the in-tree
+`AdaptiveRidge` (Frommlet & Nuel 2016; the group form follows Goepp–Bouaziz–Nuel's use
+for knot selection) rather than adding a block-coordinate-descent group-lasso solver:
+every step is the same analytic SPD solve `(X'X + λ·Diagonal(w))\X'y` the package
+already trusts, it needs no groupwise orthonormalization and no GLMNet, it
+warm-starts trivially along a λ path (the Gram is formed once), and — decisively — it
+targets the group-L0 objective directly instead of its convex relaxation. The weight
+map is
+
+    wⱼ = v_g / (‖β_g‖² + p_g·ε)
+
+and the denominator form is deliberate. At a fixed point a surviving group's penalty
+contribution is `λ·v_g·‖β_g‖²/(‖β_g‖² + p_g ε) → λ·v_g`: the fixed multiplier `v_g`
+**is** the group-L0 weight, so pricing groups by cost means simply setting
+`v_g = √p_g·(c_g/c̄)^θ` (`√p_g` is the Yuan–Lin group-size factor; `θ` tilts from
+cost-blind to cost-proportional and changes the *order* in which groups die). Writing
+the denominator as `p_g·(mean_j βⱼ² + ε)` also keeps `ε` a per-coefficient magnitude
+floor independent of group size — the same calibration as `AdaptiveRidge`'s `βⱼ² + ε`,
+to which the update degenerates exactly for singleton groups with unit weights (pinned
+by test). The trade-off versus a group lasso is theory: no convexity, selection
+consistency is empirical. That is the same trade already accepted for `AdaptiveRidge`.
+
+**GCV from the closed-form hat matrix — computed on the smaller Gram side.** The
+converged fit is linear in `y` with the weights frozen (`islinear`), so
+`df = tr(X(X'X + λD)⁻¹X')` is exact in that standard converged-weight sense and GCV
+`n·RSS/(n − df)²` needs no refitting. The trace is evaluated as `Σᵢ sᵢ/(sᵢ + λ)` over
+the eigenvalues of the weighted Gram `X̃'X̃` (`p ≤ n`, reusing the λ-path's cached
+`X'X`) or its `n×n` dual (`n < p`) — never an `n×p` SVD, which would dominate the path
+cost in the co-fit regime. Two honesty guards: the score is `Inf` once `df → n` (a
+near-interpolating fit has no GCV-selectable error), and on torque co-fits GCV is
+*optimistic* because the energy and torque rows of one configuration are correlated
+while GCV treats rows as exchangeable — the same leak configuration-grouped CV folds
+exist to prevent, so `select_fit(...; criterion = :cv)` (grouped K-fold in core,
+deterministic seeded folds, per-fold Gram downdates) is the ground truth there and the
+GCV docstring says so.
+
+**Selection is a Pareto rule, not CV-min.** Minimizing the score alone answers the
+wrong question — it ignores what the surviving model costs to *run*. `select_fit`
+therefore reports the whole path (score, effective dof, alive groups, predicted cost
+per λ) and selects the **cheapest** λ whose score is within `(1 + δ)` of the path
+minimum: the direct cost-aware generalization of the conventional `:lambda_1se`
+one-standard-error rule, with `δ` an explicit accuracy tolerance instead of a
+fold-noise estimate. Together with `θ` this exposes the full trade surface — sweep `θ`,
+take the lower envelope of the per-θ paths, and the (cost, error) Pareto front is
+explicit rather than implicit in a penalty default. The selected fit is re-solved cold
+at the chosen λ so that `fit(SCEFit, dataset, estimator)` reproduces it verbatim, and
+the de-biasing `refit` closes the workflow.

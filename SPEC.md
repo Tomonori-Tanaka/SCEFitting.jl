@@ -26,7 +26,8 @@ src/
 ├── basis/               Harmonics.jl, AngularMomentum.jl (submodules),
 │                        coupledbasis.jl, salc.jl, salcbasis.jl
 ├── clusters/            enumerate.jl, orbits.jl
-├── fitting/             estimators.jl, design.jl, fit.jl, diagnostics.jl
+├── fitting/             estimators.jl, design.jl, fit.jl, diagnostics.jl,
+│                        selection.jl (MC-cost groups, GCV, λ-path + Pareto)
 ├── sce/                 model.jl (pipeline types), coeftable.jl,
 │                        bilinear.jl (tesseral → Cartesian extraction),
 │                        introspect.jl (public introspection)
@@ -259,6 +260,52 @@ capability consumed by both the introspection and the Sunny interop.
   Lasso, pilot pluggability (`Ridge`/`PrecomputedPilot`), and energy+torque grouped-CV
   co-fits. Core-only construction / validation / deferred-backend error, plus the full
   `AdaptiveRidge` / `PrecomputedPilot` solves, in `test/unit/test_fit.jl`.
+
+### Cost-weighted group selection (M13)
+- **Estimator** (`fitting/estimators.jl`, in-core): `GroupAdaptiveRidge(column_groups,
+  group_weights; lambda, epsilon, max_iter, tol)` — the group extension of
+  `AdaptiveRidge`, approximating the weighted group-L0 `λ·Σ_g v_g·1{β_g≠0}` by iterating
+  `wⱼ = v_g/(‖β_g‖² + p_g·ε)` (all columns of a group share one weight; a surviving
+  group's converged penalty is exactly `λ·v_g`). Exact degeneration to `AdaptiveRidge`
+  for singleton groups with unit weights; `lambda = 0` ⇒ OLS; `islinear` ⇒ `true`.
+  `column_groups` labels **columns** (contiguous `1:G`, validated in the inner
+  constructor) — unrelated to the per-row `groups` kwarg of `solve_coefficients`. The
+  weight map `_gar_weights!` is the single definition shared with the GCV diagnostics.
+- **Basis helpers** (`fitting/selection.jl`; public, unexported): `salc_groups(basis)`
+  — column → group labels by `(body, orbit_id, ls)`, the granularity at which MC
+  contraction entries vanish; `group_costs(basis, labels)` — per-group distinct-entry
+  union count over canonical members (additive across the `salc_groups` partition);
+  `cost_weights(basis; theta)` — `v_g = √p_g·(c_g/c̄)^θ`, `θ ∈ [0, 1]` tilting the
+  penalty from cost-blind to cost-proportional. Convenience constructor
+  `GroupAdaptiveRidge(basis; lambda, theta, …)` bundles them.
+- **GCV / effective dof** (exported): `effective_dof(f)` = `tr(X(X'X+λD)⁻¹X') + 1` with
+  the converged penalty diagonal recomputed from the fitted coefficients
+  (`_penalty_diagonal`, one method per linear estimator); `gcv(f)` = `n·RSS/(n−df)²` on
+  the assembled problem, `Inf` in the near-interpolating regime `df → n`. The dof trace
+  is an eigenproblem on the smaller Gram side (`p ≤ n`: weighted `X'X`, reusing the
+  path's cached Gram; `n < p`: the `n×n` dual) — never an `n×p` SVD. Linear estimators
+  only; on torque co-fits GCV is optimistic (correlated within-configuration rows) —
+  grouped CV is the ground truth there (documented, not an error).
+- **λ path + Pareto** (exported): `select_fit(dataset, est; lambdas, torque_weight,
+  criterion = :gcv|:cv, delta, costs, threshold, nfolds, seed) -> SelectionPath` —
+  descending warm-started path on a once-assembled Gram; per-λ score, effective dof,
+  alive groups (the `refit` scaled-magnitude rule, any-column-per-group) and predicted
+  MC cost `Σ_{g alive} c_g`; selection = cheapest λ within `(1+δ)` of the minimum score
+  (the cost-aware generalization of `:lambda_1se`; `Inf` scores never eligible, cost
+  ties → larger λ). The adaptive iteration never yields exact zeros, so the default
+  `threshold = nothing` is a per-λ **relative** alive floor (`_ALIVE_RTOL = 1e-6` of
+  that λ's largest scaled magnitude; an absolute number reproduces `refit`'s rule,
+  `0.0` degenerates to all-alive). `criterion = :cv` is configuration-grouped K-fold in
+  core (deterministic seeded folds; per-fold Gram downdate; fold reduction warns). The
+  selected fit is re-solved cold — its path row (`n_alive`/`cost`) is re-derived from
+  that cold solve and the effective absolute threshold is returned as
+  `path.threshold`, so `refit(path.fit; threshold = path.threshold)` realizes exactly
+  the reported support; `SelectionPath` is a Tables.jl source.
+- Validated in `test/unit/test_selection.jl`: construction/validation, exact
+  `AdaptiveRidge` degeneration, group-sparse recovery + weight monotonicity, label/cost
+  hand counts + additivity, `θ` endpoints, dense-hat-matrix trace agreement, the
+  underdetermined regime + guards, warm/cold path consistency, the Pareto rule, and the
+  end-to-end select → refit workflow.
 
 ## Not yet implemented (v0 follow-ups)
 - The v0 slice is feature-complete; no estimator/observable/IO follow-ups outstanding.

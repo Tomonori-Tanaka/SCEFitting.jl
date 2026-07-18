@@ -112,6 +112,7 @@ ElasticNet
 Lasso
 AdaptiveLasso
 AdaptiveRidge
+GroupAdaptiveRidge
 PrecomputedPilot
 islinear
 solve_coefficients
@@ -148,6 +149,24 @@ rss_energy
 rss_torque
 residuals_energy
 residuals_torque
+```
+
+## Model selection
+
+The fit-accuracy-vs-Monte-Carlo-cost workflow: `salc_groups` / `group_costs` /
+`cost_weights` (public, unexported — call as `SCEFitting.salc_groups` etc.) build the
+per-group cost weights of a [`GroupAdaptiveRidge`](@ref); `gcv` / `effective_dof` are
+the closed-form hat-matrix diagnostics of the linear estimators; `select_fit` drives
+the λ path and applies the cost-aware Pareto rule.
+
+```@docs
+gcv
+effective_dof
+select_fit
+SelectionPath
+SCEFitting.salc_groups
+SCEFitting.group_costs
+SCEFitting.cost_weights
 ```
 
 ## Tabular coefficients
