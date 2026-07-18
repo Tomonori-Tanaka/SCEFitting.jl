@@ -10,9 +10,9 @@ function _design_energy(basis::SCEBasis, cfgs::Vector{Matrix{Float64}})::Matrix{
     # Columns are independent; each task owns whole columns, so the writes are
     # disjoint (no false sharing) and the result is identical at any thread count.
     Threads.@threads for j = 1:m
-        cache = Vector{Float64}(undef, 4)   # task-local dnPl workspace (grows on demand)
+        scratch = SALCScratch()      # task-local workspace (dnPl + harmonic tables)
         @inbounds for i = 1:n        # column-major: stride-1 writes down each column
-            X[i, j] = evaluate_salc(salcs[j], cfgs[i], cache)
+            X[i, j] = evaluate_salc(salcs[j], cfgs[i], scratch)
         end
     end
     return X
@@ -32,11 +32,11 @@ function _design_torque(basis::SCEBasis, cfgs::Vector{Matrix{Float64}})::Matrix{
     # task-local (a shared buffer would race across threads).
     Threads.@threads for j = 1:m     # column per SALC (column-major writes)
         G = Matrix{Float64}(undef, 3, nat)
-        cache = Vector{Float64}(undef, 4)   # task-local dnPl workspace (grows on demand)
+        scratch = SALCScratch()      # task-local workspace (dnPl + harmonic tables)
         @inbounds for ci = 1:n
             c = cfgs[ci]
             fill!(G, 0.0)
-            accumulate_grad!(G, salcs[j], c, 1.0, cache)
+            accumulate_grad!(G, salcs[j], c, 1.0, scratch)
             row_off = block * (ci - 1)
             for a = 1:nat
                 ea = SVector{3,Float64}(c[1, a], c[2, a], c[3, a])

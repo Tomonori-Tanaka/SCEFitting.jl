@@ -6,6 +6,19 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — `SALCScratch`: allocation-free harmonic tables in the design hot loop
+
+- The per-term `Z`/`∇Z` site tables of `evaluate_salc`/`accumulate_grad!` —
+  previously fresh `Vector`s per (member, term) call — now live in a reusable
+  internal `SALCScratch` workspace (dnPl buffer + pooled per-site tables,
+  grown on demand). The design-matrix drivers and the predict paths thread
+  one scratch per task/call; the `cache::Vector{Float64}` forms remain as a
+  compatibility surface (wrapped into a scratch). Same calls in the same
+  order ⇒ **bit-identical** design matrices (checked against a serialized
+  pre-change reference, `nbody = 3` included). Bench (bcc-Fe 4³, 100
+  configs, lmax 2): energy 543→464 ms and 767→230 MiB; torque 1176→906 ms
+  and 1877→186 MiB.
+
 ### Fixed — review-pass hardening (whole-package review, 2026-07-18)
 
 - `clebsch_gordan` now throws an `ArgumentError` for momenta beyond the `Float64`

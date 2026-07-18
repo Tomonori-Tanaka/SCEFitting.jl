@@ -141,23 +141,46 @@ end
 
 Base.length(b::SALCBasis) = length(b.salcs)
 
+# Reusable workspace for the SALC evaluation kernels: the dnPl recursion buffer of
+# the cache-threaded `Harmonics.Zlm_unsafe` plus per-site harmonic (`Z`) and gradient
+# (`∇Z`) tables, all grown on demand. Threading one through `evaluate_salc` /
+# `accumulate_grad!` removes every per-term table allocation in the design-matrix hot
+# loop; values are bit-identical with or without it (same calls, same order — the
+# tables merely change owner). Contents are scratch: never read across calls.
+struct SALCScratch
+    dnpl::Vector{Float64}                  # Zlm_unsafe recursion workspace
+    z::Vector{Vector{Float64}}             # z[i][μ+lᵢ+1] = Z_{lᵢμ}(u_i), per term site
+    g::Vector{Vector{SVector{3,Float64}}}  # g[i][μ+lᵢ+1] = ∇Z_{lᵢμ}(u_i)
+end
+SALCScratch() = SALCScratch(Vector{Float64}(undef, 4), Vector{Float64}[],
+                            Vector{SVector{3,Float64}}[])
+# wrap a caller-supplied dnPl vector (the pre-scratch `cache` compatibility surface)
+_wrap_scratch(cache::Vector{Float64}) =
+    SALCScratch(cache, Vector{Float64}[], Vector{SVector{3,Float64}}[])
+
 """
     evaluate_salc(salc, e[, cache]) -> Float64
 
 Evaluate `Φ(e)` for a single (super)cell spin configuration `e` (`3 × n_atoms`,
 unit columns). Periodic with the cell, so lattice shifts map back to the same
-column (`site(a, R) → a`). Hot loops may pass `cache` (a reusable
-`Vector{Float64}`, grown on demand) — the dnPl recursion workspace of the
-cache-threaded `Harmonics.Zlm_unsafe`; values are identical with or without it.
+column (`site(a, R) → a`). Hot loops may pass `cache` — either a reusable
+`Vector{Float64}` (the dnPl recursion workspace of the cache-threaded
+`Harmonics.Zlm_unsafe`) or a full `SCEFitting.SALCScratch` (dnPl workspace plus
+the per-site harmonic tables, removing every per-term allocation); values are
+identical in all three forms.
 """
+evaluate_salc(salc::SALC, e::AbstractMatrix{<:Real})::Float64 =
+    evaluate_salc(salc, e, SALCScratch())
+evaluate_salc(salc::SALC, e::AbstractMatrix{<:Real}, cache::Vector{Float64})::Float64 =
+    evaluate_salc(salc, e, _wrap_scratch(cache))
 function evaluate_salc(salc::SALC, e::AbstractMatrix{<:Real},
-                       cache::Vector{Float64} = Vector{Float64}(undef, 4))::Float64
+                       scratch::SALCScratch)::Float64
     scale = (4π)^(salc.body / 2)
     total = 0.0
     @inbounds for m in salc.members
         atoms = m.atoms
         for t in m.terms
-            total += _eval_term(t.folded, t.ls, atoms, e, cache)
+            total += _eval_term(t.folded, t.ls, atoms, e, scratch)
         end
     end
     return scale * total
@@ -169,39 +192,49 @@ end
 # rank `D` (== body order) — same values and the same multiply/accumulate order, so
 # the result is bit-identical to the inlined loop.
 @inline function _eval_term(folded::Array{Float64,D}, ls, atoms,
-                            e::AbstractMatrix{<:Real}, cache::Vector{Float64}) where {D}
+                            e::AbstractMatrix{<:Real}, s::SALCScratch) where {D}
     # Per-site harmonic tables. The site direction `u_i` is fixed for this term, so
     # `Z_{lsᵢ,μ}` depends only on `(i, μ)`; tabulate it once over `μ ∈ -lsᵢ:lsᵢ` (the
     # tensor axis index is `idx[i] = μ+lsᵢ+1`) instead of recomputing inside the
     # nonzero multi-index loop, where each call hit `dnPl` and dominated the design-
     # matrix cost. Same values, same multiply order ⇒ bit-identical. `u_i` is a unit
     # column by the config contract, so the unchecked harmonic is safe.
-    tabs = _site_ztables(Val(D), ls, atoms, e, cache)
+    _fill_ztables!(s, Val(D), ls, atoms, e)
+    z = s.z
     acc = 0.0
     @inbounds for idx in CartesianIndices(folded)
         w = folded[idx]
         w == 0.0 && continue
         for i = 1:D
-            w *= tabs[i][idx[i]]
+            w *= z[i][idx[i]]
         end
         acc += w
     end
     return acc
 end
 
-# Tuple of per-site harmonic tables `tabs[i][μ+lsᵢ+1] = Z_{lsᵢ,μ}(u_i)`. `Val(D)`
-# keeps the tuple length a compile-time constant (type-stable). `cache` is the
-# reusable dnPl recursion workspace of the cache-threaded `Zlm_unsafe` (grown on
-# demand; values are bit-identical to the cache-less call).
-@inline function _site_ztables(::Val{D}, ls, atoms, e::AbstractMatrix{<:Real},
-                               cache::Vector{Float64}) where {D}
-    ntuple(Val(D)) do i
+# Fill `s.z[1:D]` with the per-site harmonic tables `s.z[i][μ+lsᵢ+1] = Z_{lsᵢ,μ}(u_i)`
+# for one term, growing the pooled table vectors on demand (a pooled vector may stay
+# longer than 2lsᵢ+1 from an earlier term; only 1:2lsᵢ+1 is written/read). Same
+# evaluation order as the former per-call comprehensions ⇒ identical values, zero
+# allocation once the pools are grown.
+@inline function _fill_ztables!(s::SALCScratch, ::Val{D}, ls, atoms,
+                                e::AbstractMatrix{<:Real}) where {D}
+    while length(s.z) < D
+        push!(s.z, Float64[])
+    end
+    @inbounds for i = 1:D
         a = atoms[i]
         u = SVector{3,Float64}(e[1, a], e[2, a], e[3, a])
         li = ls[i]
-        length(cache) < li + 1 && resize!(cache, li + 1)
-        Float64[Harmonics.Zlm_unsafe(li, μ, u, cache) for μ = -li:li]
+        length(s.dnpl) < li + 1 && resize!(s.dnpl, li + 1)
+        t = s.z[i]
+        length(t) < 2 * li + 1 && resize!(t, 2 * li + 1)
+        for μ = -li:li
+            t[μ + li + 1] = Harmonics.Zlm_unsafe(li, μ, u, s.dnpl)
+        end
     end
+    return nothing
 end
 
 """
@@ -220,15 +253,20 @@ appears more than once in a member contributes once per occurrence (the chain
 rule), so repeated sites are handled correctly. `∇Zₗₘ` is the tangent-projected
 gradient; the radial part it drops would cancel in `e × ∇Φ` anyway.
 """
+accumulate_grad!(G::AbstractMatrix{Float64}, salc::SALC, e::AbstractMatrix{<:Real},
+                 weight::Real) = accumulate_grad!(G, salc, e, weight, SALCScratch())
+accumulate_grad!(G::AbstractMatrix{Float64}, salc::SALC, e::AbstractMatrix{<:Real},
+                 weight::Real, cache::Vector{Float64}) =
+    accumulate_grad!(G, salc, e, weight, _wrap_scratch(cache))
 function accumulate_grad!(G::AbstractMatrix{Float64}, salc::SALC,
                           e::AbstractMatrix{<:Real}, weight::Real,
-                          cache::Vector{Float64} = Vector{Float64}(undef, 4))
+                          scratch::SALCScratch)
     weight == 0.0 && return G
     scale = weight * (4π)^(salc.body / 2)
     @inbounds for m in salc.members
         atoms = m.atoms
         for t in m.terms
-            _accum_grad_term!(G, t.folded, t.ls, atoms, e, scale, cache)
+            _accum_grad_term!(G, t.folded, t.ls, atoms, e, scale, scratch)
         end
     end
     return G
@@ -241,9 +279,11 @@ end
 # expansion, same evaluation order ⇒ the accumulated gradient is bit-identical.
 @inline function _accum_grad_term!(G::AbstractMatrix{Float64}, folded::Array{Float64,D},
                                    ls, atoms, e::AbstractMatrix{<:Real}, scale::Float64,
-                                   cache::Vector{Float64}) where {D}
-    ztab = _site_ztables(Val(D), ls, atoms, e, cache)
-    gtab = _site_gtables(Val(D), ls, atoms, e, cache)
+                                   s::SALCScratch) where {D}
+    _fill_ztables!(s, Val(D), ls, atoms, e)
+    _fill_gtables!(s, Val(D), ls, atoms, e)
+    ztab = s.z
+    gtab = s.g
     @inbounds for idx in CartesianIndices(folded)
         w = scale * folded[idx]
         w == 0.0 && continue
@@ -266,14 +306,22 @@ end
     return G
 end
 
-# Tuple of per-site gradient tables `gtab[i][μ+lsᵢ+1] = ∇Z_{lsᵢ,μ}(u_i)`.
-@inline function _site_gtables(::Val{D}, ls, atoms, e::AbstractMatrix{<:Real},
-                               cache::Vector{Float64}) where {D}
-    ntuple(Val(D)) do i
+# Gradient sibling of `_fill_ztables!`: `s.g[i][μ+lsᵢ+1] = ∇Z_{lsᵢ,μ}(u_i)`.
+@inline function _fill_gtables!(s::SALCScratch, ::Val{D}, ls, atoms,
+                                e::AbstractMatrix{<:Real}) where {D}
+    while length(s.g) < D
+        push!(s.g, SVector{3,Float64}[])
+    end
+    @inbounds for i = 1:D
         a = atoms[i]
         u = SVector{3,Float64}(e[1, a], e[2, a], e[3, a])
         li = ls[i]
-        length(cache) < li + 1 && resize!(cache, li + 1)
-        SVector{3,Float64}[Harmonics.grad_Zlm_unsafe(li, μ, u, cache) for μ = -li:li]
+        length(s.dnpl) < li + 1 && resize!(s.dnpl, li + 1)
+        t = s.g[i]
+        length(t) < 2 * li + 1 && resize!(t, 2 * li + 1)
+        for μ = -li:li
+            t[μ + li + 1] = Harmonics.grad_Zlm_unsafe(li, μ, u, s.dnpl)
+        end
     end
+    return nothing
 end
