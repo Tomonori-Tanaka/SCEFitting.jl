@@ -3,6 +3,15 @@
 A clean, extensible, Julia-native rebuild of **Magesty.jl** — fitting
 **spin-cluster expansion (SCE)** models to noncollinear DFT data.
 
+> **Provenance.** This package is the **spin-only line of SLCE.jl**, carved back
+> out as its own package on 2026-08-11. Its history is the SCEFitting era of the
+> SLCE.jl repository up to commit `698a841` (the last commit before the joint
+> spin–lattice rewrite began), plus the post-carve-out fixes from SLCE.jl that
+> apply to spin-only code (backported individually; each cites its upstream SHA).
+> SLCE.jl continues as the joint spin–lattice package; this one stays pure spin.
+> The package UUID differs from SLCE.jl's (which kept SCEFitting's original), so
+> the two coexist in one depot.
+
 > **Status: work in progress (v0 vertical slice).** The numerical core (tesseral
 > spherical harmonics, Clebsch–Gordan coupling, symmetry-adapted basis, design
 > matrices, regression) is reimplemented from scratch and validated against
@@ -49,7 +58,7 @@ basis = SCEBasis(chain, interaction; backend = SpglibBackend())
 configs = [mapreduce(_ -> (v = randn(3); v / norm(v)), hcat, 1:4) for _ in 1:30]
 heis = SCEFitting.salcs(basis)[1]   # public-but-unexported: call it qualified
 J = 0.0137
-E = [J * 0.5 * sum(c[:, m.atoms[1]]' * c[:, m.atoms[2]] for m in heis.members) for c in configs]
+E = [J * sum(c[:, m.atoms[1]]' * c[:, m.atoms[2]] for m in heis.members) for c in configs]
 
 f = fit(SCEFit, SCEDataset(basis, configs, E), OLS())
 r2_energy(f)                      # ≈ 1.0

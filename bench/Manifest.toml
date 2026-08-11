@@ -186,7 +186,7 @@ version = "1.11.0"
 [[deps.SCEFitting]]
 deps = ["LegendrePolynomials", "LinearAlgebra", "Random", "StaticArrays", "Statistics", "StatsAPI", "TOML", "Tables"]
 path = ".."
-uuid = "854eb3e0-bd75-4c3b-927c-573f5c6d8b1d"
+uuid = "4a34ec00-92ee-4fd7-a427-50f43852df89"
 version = "0.1.0"
 
     [deps.SCEFitting.extensions]
