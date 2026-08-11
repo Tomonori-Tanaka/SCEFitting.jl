@@ -61,12 +61,61 @@ const gZ = Harmonics.grad_Zlm
         end
     end
 
+    # Convention-independent anchor: tangency is an IDENTITY in the input, not a
+    # consequence of the input being nearly unit. The projection subtracts
+    # `û(û·∂Z)`, so `û·∇Z = 0` analytically for every `u ≠ 0` — scaling `u` scales
+    # `∂Z` and `û` is unchanged, so the removed component is the whole radial part
+    # at any radius. Nothing here is read off the implementation: the expected
+    # value is exact zero from that identity, and the bound is the float rounding
+    # floor with headroom.
+    #
+    # This is the gate on the `/ r²` in `_grad_zlm_assemble`. Dropping it (the
+    # `u(u·∂Z)` form) leaves a radial residue `≈ 2·C_l·δ` with
+    # `C_l = √((2l+1)/4π)·l(l+1)/2`, i.e. 1.7e-7 at `δ = 1e-8` and 1.7e-5 at
+    # `δ = 1e-6` — the mutation is resolved by 7 to 10 orders against this bound,
+    # and the `δ = 0` row alone would NOT resolve it (both forms agree there).
+    #
+    # `δ` is bounded by the OTHER precondition rather than by the projection: the
+    # polar recursion reaches `dnPl`, whose domain is `|z| ≤ 1`, so a scaled
+    # direction must keep `|z|(1 + δ) ≤ 1`. The fixture therefore holds `|z|` away
+    # from the pole instead of sampling the sphere uniformly.
+    @testset "gradient tangency is independent of ‖u‖" begin
+        dirs = SVector{3,Float64}[]
+        while length(dirs) < 12
+            v = normalize(SVector{3,Float64}(randn(rng), randn(rng), randn(rng)))
+            abs(v[3]) <= 0.9 && push!(dirs, v)   # room for the largest δ below
+        end
+        for δ in (0.0, 1e-12, 1e-8, 1e-6, 1e-4, 1e-2), u0 in dirs
+            u = (1 + δ) * u0
+            for l = 0:4, m = -l:l
+                @test abs(dot(u0, Harmonics.grad_Zlm_unsafe(l, m, u))) < 1e-12
+            end
+        end
+    end
+
     @testset "validation" begin
         u = SVector{3,Float64}(0.0, 0.0, 1.0)
         @test_throws ArgumentError Z(-1, 0, u)
         @test_throws ArgumentError Z(1, 2, u)
         @test_throws ArgumentError Z(1, 0, SVector{3,Float64}(1.0, 1.0, 1.0))
         @test_throws ArgumentError gZ(2, -3, u)
+        # near-pole, 5e-9 off unit: clears any norm band, refused by the component
+        # bound (formerly a bare DomainError from inside the Legendre recursion)
+        @test_throws ArgumentError Z(4, 0, SVector{3,Float64}(0.0, 0.0, 1.0 + 5e-9))
+    end
+
+    @testset "checked-entry band tracks the family _DIRECTION_ATOL" begin
+        # `Harmonics._validate_unit` restates the 1e-6 band literally (this submodule
+        # is included before sce/model.jl), and nothing pinned the two equal.
+        # Behavioral tripwire: an off-axis direction 0.9·atol off unit must pass,
+        # 2·atol must throw — widening OR tightening `_DIRECTION_ATOL` alone turns
+        # one case red. [Backported from SLCE.jl 54457ca.]
+        atol_family = parentmodule(Harmonics)._DIRECTION_ATOL
+        base = [1.0, 1.0, 1.0] ./ sqrt(3.0)              # components ≈ 0.577, far from ±1
+        u_in = base .* (1 + 0.9 * atol_family)
+        u_out = base .* (1 + 2.0 * atol_family)
+        @test Z(1, 1, u_in) isa Float64
+        @test_throws ArgumentError Z(1, 1, u_out)
     end
 
     @testset "lm_index contiguous and unique" begin

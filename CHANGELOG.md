@@ -6,6 +6,79 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — revived as the spin-only carve-out of SLCE.jl (2026-08-11)
+
+SLCE.jl (this repository's continuation) grew into a joint spin–lattice package;
+the spin-only line is carved back out here as its own package. The cut is
+`698a841`, the last commit before the joint rewrite (M0). New UUID
+(`4a34ec00-…`; SLCE.jl kept the original), same module name and API. The three
+`docs/specs/spin-lattice-ce*` design records leave with SLCE.jl.
+
+### Fixed — backports from SLCE.jl (2026-07-25 … 2026-08-11)
+
+Every post-carve-out SLCE.jl fix was audited; the ones whose defect exists in
+spin-only code are ported (each code site cites its upstream SHA):
+
+- `b97bb47` — `grad_Zlm`'s tangency is an identity in the input (`û(û·∂Z)`, the
+  `/r²` the preamble always specified). Not bit-neutral: torque/gradient numbers
+  move at rounding level (≤ ~4e-15 relative).
+- `5b60685` + component bound — `Zlm`/`grad_Zlm` validate by the family rule
+  (1e-6 band + `max|component| ≤ 1`, refusing near-pole inputs by name instead
+  of a bare `DomainError` from inside the Legendre recursion); the same bound
+  guards `_validate_config` at the dataset/predict doors (from `8ee6739`).
+- `54457ca` (review M2/M3/M4) — the dataset door's `atol` is capped at 1e-2
+  (`_check_atol`); `SCEFit` records the `refit` support and `effective_dof`/
+  `gcv` refuse a refit result by name (they reconstruct the FULL design);
+  `refit` refuses a `GroupAdaptiveRidge` up front; GCV counts only informative
+  rows and charges the intercept only while the energy block carries weight
+  (`torque_weight == 1` accounting); `select_fit`'s `:cv` score is per
+  informative row; the Pareto rule is re-checked after the cold re-derivation;
+  `_support_thresholds` refuses an empty group vector; `wignerD_real` asserts
+  its LS residual; adaptive-estimator GCV documented as optimistic (frozen-
+  weight df is a lower bound).
+- `896180e` — `Ridge(lambda = 0)` routes to OLS's QR path exactly (the normal
+  equations on a singular Gram returned ‖β‖ ~ 1e16 silently); `_rank_df` uses
+  the `min(size)` tolerance `LinearAlgebra.rank` documents.
+- `bde9ded` — `SALCBasis` and `SCEBasis` validate in inner constructors
+  (key/order/injectivity contract; species table); the fingerprint is derived,
+  never supplied.
+- `f8a529d` — `_assemble_spacegroup` validates that the operation list is a
+  group of the lattice (integrality, |det| = 1, metric orthogonality, identity,
+  duplicates, closure, inverses) and `map_sym` columns must be permutations.
+  The `test_nbody.jl` C3v fixture moves to a hexagonal cell where its 3-fold
+  rotation is exactly integral.
+- `72a9cc1` — the same-distance band `tol` travels on the `NeighborList`;
+  cluster-edge admissibility reads it instead of a hard-coded constant.
+- `8ee6739`/`b0593ef` — fractional wraps go through `_wrap01` (half-open
+  `[0, 1)`; `mod(-1e-18, 1.0) === 1.0` silently dropped the cutoff-sphere
+  shell), in `Crystal` and the Sunny primitive unfold.
+- `92df67c` — a zero-SALC basis is refused at the `SCEDataset` boundary (it
+  could only fit the mean energy; reachable from an ordinary spec via the
+  same-atom pair minimum image cannot express).
+- `23064a4` — `multipole_terms` gains `keep_zero`; the default term list is a
+  function of the coefficient values (exact zeros are skipped), which an
+  index-addressed consumer must not rely on.
+- `563d994`/`103c05d` — the Heisenberg example/tutorial/README synthetic data
+  encoded `J/2` after canonical (v4) members list each bond once; the examples
+  now self-gate the recovered `J`.
+- `572cbe0` (partial) — `_assemble_problem`'s energy-only branch whitens by
+  `1/√n_E`, so the objective is the documented MSE at every weight.
+  **Breaking**: λ for an energy-only penalized fit is `n_E` times smaller than
+  before; the test λ grids moved with it.
+- `a596ea3` — `group_costs` prices the sweep program (one site-program slot per
+  member site of each distinct entry), not the energy program; at equal entry
+  count a 3-body group was priced at 2/3 of its real sweep cost.
+- `b0593ef` (partial) — the oracle README no longer claims a rev pin that never
+  existed (`runtests.jl` logs the Magesty checkout + rev), the "bit-for-bit"
+  header states the real tolerance contract, CI gains the Sunny/GLMNet
+  extension jobs and pins `JULIA_NUM_THREADS`, and the Sunny primitive unfold
+  is exercised on a two-sublattice, non-centrosymmetric fixture.
+
+Audited and **not** ported (joint-only or not present in this code):
+`9f636e7`, `966a447`, `2d256b3`, `4561b1b`, `92ac417`, `2b9d888`, `9145068`,
+`cde644e`, `299597e`, `aba4df0`, `a20d73c`, `ac63d52`, the naming batches, and
+all ASR / resolvability / force-channel work.
+
 ### Added — oracle fit-parity testset vs Magesty
 
 - `test/oracle/`: an end-to-end **fit parity** testset — one shared EMBSET

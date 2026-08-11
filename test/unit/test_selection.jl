@@ -153,14 +153,21 @@ end
                     end
                 end
             end
-            @test costs == length.(bysets)
+            # sweep pricing: each distinct entry costs one site-program slot per
+            # member site (k[3] of the brute-force key is the ls tuple, so its
+            # length is the member's site count). [Backported from SLCE.jl a596ea3.]
+            slotsum(S) = sum(k -> length(k[3]), S; init = 0)
+            @test costs == slotsum.(bysets)
+            # the sweep price is bounded below by the bare entry count (a 1-body
+            # entry costs 1 slot, an N-body one N slots)
+            @test all(costs .>= length.(bysets))
 
             # additivity: groups never share entries, so the sum is the global
             # count — equal to the single-group partition's cost
             total = group_costs(b, ones(Int, n_salcs(b)))
             @test length(total) == 1
             @test sum(costs) == total[1]
-            @test total[1] == length(union(bysets...))
+            @test total[1] == slotsum(union(bysets...))
 
             # default labels argument = salc_groups partition
             @test group_costs(b) == costs
@@ -274,6 +281,69 @@ end
         f = fit(SCEFit, ds, Ridge(; lambda = 0.1); torque_weight = 0.3)
         @test isfinite(gcv(f))
         @test effective_dof(f) > 1
+
+        # M4 accounting at torque-only weight: the energy rows enter with weight
+        # exactly zero, so GCV must not count them (n_eff = n_T) and must not
+        # charge the intercept to the counted rows. Wiring check: gcv == the
+        # uncounted-corrected _gcv_score, ≠ the naive one — both inequalities
+        # assert the correction is ACTIVE. [Backported from SLCE.jl 54457ca.]
+        fw1 = fit(SCEFit, ds, Ridge(; lambda = 0.1); torque_weight = 1.0)
+        X1, y1, _, _, _ = SCEFitting._assemble_problem(ds, 1.0)
+        lam1, w1 = SCEFitting._penalty_diagonal(fw1.estimator, fw1.jphi)
+        neff1 = SCEFitting._gcv_neff(fw1)
+        @test neff1 == length(ds.y_T)
+        @test gcv(fw1) == first(SCEFitting._gcv_score(X1, y1, fw1.jphi, lam1, w1;
+                                                      n_eff = neff1, intercept = 0.0))
+        @test gcv(fw1) != first(SCEFitting._gcv_score(X1, y1, fw1.jphi, lam1, w1))
+        @test effective_dof(fw1) ==
+              SCEFitting._edof(X1, lam1, w1)              # no intercept charged at w = 1
+    end
+
+    @testset "diagnostics refuse a refit result; refit refuses a GroupAdaptiveRidge" begin
+        # [Backported from SLCE.jl 54457ca, review M3.] effective_dof/gcv rebuild
+        # the FULL design; on a refit (solved on a support) that df/score describes
+        # a model the refit did not return — refuse by name.
+        rng = MersenneTwister(53)
+        nconf = 30
+        configs = [Matrix(randcfg(rng, 2)) for _ = 1:nconf]
+        ds0 = SCEDataset(basis, configs, zeros(nconf))
+        btrue = zeros(n_salcs(basis))
+        btrue[1:2] .= [0.5, -0.3]
+        energies = 0.2 .+ ds0.X_E * btrue .+ 0.001 .* randn(rng, nconf)
+        ds = SCEDataset(basis, configs, energies)
+        f = fit(SCEFit, ds, GroupAdaptiveRidge(basis; lambda = 1e-3))
+        @test f.support === nothing
+        fr = refit(f)
+        @test fr.support isa Vector{Int} && issorted(fr.support)
+        @test_throws ArgumentError effective_dof(fr)
+        @test_throws ArgumentError gcv(fr)
+        # the refusal names the situation, not a dimension mismatch
+        err = try
+            gcv(fr)
+        catch e
+            e
+        end
+        @test err isa ArgumentError && occursin("refit", err.msg)
+        # refit refuses a GroupAdaptiveRidge up front (its column_groups index the
+        # full design, not the support)
+        @test_throws ArgumentError refit(f, GroupAdaptiveRidge(basis; lambda = 1e-3))
+    end
+
+    @testset "the unpenalized rank cut is min(size), not max(size)" begin
+        # `_rank_df` feeds `effective_dof`/`gcv` for every OLS fit and every λ = 0
+        # point of a λ-path. Engineer a marginal singular value that sits ABOVE the
+        # documented cut (`min(size)·eps·σ₁`) and watch a `max`-based cut drop it as
+        # soon as the row count exceeds the column count.
+        # [Backported from SLCE.jl 896180e.]
+        p = 6
+        for n in (10, 1000)
+            U = qr(randn(MersenneTwister(4), n, p)).Q[:, 1:p]
+            V = qr(randn(MersenneTwister(5), p, p)).Q
+            svals = [1.0, 0.5, 0.25, 0.1, 0.05, 5 * p * eps(Float64)]
+            Xm = U * Diagonal(svals) * V'
+            @test SCEFitting._rank_df(Xm) == Float64(p)
+            @test SCEFitting._rank_df(Xm) == Float64(rank(Xm))   # agrees with LinearAlgebra
+        end
     end
 
     # --- λ path + Pareto selection --------------------------------------------------
@@ -305,7 +375,11 @@ end
     est_p = GroupAdaptiveRidge(basis; lambda = 1.0)   # template λ is ignored
 
     @testset "select_fit: warm-started path matches cold fits" begin
-        lams = 10.0 .^ range(0, -6; length = 6)
+        # ÷ nconf_p: the energy-only branch now whitens by 1/√n_E (the objective is
+        # the MSE at every weight), so a λ that used to act on the SSE Gram acts
+        # n_E times harder — the grid moves with the convention to keep the same
+        # regularization regime. [Backported from SLCE.jl 572cbe0.]
+        lams = 10.0 .^ range(0, -6; length = 6) ./ nconf_p
         path = select_fit(ds_p, est_p; lambdas = lams, criterion = :gcv)
         @test path.lambda == sort(unique(Float64.(lams)); rev = true)
         # warm-started path entries reproduce cold single-λ fits: both converge to the
@@ -331,7 +405,8 @@ end
     end
 
     @testset "select_fit: end-to-end selection, tables, and validation" begin
-        lams = 10.0 .^ range(1, -7; length = 10)
+        # ÷ nconf_p: same grid rescale as above (energy-only 1/√n_E whitening)
+        lams = 10.0 .^ range(1, -7; length = 10) ./ nconf_p
         path = select_fit(ds_p, est_p; lambdas = lams, criterion = :gcv)
         np = length(path.lambda)
         @test length(path.score) == length(path.edof) == np

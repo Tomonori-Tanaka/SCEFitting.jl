@@ -24,8 +24,21 @@ function _assemble_problem(dataset::SCEDataset, w::Float64)
         block = div(n_T, n_E)                       # = 3·n_atoms torque rows per config
         groups = vcat(collect(1:n_E), repeat(1:n_E; inner = block))
     else
-        X = X_E .- xbar'
-        y = y_E .- ybar
+        # THE SAME 1/√n_E, so the objective is CONTINUOUS at w = 0. This branch used
+        # to return the centered design unscaled, i.e. it minimized the energy SSE while
+        # every other weight setting minimizes the energy MSE — which is what `fit`'s
+        # docstring says the objective is. Nothing changes for OLS (scale-invariant), but
+        # for every penalized estimator the Gram jumped by `n_E` across the boundary, so
+        # `lambda` silently meant something `n_E` times different: measured on 60
+        # configurations, `Ridge(lambda = 1.0)` gave `rmse_energy` 0.0038 at `w = 0` and
+        # 0.086 at `w = 1e-12` — an infinitesimal weight was not an infinitesimal change.
+        # `AdaptiveRidge`/`GroupAdaptiveRidge`'s `epsilon` floor and every λ a selection
+        # path records read the same scale, so they move with it.
+        # [Backported from SLCE.jl 572cbe0. BREAKING: λ for an energy-only penalized
+        # fit is n_E times smaller than before.]
+        se = sqrt(1 / length(y_E))
+        X = (X_E .- xbar') .* se
+        y = (y_E .- ybar) .* se
         groups = nothing                            # each row is its own configuration
     end
     return X, y, xbar, ybar, groups
@@ -68,7 +81,7 @@ function fit(::Type{SCEFit}, dataset::SCEDataset, estimator::AbstractEstimator;
     jphi = solve_coefficients(estimator, X, y; groups = groups)
     j0 = ybar - dot(xbar, jphi)
     residuals = dataset.y_E .- (j0 .+ dataset.X_E * jphi)
-    return SCEFit(dataset, j0, jphi, estimator, residuals, w)
+    return SCEFit(dataset, j0, jphi, estimator, residuals, w, nothing)
 end
 
 """
@@ -99,6 +112,14 @@ function refit(f::SCEFit, estimator::AbstractEstimator = OLS();
                threshold::Real = 0.0)::SCEFit
     threshold >= 0 || throw(ArgumentError("refit threshold must be ≥ 0; got $threshold"))
     _reject_precomputed_pilot(estimator)
+    # Same shape of up-front refusal: the group labels are indexed by the FULL basis
+    # design, and a support has been chosen — letting it through dies deeper with a
+    # DimensionMismatch blaming labels built on a different basis, which is not
+    # what happened. [Backported from SLCE.jl 54457ca, review M3.]
+    estimator isa GroupAdaptiveRidge && throw(ArgumentError(
+        "refit does not accept a GroupAdaptiveRidge: its column_groups are indexed " *
+        "by the full basis design, not the chosen support. De-bias with OLS() (the " *
+        "default) or Ridge — the group structure already did its job selecting."))
     dataset = f.dataset
     w = f.torque_weight
     X, y, xbar, ybar, groups = _assemble_problem(dataset, w)
@@ -121,7 +142,7 @@ function refit(f::SCEFit, estimator::AbstractEstimator = OLS();
     end
     j0 = ybar - dot(xbar, jphi)
     residuals = dataset.y_E .- (j0 .+ dataset.X_E * jphi)
-    return SCEFit(dataset, j0, jphi, estimator, residuals, w)
+    return SCEFit(dataset, j0, jphi, estimator, residuals, w, sort(support))
 end
 
 # A `PrecomputedPilot` carries a fixed, full-design coefficient vector. `refit` and

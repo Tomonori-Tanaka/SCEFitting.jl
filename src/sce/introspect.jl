@@ -36,20 +36,28 @@ end
 n_atoms(model::SCEPredictor)::Int = n_atoms(model.basis.crystal)
 
 """
-    multipole_terms(model::SCEPredictor) -> Vector{MultipoleTerm}
+    multipole_terms(model::SCEPredictor; keep_zero = false) -> Vector{MultipoleTerm}
 
 A code-neutral, flat view of a fitted SCE: one [`MultipoleTerm`](@ref) per cluster member
 and `l`-ordering of every SALC with a nonzero coefficient. This is the stable public
 contract a downstream consumer (a mean-field sampler, an energy evaluator, …) reads
 *instead of* the SALC-basis internals; the per-N scale `(4π)^(body/2)` is left for the
 consumer to apply once, so the returned `coef` is exactly the fitted `jϕ`.
+
+!!! warning "The default term list is a function of the coefficient VALUES"
+    With `keep_zero = false` (the default) a SALC whose fitted coefficient is
+    exactly `0.0` is skipped — sparse estimators and [`refit`](@ref) produce exact
+    zeros routinely — so the term list's *index → cluster* map changes with the
+    values. A consumer that addresses terms by index across two models (e.g. a
+    coefficient hot-swap) must pass `keep_zero = true`, which makes the list a
+    property of the **basis** alone. [Backported from SLCE.jl 23064a4.]
 """
-function multipole_terms(model::SCEPredictor)::Vector{MultipoleTerm}
+function multipole_terms(model::SCEPredictor; keep_zero::Bool = false)::Vector{MultipoleTerm}
     salcs = model.basis.salc_basis.salcs
     out = MultipoleTerm[]
     @inbounds for k in eachindex(model.jphi)
         j = model.jphi[k]
-        j == 0.0 && continue
+        (keep_zero || j != 0.0) || continue
         salc = salcs[k]
         for mem in salc.members
             for t in mem.terms

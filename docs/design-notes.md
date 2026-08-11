@@ -411,10 +411,14 @@ their coefficients into a single contraction weight). The entry vanishes only wh
 
     ‖y − Xβ‖² + λ·Σ_g c_g·1{β_g ≠ 0}
 
-with `c_g` the group's a-priori cost — the union count of its distinct
-`(member sites, l-assignment, nonzero tensor index)` entries over the canonical (v4)
-members. Distinct groups never share an entry key, so the costs are additive and the
-"predicted MC cost" of any support is a plain sum. Neither an L1 group penalty (the
+with `c_g` the group's a-priori cost — over the union of its distinct
+`(member sites, l-assignment, nonzero tensor index)` entries (canonical v4
+members), the summed member-site count: a sweep evaluates each entry once per
+member site position, so an N-body entry costs N site-program slots per sweep
+(pricing by the bare entry count is the size of the *energy* program, walked once
+per run, and mis-ranks body orders — SLCE.jl a596ea3). Distinct groups never
+share an entry key, so the costs are additive and the "predicted MC cost" of any
+support is a plain sum. Neither an L1 group penalty (the
 convex relaxation) nor per-column selection matches this: shrinking a surviving group
 saves nothing, and killing single columns of a group saves nothing either.
 

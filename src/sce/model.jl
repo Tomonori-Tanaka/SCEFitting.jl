@@ -143,22 +143,36 @@ generalized-Bloch / spin-spiral seam, finite cutoff only). The `images` value is
 applied to the cluster-edge admissibility, so the neighbor list and the clusters stay
 consistent.
 """
-struct SCEBasis
-    crystal::Crystal
-    spacegroup::SpaceGroup
-    salc_basis::SALCBasis
-    spec::BasisSpec
-end
-
-function SCEBasis(crystal::Crystal, spec::BasisSpec;
-                 backend::AbstractSymmetryBackend = NoSymmetry(), tol::Real = 1e-5,
-                 images::AbstractImageSelection = MinimumImage())::SCEBasis
+# The spec/crystal consistency rule, shared by the keyword constructor and the
+# inner constructor so a field-wise call (persistence, tests) cannot construct a
+# silently mismatched basis. [Backported from SLCE.jl bde9ded.]
+function _check_spec_species(crystal::Crystal, spec::BasisSpec)
     length(spec.lmax) == length(crystal.species_labels) ||
         throw(ArgumentError("spec covers $(length(spec.lmax)) species, crystal has " *
                             "$(length(crystal.species_labels))"))
     isempty(spec.species_labels) || spec.species_labels == crystal.species_labels ||
         throw(ArgumentError("spec species labels $(spec.species_labels) do not match " *
                             "the crystal's $(crystal.species_labels)"))
+    return nothing
+end
+
+struct SCEBasis
+    crystal::Crystal
+    spacegroup::SpaceGroup
+    salc_basis::SALCBasis
+    spec::BasisSpec
+
+    function SCEBasis(crystal::Crystal, spacegroup::SpaceGroup, salc_basis::SALCBasis,
+                      spec::BasisSpec)
+        _check_spec_species(crystal, spec)
+        return new(crystal, spacegroup, salc_basis, spec)
+    end
+end
+
+function SCEBasis(crystal::Crystal, spec::BasisSpec;
+                 backend::AbstractSymmetryBackend = NoSymmetry(), tol::Real = 1e-5,
+                 images::AbstractImageSelection = MinimumImage())::SCEBasis
+    _check_spec_species(crystal, spec)
     sg = analyze_symmetry(backend, crystal; tol = tol)
     # The neighbor list is built at the per-pair superset radius (element-wise max
     # over body orders); each body order's own radii then trim edges per cluster in
@@ -308,13 +322,43 @@ function Base.vcat(a::SCEDataset, rest::SCEDataset...)::SCEDataset
                       reduce(vcat, [p.y_T for p in parts]))
 end
 
+# The default unit-norm band (a direction that went through a text file — POSCAR
+# MAGMOM at 4 decimals — is ~2e-5 off unit, which is a file format, not a bug)…
+const _DIRECTION_ATOL = 1.0e-6
+
+# …but not without limit, or a genuinely wrong vector is silently accepted as a
+# direction. This cap is the line between "the trace of a rounded decimal" and "a
+# different vector". A caller who means to accept something past it should
+# normalize deliberately, in their own code, where it is visible.
+const _DIRECTION_ATOL_MAX = 1.0e-2
+
+# The dataset door validates WITHOUT projecting, so an uncapped `atol` admits
+# whatever clears the widened band raw into the design matrix: `atol = 0.5` lets a
+# moment-scaled column (‖e‖ = 0.6) through and biases the design by tens of
+# percent. [Backported from SLCE.jl 54457ca, review M2.]
+function _check_atol(atol::Real)
+    (isfinite(atol) && atol >= 0) ||
+        throw(ArgumentError("atol must be finite and nonnegative (got $atol)"))
+    atol <= _DIRECTION_ATOL_MAX || throw(ArgumentError(
+        "atol = $atol exceeds the hard cap $(_DIRECTION_ATOL_MAX): past it a vector " *
+        "that is not a direction at all — a moment-scaled one, a wrongly rotated " *
+        "one — would be accepted raw into the design matrix. Normalize " *
+        "deliberately in your own code instead, where the decision is visible"))
+    return nothing
+end
+
 # Spin configurations must be `3 × n_atoms` with finite, unit-norm columns — the
 # contract the harmonic kernels assume (they call `Zlm_unsafe`, skipping per-call
 # checks). Enforce it once at the data boundary so malformed DFT input fails loudly
 # here instead of silently biasing the design matrix / prediction. `label` carries the
-# config index into the message; `atol` is the unit-norm tolerance.
-function _validate_config(c::AbstractMatrix{<:Real}, nat::Int; atol::Real = 1e-6,
+# config index into the message; `atol` is the unit-norm tolerance (capped by
+# `_check_atol`). The `max|component| ≤ 1` bound is what establishes `dnPl`'s
+# `|z| ≤ 1` domain — a near-pole column 5e-9 off unit clears any norm band and
+# would otherwise throw a bare `DomainError` from inside the threaded design
+# assembly. [Component bound backported from SLCE.jl 8ee6739.]
+function _validate_config(c::AbstractMatrix{<:Real}, nat::Int; atol::Real = _DIRECTION_ATOL,
                           label::AbstractString = "spin config")
+    _check_atol(atol)
     size(c, 1) == 3 ||
         throw(ArgumentError("$label must have 3 rows (got $(size(c, 1)))"))
     size(c, 2) == nat ||
@@ -325,11 +369,17 @@ function _validate_config(c::AbstractMatrix{<:Real}, nat::Int; atol::Real = 1e-6
             throw(ArgumentError("$label column $a is not finite ($(Tuple(u)))"))
         abs(norm(u) - 1) <= atol ||
             throw(ArgumentError("$label column $a is not a unit vector (‖e‖ = $(norm(u)))"))
+        maximum(abs, u) <= 1 ||
+            throw(ArgumentError("$label column $a has a component outside [-1, 1] " *
+                                "($(Tuple(u))) — the Legendre recursion is defined " *
+                                "only for |e_z| ≤ 1; normalize the column rather " *
+                                "than widening atol, which cannot fix it"))
     end
     return nothing
 end
 
-function _validate_configs(basis::SCEBasis, cfgs::Vector{Matrix{Float64}}; atol::Real = 1e-6)
+function _validate_configs(basis::SCEBasis, cfgs::Vector{Matrix{Float64}};
+                           atol::Real = _DIRECTION_ATOL)
     nat = n_atoms(basis.crystal)
     for (i, c) in enumerate(cfgs)
         _validate_config(c, nat; atol = atol, label = "config $i")
@@ -337,8 +387,31 @@ function _validate_configs(basis::SCEBasis, cfgs::Vector{Matrix{Float64}}; atol:
     return nothing
 end
 
+# A basis with NO columns can only ever fit the mean energy, and every diagnostic
+# downstream then reports on that intercept: `r2_energy` is exactly 0.0, `coef` is
+# empty, and `predict_energy` returns the same number for every configuration — a
+# silent constant dressed as a model. It is reachable from an ordinary spec, which
+# is why this refuses instead of warning: the pair a minimum-image convention
+# cannot express is the same-atom one, so in rocksalt (where the whole magnetic
+# problem is cation-cation) a superexchange spec yields zero SALCs.
+# [Backported from SLCE.jl 92df67c.]
+function _refuse_empty_basis(basis::SCEBasis)
+    n_salcs(basis) > 0 ||
+        throw(ArgumentError("this basis has no SALC columns: a dataset built on " *
+                            "it could only fit the mean energy. Common causes: a " *
+                            "cutoff below the first admissible shell, an lmax " *
+                            "that empties the channel, or a pair that joins " *
+                            "an atom to a periodic image of ITSELF — the " *
+                            "minimum-image convention enumerates one image per " *
+                            "atom pair, so a same-atom pair (rocksalt " *
+                            "cation-cation, any monatomic cell) is never built " *
+                            "and needs a cell with the two atoms distinct"))
+    return nothing
+end
+
 function SCEDataset(basis::SCEBasis, configs::AbstractVector, energies::AbstractVector;
-                   atol::Real = 1e-6)::SCEDataset
+                   atol::Real = _DIRECTION_ATOL)::SCEDataset
+    _refuse_empty_basis(basis)
     length(configs) == length(energies) ||
         throw(DimensionMismatch("got $(length(configs)) configs but $(length(energies)) energies"))
     cfgs = [Matrix{Float64}(c) for c in configs]
@@ -349,7 +422,8 @@ function SCEDataset(basis::SCEBasis, configs::AbstractVector, energies::Abstract
 end
 
 function SCEDataset(basis::SCEBasis, configs::AbstractVector, energies::AbstractVector,
-                   torques::AbstractVector; atol::Real = 1e-6)::SCEDataset
+                   torques::AbstractVector; atol::Real = _DIRECTION_ATOL)::SCEDataset
+    _refuse_empty_basis(basis)
     length(configs) == length(energies) ||
         throw(DimensionMismatch("got $(length(configs)) configs but $(length(energies)) energies"))
     cfgs = [Matrix{Float64}(c) for c in configs]
@@ -414,4 +488,10 @@ struct SCEFit
     estimator::AbstractEstimator
     residuals::Vector{Float64}
     torque_weight::Float64
+    # `nothing` for a direct fit; for a `refit` result, the sorted column support
+    # the sub-design was solved on. Recorded so the design-reconstructing
+    # diagnostics (`effective_dof` / `gcv`) can refuse by name instead of
+    # reporting on the FULL design the refit did not solve.
+    # [Backported from SLCE.jl 54457ca, review M3.]
+    support::Union{Nothing,Vector{Int}}
 end

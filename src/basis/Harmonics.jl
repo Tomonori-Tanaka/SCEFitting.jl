@@ -77,10 +77,22 @@ end
     return nothing
 end
 
-@inline function _validate_unit(u::AbstractVector{<:Real}; atol::Real = 1e-8)
+# The checked entries' unit-direction rule — the FAMILY band (1e-6, the same
+# value as `_validate_config`'s default in `sce/model.jl`, restated because this
+# submodule is included first; the tripwire test in `test_harmonics.jl` pins the
+# two equal) plus the component bound that establishes `dnPl`'s `|z| ≤ 1`
+# domain, which no norm band can (a direction `5e-9` off unit at the pole clears
+# even a `1e-8` band with `|z| > 1`). Until 2026-08 this was a bare `1e-8` band:
+# stricter than every door in the package on the harmless axis and blind on the
+# load-bearing one. [Backported from SLCE.jl 5b60685.]
+@inline function _validate_unit(u::AbstractVector{<:Real}; atol::Real = 1e-6)
     length(u) == 3 || throw(ArgumentError("direction must have length 3 (got $(length(u)))"))
     abs(norm(u) - 1) <= atol ||
         throw(ArgumentError("direction must be a unit vector (‖u‖ = $(norm(u)))"))
+    maximum(abs, u) <= 1 || throw(ArgumentError(
+        "direction has a component outside [-1, 1] ($(Tuple(u))) — the Legendre " *
+        "recursion is defined only for |u_z| ≤ 1; normalize the vector " *
+        "(`u ./= norm(u)`) rather than widening the tolerance, which cannot fix it"))
     return nothing
 end
 
@@ -157,11 +169,23 @@ end
 
 # Shared tail of the two grad_Zlm_unsafe methods (identical arithmetic by
 # construction — the cache only affects where the recursion scratch lives).
+#
+# The radial removal divides by `r² = ‖u‖²`, i.e. it subtracts `û(û·∂Z)` and not
+# `u(u·∂Z)`. On an exactly unit `u` the two agree; off it they do not, and the
+# difference is the whole tangency guarantee: with the plain `u(u·∂Z)` form a
+# direction off unit norm by `δ` leaves a radial residue `≈ 2·C_l·δ` (measured
+# 1.7e-7 at `δ = 1e-8`, i.e. eight orders above the 4e-15 rounding floor), so the
+# documented identity `u·∇Z = 0` held only as "small because the input was nearly
+# unit". Dividing by `r²` makes it an identity in the input instead: measured
+# `max|û·∇Z| ≤ 2.9e-15` for every `δ` from 0 to 1e-3. NOT bit-neutral on unit
+# input either (`r²` is 1.0 for only ~50% of normalized draws), so torque /
+# gradient numbers move at rounding level. [Backported from SLCE.jl b97bb47.]
 @inline function _grad_zlm_assemble(l::Integer, m::Integer, n::Integer, x::Real,
                                     y::Real, z::Real, plm::Float64,
                                     dplm::Float64)::SVector{3,Float64}
+    r2 = x * x + y * y + z * z
     if m == 0
-        zz = z * dplm
+        zz = z * dplm / r2
         return SVector{3,Float64}(-x * zz, -y * zz, dplm - z * zz)
     end
     c = _parity(n) * sqrt(2.0)
@@ -175,7 +199,7 @@ end
     else
         (c * n * plm * in1, c * n * plm * rn1, c * dplm * iN)
     end
-    zz = x * dZx + y * dZy + z * dZz   # u · ∂Z, the radial part to remove
+    zz = (x * dZx + y * dZy + z * dZz) / r2   # û · ∂Z, the radial part to remove
     return SVector{3,Float64}(dZx - x * zz, dZy - y * zz, dZz - z * zz)
 end
 
@@ -191,7 +215,11 @@ On-sphere (tangent-projected) Cartesian gradient `∇Zₗₘ(u)`.
 
 # Returns
 - `SVector{3,Float64}`: `(∂ₓ, ∂_y, ∂_z) Zₗₘ` with the radial component removed, so
-  `u·∇Zₗₘ = 0`.
+  `û·∇Zₗₘ = 0`. That is an identity in `u`, not an approximation that degrades as
+  `u` leaves the unit sphere: the removal subtracts `û(û·∂Z)`, so the tangency
+  holds to rounding at any radius (measured `≤ 2.9e-15` for `‖u‖ − 1` anywhere in
+  `[0, 1e-3]`). `grad_Zlm` still *requires* a unit `u`, because the VALUE is only
+  the on-sphere gradient there — the harmonics are not degree-0 homogeneous.
 """
 function grad_Zlm(l::Integer, m::Integer, u::AbstractVector{<:Real})::SVector{3,Float64}
     _validate_lm(l, m)

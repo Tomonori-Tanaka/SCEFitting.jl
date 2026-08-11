@@ -15,14 +15,23 @@ abstract type AbstractEstimator end
 """
     OLS()
 
-Ordinary least squares via the normal equations.
+Ordinary least squares, solved by pivoted QR (`X \\ y`) — **not** the normal
+equations, which would square the condition number. On a rank-deficient design this
+returns the minimum-norm solution rather than an arbitrary one, which is why every
+other closed-form estimator routes here at zero penalty.
 """
 struct OLS <: AbstractEstimator end
 
 """
     Ridge(; lambda = 0.0)
 
-L2-penalized least squares with penalty `lambda ≥ 0` (`lambda = 0` is OLS).
+L2-penalized least squares with penalty `lambda ≥ 0`. `lambda = 0` routes to
+[`OLS`](@ref)'s QR path, exactly (not within a tolerance).
+
+For `lambda > 0` this solves the normal equations `(XᵀX + λI)β = Xᵀy`, which is safe
+because the penalty makes the matrix positive definite, but which does square the
+condition number of `X`. On an ill-conditioned design prefer a larger `lambda`, or
+`OLS` if the intent was no penalty at all.
 """
 struct Ridge <: AbstractEstimator
     lambda::Float64
@@ -362,6 +371,15 @@ end
 
 function solve_coefficients(est::Ridge, X::AbstractMatrix, y::AbstractVector;
                             groups = nothing)::Vector{Float64}
+    # Exact zero only: at lambda = 0 the penalty is gone and `XtX` may be singular, so
+    # route to the QR (min-norm) OLS path — the same guard `AdaptiveRidge` and
+    # `GroupAdaptiveRidge` carry, and for the same reason. Do NOT widen this to a
+    # near-zero tolerance. Without it a rank-deficient design does not throw: the
+    # symmetric factorization of a singular matrix returns numerical garbage, measured
+    # at ‖β‖ ~ 1e16 against OLS's 0.48 on a design with one duplicated column — silently,
+    # from an estimator whose docstring promises OLS at lambda = 0.
+    # [Backported from SLCE.jl 896180e.]
+    est.lambda == 0.0 && return solve_coefficients(OLS(), X, y)
     n = size(X, 2)
     return Symmetric(X' * X + est.lambda * I(n)) \ (X' * y)
 end

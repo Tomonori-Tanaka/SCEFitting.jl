@@ -130,3 +130,48 @@ end
         @test !isempty(bt.skipped)                  # the [1,2] / [2,2] biquadratic channels
     end
 end
+
+@testset "keep_zero: the index map is a property of the basis, not of the values" begin
+    # THE HAZARD. By default a SALC with an exactly-zero coefficient emits no term, so
+    # the term list — and the index → SALC map a consumer addresses it by — depends on
+    # the coefficient VALUES. Two models on the SAME basis (an active-learning refit,
+    # a sparse fit) can then emit lists of EQUAL LENGTH whose maps are shifted
+    # relative to each other, and a coefficient hot-swap writes each value onto a
+    # neighbouring cluster with every length check passing.
+    # [Backported from SLCE.jl 23064a4.]
+    rng = MersenneTwister(0x4b30)
+    b = _multichannel_basis()
+    K = n_salcs(b)
+    @test K >= 4
+    base = randn(rng, K)
+    ja, jb = copy(base), copy(base)
+    ja[2] = 0.0                       # same NUMBER of exact zeros...
+    jb[3] = 0.0                       # ...at different keys
+    ma, mb = SCEPredictor(b, 0.0, ja), SCEPredictor(b, 0.0, jb)
+
+    shape(t) = (t.body, t.atoms, t.shifts, t.ls, t.folded)
+    da, db = multipole_terms(ma), multipole_terms(mb)
+    # the hazard, demonstrated rather than asserted away: equal length, different map
+    @test length(da) == length(db)
+    @test shape.(da) != shape.(db)
+
+    # ...and the fix: with `keep_zero` the two lists are structurally IDENTICAL and
+    # differ only in the coefficients, which is what makes an index-addressed rewrite
+    # sound.
+    ka, kb = multipole_terms(ma; keep_zero = true), multipole_terms(mb; keep_zero = true)
+    @test shape.(ka) == shape.(kb)
+    @test length(ka) > length(da)
+    @test [t.coef for t in ka] != [t.coef for t in kb]
+    # every term of the pruned view survives in the kept one, unchanged
+    @test issubset(Set(shape.(da)), Set(shape.(ka)))
+
+    # the default is byte-identical to the pre-keyword behaviour
+    sa = multipole_terms(ma)
+    @test [t.coef for t in sa] == [t.coef for t in
+                                   multipole_terms(ma; keep_zero = true)
+                                   if t.coef != 0.0]
+    # a model with no exact zeros is unaffected by the keyword
+    mfull = SCEPredictor(b, 0.0, base)
+    @test shape.(multipole_terms(mfull)) ==
+          shape.(multipole_terms(mfull; keep_zero = true))
+end

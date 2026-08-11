@@ -242,8 +242,10 @@ Easy to break silently — confirm before touching the algorithm.
   change `fit`'s objective normalization and both scores must follow.
   `salc_groups`/`group_costs` assume sorted
   `SALCBasis.keys` and canonical (v4) members; the entry key `(atoms, shifts, ls, index)`
-  mirrors what the SCEMonteCarlo adjacency merge folds — change either representation
-  and re-check the brute-force union test and the cross-package entry-count script.
+  identifies one distinct contraction entry, and the cost prices a SWEEP — one
+  site-program slot per member site of each entry (`Σ length(ls)`), not one per
+  entry (that is the energy program, walked once per run; SLCE.jl a596ea3) —
+  change either representation and re-check the brute-force union test.
 - **`fit` ↔ `refit` share `_assemble_problem`** (`fitting/fit.jl`): the `(X, y, xbar, ybar,
   groups)` centering/whitening assembly lives in one helper so the two build identical
   designs — change the centering or whitening there and **both** move together (the oracle

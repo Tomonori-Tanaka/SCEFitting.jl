@@ -102,9 +102,12 @@ function _sunny_primitive(model::SCEPredictor)::SunnyPrimitive
         end
     end
     nsubl = length(reps)
-    positions = [SVector{3,Float64}(mod.(Lp \ SVector{3,Float64}(cart[1, reps[i]],
-                                                                 cart[2, reps[i]],
-                                                                 cart[3, reps[i]]), 1.0))
+    # `_wrap01`, not bare `mod`: an origin `mod`-wrapped to exactly 1.0 would be
+    # handed to Sunny as a position outside the cell, and two sublattices at 0.0
+    # and 1.0 are one site described twice (see geometry/crystal.jl).
+    positions = [SVector{3,Float64}(_wrap01.(Lp \ SVector{3,Float64}(cart[1, reps[i]],
+                                                                     cart[2, reps[i]],
+                                                                     cart[3, reps[i]])))
                  for i = 1:nsubl]
     types = [crystal.species_labels[crystal.species[reps[i]]] for i = 1:nsubl]
 

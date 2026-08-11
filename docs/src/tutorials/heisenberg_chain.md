@@ -107,7 +107,7 @@ configurations, then fit with ordinary least squares.
 heis    = SCEFitting.salcs(basis)[1]   # the Heisenberg SALC (public-unexported: qualify)
 J_true  = 0.0137
 configs = [randcfg(4) for _ = 1:40]
-E = [J_true * 0.5 * sum(dot(c[:, m.atoms[1]], c[:, m.atoms[2]]) for m in heis.members)
+E = [J_true * sum(dot(c[:, m.atoms[1]], c[:, m.atoms[2]]) for m in heis.members)
      for c in configs]
 
 f = fit(SCEFit, SCEDataset(basis, configs, E), OLS())
@@ -132,8 +132,8 @@ function heis_torque(c, J)
     nat = size(c, 2); G = zeros(3, nat)
     for m in heis.members
         i, j = m.atoms[1], m.atoms[2]
-        G[:, i] .+= (J * 0.5) .* c[:, j]
-        G[:, j] .+= (J * 0.5) .* c[:, i]
+        G[:, i] .+= J .* c[:, j]
+        G[:, j] .+= J .* c[:, i]
     end
     reduce(hcat, cross(G[:, a], c[:, a]) for a = 1:nat)   # τ = ∇E × e = −e × ∇E
 end

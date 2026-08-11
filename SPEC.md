@@ -76,8 +76,9 @@ capability consumed by both the introspection and the Sunny interop.
   constants `N1 = √(3/4π)`, `A2 = √(15/16π)`, `B2 = √(5/16π)` are defined once here
   (used by `sce/bilinear.jl` and downstream consumers).
 - Validated by: closed-form standard solid harmonics (`l ≤ 2`), gradient tangency
-  + on-sphere central difference, and bit-for-bit agreement with Magesty's
-  `TesseralHarmonics` (oracle).
+  + on-sphere central difference, and agreement with Magesty's
+  `TesseralHarmonics` to a stated tolerance (oracle; not bit-for-bit — the two
+  use different Legendre primitives, so the last ulp differs by construction).
 
 ### basis — `AngularMomentum` submodule (M3, M4)
 - `clebsch_gordan` (Racah formula); `wignerD_real(l, R)` (real Wigner-D, built
