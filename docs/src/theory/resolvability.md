@@ -66,26 +66,38 @@ Because the tied images connect the same reference-cell atom pair, the orbit sum
 a tie can make some of an orbit's SALC content **identically zero as a function of
 cell-periodic spin data** — the column is not merely small, it vanishes for every
 configuration the reference cell can express. The content is *unidentifiable from
-this cell*, not absent from the physics: a fit sees a zero design column and the
-coefficient is unconstrained. A tie is *necessary* for this (with a unique minimum
-image every member has its own atom content and nothing can cancel), but which
-content dies depends on how the space group relates the tied members, not on the tie
-alone. The pattern to expect from the simplest two-fold tie (a pair at half a lattice
-vector) is bond reversal ``\hat{\boldsymbol r} \to -\hat{\boldsymbol r}``, which an
-invariant of bond rank ``L_f`` carries as ``(-1)^{L_f}`` while the site factors are
-unchanged — the odd-``L_f`` content of such a channel goes, the antisymmetric
-DMI-like ``L_f = 1`` one included. Treat that as a guide to *where to look*, not as a
-rule: a larger tie can remove even-``L_f`` content too (measured upstream on the
-eight-fold bcc corner tie with ``l \le 2`` spin factors: 4 of the orbit's 7 SALC
-columns identically zero), and a smaller stabilizer can leave odd content standing.
+this cell*, not absent from the physics: without intervention a fit would see a zero
+(or linearly dependent) design column and the coefficient would be unconstrained. A
+tie is *necessary* for this (with a unique minimum image every member has its own
+atom content and nothing can cancel), but which content dies depends on how the
+space group relates the tied members, not on the tie alone. The pattern to expect
+from the simplest two-fold tie (a pair at half a lattice vector) is bond reversal
+``\hat{\boldsymbol r} \to -\hat{\boldsymbol r}``, which an invariant of bond rank
+``L_f`` carries as ``(-1)^{L_f}`` while the site factors are unchanged — the
+odd-``L_f`` content of such a channel goes, the antisymmetric DMI-like ``L_f = 1``
+one included. Treat that as a guide to *where to look*, not as a rule: a larger tie
+can remove even-``L_f`` content too (measured upstream on the eight-fold bcc corner
+tie with ``l \le 2`` spin factors: 4 of the orbit's 7 SALC columns identically
+zero), and a smaller stabilizer can leave odd content standing.
 
-The remedy is a reference cell that breaks the tie **in every direction whose
+The basis builder handles this **exactly, at construction**: each orbit's SALCs are
+expanded into their aggregated (shift-blind) monomial coefficients, and combinations
+that aggregate to zero — or become linearly dependent within the orbit — are dropped
+with a warning naming the orbit, channel, and reason. Per orbit (and for members
+with all-distinct atoms) the surviving functions are linearly independent by
+construction, so the fit and every coefficient-level readout stay well-posed; the
+model space is unchanged (the drop is exact). Dependence **across** orbits — e.g. a
+trivial space group placing tied images in separate orbits, or genuine cross-orbit
+supercell aliasing — is deliberately not folded (those directions are unresolvable
+from the cell, not mergeable) and is caught by the `OLS` rank warning instead. Measured on bulk MnTe with SOC (3×3×3 supercell, ``P6_3/mmc``): 51 raw SALCs
+of which 14 aggregate to zero, previously reaching OLS as a silently rank-deficient
+design with `max|coef| ~ 1e7`. The remedy for the *physics* (recovering the dropped
+content) is still a reference cell that breaks the tie **in every direction whose
 displacement carries a half-lattice-vector component** — doubling one axis alone
 moves only the ties along that axis. (The joint-family SLCE.jl classifies and
-freezes such columns mechanically — `unresolvable_columns` there; this package
-documents the phenomenon and leaves the columns in place, so watch for exactly-zero
-design columns on high-symmetry cells.)
-[Adapted from SLCE.jl de79b92/3e68fc1.]
+freezes such columns at readout — `unresolvable_columns` there; this package removes
+them from the basis at build time.)
+[Adapted from SLCE.jl de79b92/3e68fc1; reduction added with the MnTe fix.]
 
 ## The third edge: compact clusters at `N ≥ 3`
 

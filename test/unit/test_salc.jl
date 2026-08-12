@@ -80,6 +80,67 @@ end
         @test length(iso) > 0
     end
 
+    # Function-space reduction: a supercell that folds an orbit's distinct cluster
+    # instances onto one atom set aggregates their tensors, and SALCs whose aggregate
+    # vanishes (or goes linearly dependent) must be dropped — loudly — or the design
+    # matrix is silently rank deficient (bulk MnTe + SOC: 51 emitted, rank 37,
+    # max|coef| ~1e7 from OLS with normal-looking R²; found 2026-08-12).
+    #
+    # Closed-form fixture: a CsCl-type cubic cell — A at (0,0,0), B at (½,½,½) —
+    # under the full 48-op cubic point group. The A–B pair sits exactly at the WS-cell
+    # corner (√3/2·L), so all 8 body-diagonal images are kept as one tie shell of ONE
+    # orbit, all on the same atom pair (1,2). With lmax = 1 the pair channel is
+    # bilinear, and the hand oracle is classical invariant theory, independent of the
+    # implementation:
+    #   • the stabilizer of one image is C₃ᵥ along its diagonal (order 6). Its A₁
+    #     (invariant) content per Lf: Lf = 0 → 1 (e₁·e₂); Lf = 1 → 0 (of the three
+    #     components of e₁×e₂, the axial one n̂·(e₁×e₂) is A₂ — odd under the
+    #     vertical mirrors — and the two perpendicular ones span E, dying under
+    #     C₃); Lf = 2 → 1 (the axial quadrupole e₁·(n̂n̂ᵀ−I/3)·e₂). So the builder
+    #     emits 2 SALCs;
+    #   • aggregated over the 8 diagonals n̂ₖ = (±1,±1,±1)/√3:
+    #       Lf = 2 :  Σₖ n̂ₖn̂ₖᵀ = (8/3)·I  ⇒ its traceless part sums to zero → dropped
+    #       Lf = 0 :  e₁·e₂                                               → survives
+    #   so exactly ONE basis function must remain, and it must be a multiple of
+    #   e₁·e₂ (the only cubic-invariant bilinear).
+    @testset "tie-shell aggregation: redundant SALCs are dropped, loudly" begin
+        L = 2.0
+        cubic = Crystal(Lattice(Matrix(L * I(3))),
+                        [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 2], ["A", "B"])
+        # all 48 signed permutation matrices (the cubic point group, exact)
+        crots = SMatrix{3,3,Float64}[]
+        for p in ((1, 2, 3), (1, 3, 2), (2, 1, 3), (2, 3, 1), (3, 1, 2), (3, 2, 1)),
+            s1 in (1, -1), s2 in (1, -1), s3 in (1, -1)
+
+            W = zeros(3, 3)
+            W[1, p[1]] = s1
+            W[2, p[2]] = s2
+            W[3, p[3]] = s3
+            push!(crots, SMatrix{3,3,Float64}(W))
+        end
+        ctrans = [SVector{3,Float64}(0, 0, 0) for _ in crots]
+        csg = _assemble_spacegroup(cubic, crots, ctrans, "Pm-3m(manual)", 221;
+                                   tol = 1e-6)
+        cnl = build_neighbor_list(cubic, Inf, MinimumImage())
+        ccl = build_clusters(cubic, cnl, csg; nbody = 2)
+        # one pair orbit, and its members alias onto the single atom pair (1, 2)
+        @test length(ccl.by_body[2]) == 1
+        cb = @test_logs (:warn, r"SALC reduction: dropped 1 redundant.*Lf = 2, block 1: zero"s) match_mode = :any begin
+            build_salc_basis(cubic, csg, ccl; lmax_by_species = [1, 1])
+        end
+        @test length(cb) == 1
+        @test cb.salcs[1].Lf == 0
+        # the survivor IS the Heisenberg invariant: Φ(e) / (e₁·e₂) is one constant
+        rng = MersenneTwister(42)
+        ratios = map(1:8) do _
+            e = randn(rng, 3, 2)
+            e ./= reshape(map(norm, eachcol(e)), 1, :)
+            evaluate_salc(cb.salcs[1], e) / dot(e[:, 1], e[:, 2])
+        end
+        @test all(r -> isapprox(r, ratios[1]; rtol = 1e-12), ratios)
+        @test abs(ratios[1]) > 1e-6            # a nonzero multiple, not 0/0 noise
+    end
+
     @testset "build is deterministic / thread-safe" begin
         # `build_salc_basis` processes orbits in parallel (`Threads.@threads`), writing
         # disjoint per-orbit results then sorting by key, so the output is byte-for-byte

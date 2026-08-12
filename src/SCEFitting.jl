@@ -10,7 +10,8 @@ diagnostics, persistence, Sunny export, introspection) is realized; see `SPEC.md
 """
 module SCEFitting
 
-using LinearAlgebra: norm, det, I, eigen, eigvals, svdvals, Symmetric, Diagonal, dot, cross
+using LinearAlgebra: norm, det, I, eigen, eigvals, svdvals, Symmetric, Diagonal, dot,
+    cross, qr, ColumnNorm
 using StaticArrays
 using Statistics: mean
 using Random: AbstractRNG, default_rng

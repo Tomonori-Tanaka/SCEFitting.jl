@@ -6,6 +6,52 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — anisotropic bases on aliasing supercells; tie tolerance exposed (2026-08-13)
+
+Second MnTe(0001) cross-check follow-up (the first produced the orbit-closure
+gate, `7d91231`). Two defects, both confirmed **family-shared** (upstream SLCE.jl
+reproduces them bit-for-bit on the same inputs — 51 SALCs, the same 14-dimensional
+deficiency across the same six orbits):
+
+- **Function-space reduction of each orbit's SALCs** (`_reduce_orbit_salcs`,
+  `basis/salcbasis.jl`). `evaluate_salc` never reads a member's `shifts`, so a
+  supercell that folds distinct cluster instances onto one atom set (WS-boundary
+  ties kept whole, or a merged near-tie shell) aggregates their tensors; SALCs
+  whose aggregate is the zero function — or linearly dependent within the orbit —
+  reached the fit as a silently rank-deficient design. Measured on bulk MnTe with
+  SOC (3×3×3, 108 atoms, `P6_3/mmc`): 51 SALCs emitted, rank 37, OLS returning
+  `max|coef| ~1e7` with normal-looking energies and R², making every
+  coefficient-level readout (`coeftable`, `bilinear_terms`, Sunny export)
+  meaningless. The builder now expands each SALC into its aggregated
+  `(atoms, ls, index)` monomial coefficients — exact linear algebra in the space
+  evaluation actually spans — and drops zero/dependent combinations with a warning
+  naming orbit, channel, and reason. Post-fix the MnTe basis is 37 SALCs,
+  channel-for-channel equal to Magesty's, full rank. Closed-form gate: the CsCl
+  8-fold corner-tie fixture in `test/unit/test_salc.jl` (hand invariant theory:
+  the aggregate-zero `Lf = 2` drops, the survivor is `∝ e₁·e₂`).
+- **`OLS` warns on a rank-deficient (or severely ill-conditioned) design**
+  (`fitting/estimators.jl`). The solve is unchanged (explicit pivoted QR — the
+  factorization `X \ y` uses — reused for the check), but a diagonal ratio below
+  `1e-10` now warns that the coefficients are non-unique or unstable. This is a
+  one-sided conditioning gate (it cannot fire while `κ₂ < 1e10`) and the backstop
+  for what the per-orbit reduction cannot certify: cross-orbit dependence
+  (including tied images split into separate orbits under a trivial space group),
+  repeated-atom `AllImages` members, degenerate training data.
+- **`SCEBasis(...; tie_tol)`** exposes the relative same-distance band
+  (default unchanged at `1e-8`, hard cap `1e-2`), threaded to both the neighbor
+  list and the cluster-edge admission, and carried by the TOML setup
+  (`[interaction].tie_tol`, `read_setup`, `SCEBasis(path)`) so a build that
+  needed a widened band is reproducible from its own file. This is the remedy the orbit-closure
+  refusal names: DFT-relaxed coordinates symmetric to less than the tie band
+  (the MnTe slab: ~2.4e-6 Å residual, tie splits ~2e-7 relative) split
+  symmetry-partner ties differently and lose candidate closure. With
+  `tie_tol = 1e-5` the 117-atom slab now builds: 147 SALCs — exactly Magesty's
+  count — full rank, and every basis function invariant under all 108 operations
+  (max deviation 1.8e-9 against the pre-gate ~4 meV symmetry break).
+
+Bases persisted before this change reload verbatim, including any redundant
+columns; rebuild from the setup to get the reduced basis.
+
 ### Changed — revived as the spin-only carve-out of SLCE.jl (2026-08-11)
 
 SLCE.jl (this repository's continuation) grew into a joint spin–lattice package;

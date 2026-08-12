@@ -88,9 +88,18 @@ Easy to break silently — confirm before touching the algorithm.
   only at its atom-pair minimum-image distance with all atoms distinct; `AllImages` keeps
   every in-cutoff image and admits edges within the radial cutoff. The tie/cutoff
   tolerance is relative (`_SAME_DIST_RTOL`) on both sides so a degenerate WS-boundary
-  shell is never split. The minimum-image search box is adaptive — change it and re-check
+  shell is never split; it is user-facing as `SCEBasis(...; tie_tol)` (default the
+  same constant, hard cap `_TIE_TOL_MAX = 1e-2`), riding on `NeighborList.tol` which
+  `candidate_clusters` reads back — one value, both sides. Widening it is the remedy
+  for relaxed/noisy coordinates whose symmetry residual splits ties (the orbit
+  builder's closure refusal names it); the SALC reduction then handles the merged
+  shell's aggregated redundancy exactly (gate: the perturbed-honeycomb closure
+  testset in `test/unit/test_clusters.jl` both refuses at the default band and
+  builds the ideal orbit structure at `tie = 1e-3`). The minimum-image search box is adaptive — change it and re-check
   the skewed-cell test. `images` is **not** persisted (the full SALC basis is stored and
-  reloaded verbatim), so only `read_setup`/`SCEBasis` carry it. **At `N ≥ 3` the clique
+  reloaded verbatim), so only `read_setup`/`SCEBasis` carry it — and the same rule
+  holds for `tie_tol` (`[interaction].tie_tol` in the TOML schema): both change the
+  emitted basis, so both must round-trip through the setup file. **At `N ≥ 3` the clique
   check is on the actual chosen images of *every* pair (not just the anchor edges): a
   cluster is admitted only when all `C(N,2)` edges sit at their atom-pair minimum image
   simultaneously** (the compact-cluster criterion). Having each pair individually
@@ -123,7 +132,27 @@ Easy to break silently — confirm before touching the algorithm.
   `check_canonical_members` / `split_roundtrip_exact` (shared helpers in
   `test/unit/testutils.jl`, applied by `test_salc.jl` and 3-body `test_nbody.jl`)
   and the pre-v4 fold test in `test_persist.jl`. At `N ≥ 3` also confirm SALCs are
-  linearly independent (design-matrix rank = #SALC). **The orbit loop in
+  linearly independent (design-matrix rank = #SALC). **After canonicalization each
+  orbit is function-space reduced** (`_reduce_orbit_salcs`, `basis/salcbasis.jl`):
+  SALCs are expanded into aggregated shift-blind monomial coefficients keyed
+  `(atoms, ls, index)` — the space `evaluate_salc` actually spans, since evaluation
+  never reads `shifts` — and combinations that aggregate to zero or go dependent
+  within the orbit (WS-boundary ties / merged near-tie shells folding instances onto
+  one atom set) are dropped with a warning (bulk MnTe + SOC emitted 51 with rank 37
+  before this; silent OLS `max|coef| ~1e7`). The independence guarantee is **per
+  orbit, distinct-atom members only** — there the vector algebra is *equivalent* to
+  function algebra (orthogonal monomials; precondition: cluster sites carry `l ≥ 1`,
+  `_enumerate_ls`, so the atom set is recoverable from the key). NOT covered, and
+  caught only by the OLS rank warning (`_OLS_RANK_RTOL`, `fitting/estimators.jl`):
+  cross-orbit dependence (a trivial space group — `NoSymmetry` — puts tied images in
+  separate orbits; genuine cross-orbit aliasing is unresolvable from the supercell,
+  not mergeable, so the reduction deliberately does not fold it), repeated-atom
+  members (`AllImages` self-pairs; dropping stays sound, independence uncertified),
+  and row-deficient training data. Gate:
+  the closed-form CsCl tie-shell testset in `test_salc.jl` (8-fold corner tie: 2
+  emitted, the aggregate-zero `Lf = 2` dropped loudly, the survivor ≡ `e₁·e₂`).
+  Change the evaluation kernel's member/shift semantics and the reduction's
+  aggregation key must follow. **The orbit loop in
   `build_salc_basis` is threaded** (`Threads.@threads`, one task per orbit via
   `_orbit_salcs`): orbits are independent and the output is sorted by `SALCKey`, so the
   basis is byte-for-byte thread-count-independent. The precondition is that the Wigner-D

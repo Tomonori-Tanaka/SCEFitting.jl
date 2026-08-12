@@ -128,21 +128,6 @@ function Base.show(io::IO, ::MIME"text/plain", sp::BasisSpec)
     end
 end
 
-"""
-    SCEBasis(crystal, spec; backend = NoSymmetry(), tol = 1e-5,
-             images = MinimumImage())
-
-Build the SCE basis for `crystal`: analyze symmetry, enumerate cluster orbits, and
-construct the symmetry-adapted SALC basis. Pass `backend = SpglibBackend()` (with
-`using Spglib`) for real space-group symmetry.
-
-`images` selects how periodic images are admitted (see [`AbstractImageSelection`](@ref)):
-[`MinimumImage`](@ref) (the default) keeps only the minimum-image, resolvable pairs of
-a plain-PBC supercell; [`AllImages`](@ref) keeps every image within the cutoff (the
-generalized-Bloch / spin-spiral seam, finite cutoff only). The `images` value is also
-applied to the cluster-edge admissibility, so the neighbor list and the clusters stay
-consistent.
-"""
 # The spec/crystal consistency rule, shared by the keyword constructor and the
 # inner constructor so a field-wise call (persistence, tests) cannot construct a
 # silently mismatched basis. [Backported from SLCE.jl bde9ded.]
@@ -169,15 +154,64 @@ struct SCEBasis
     end
 end
 
+# Hard cap on `tie_tol`: past a relative band of 1e-2 the "tie" starts swallowing
+# genuinely distinct neighbor shells (typical shell spacings are a few percent to
+# tens of percent of the bond length), silently merging physics instead of healing
+# round-off / relaxation noise.
+const _TIE_TOL_MAX = 1e-2
+
+"""
+    SCEBasis(crystal, spec; backend = NoSymmetry(), tol = 1e-5,
+             images = MinimumImage(), tie_tol = $(_SAME_DIST_RTOL))
+
+Build the SCE basis for `crystal`: analyze symmetry, enumerate cluster orbits, and
+construct the symmetry-adapted SALC basis. Pass `backend = SpglibBackend()` (with
+`using Spglib`) for real space-group symmetry.
+
+`images` selects how periodic images are admitted (see [`AbstractImageSelection`](@ref)):
+[`MinimumImage`](@ref) (the default) keeps only the minimum-image, resolvable pairs of
+a plain-PBC supercell; [`AllImages`](@ref) keeps every image within the cutoff (the
+generalized-Bloch / spin-spiral seam, finite cutoff only). The `images` value is also
+applied to the cluster-edge admissibility, so the neighbor list and the clusters stay
+consistent.
+
+`tie_tol` is the relative same-distance band for minimum-image tie decisions (WS
+boundary) and the radial-cutoff edge, threaded to **both** the neighbor list and the
+cluster-edge admission. The default is far above round-off and far below any physical
+shell spacing, which is correct for coordinates that satisfy their space group to
+near machine precision. For **relaxed / noisy coordinates** whose symmetry residual
+exceeds it (e.g. a DFT-relaxed slab symmetric to only ~1e-6 Å while spglib at
+`tol = 1e-3` reports the ideal group), symmetry-partner pairs can break their
+distance ties differently, the candidate set loses group closure, and the build
+refuses ("cluster enumeration is not closed under the space group"). Widening
+`tie_tol` above the coordinate symmetry residual (relative to the bond length)
+merges those near-ties so the enumeration closes; the SALC reduction then handles
+the merged shell's aggregated redundancy exactly. Keep it well below the spacing of
+genuinely distinct shells (hard cap $(_TIE_TOL_MAX)); `tie_tol = 0` is legal but
+turns tie decisions into exact float comparisons, which is almost never wanted.
+Like `images`, the value is not persisted (the built SALC basis is stored
+verbatim) — a TOML setup carries it as `[interaction].tie_tol` so the build is
+reproducible from the file.
+"""
 function SCEBasis(crystal::Crystal, spec::BasisSpec;
                  backend::AbstractSymmetryBackend = NoSymmetry(), tol::Real = 1e-5,
-                 images::AbstractImageSelection = MinimumImage())::SCEBasis
+                 images::AbstractImageSelection = MinimumImage(),
+                 tie_tol::Real = _SAME_DIST_RTOL)::SCEBasis
     _check_spec_species(crystal, spec)
+    (isfinite(tie_tol) && tie_tol >= 0) ||
+        throw(ArgumentError("tie_tol must be finite and ≥ 0; got $tie_tol"))
+    tie_tol < _TIE_TOL_MAX ||
+        throw(ArgumentError("tie_tol = $tie_tol is at or above the hard cap " *
+                            "$(_TIE_TOL_MAX): a same-distance band that wide merges " *
+                            "genuinely distinct neighbor shells instead of healing " *
+                            "coordinate noise. If the coordinates are that far from " *
+                            "their space group, symmetrize them instead"))
     sg = analyze_symmetry(backend, crystal; tol = tol)
     # The neighbor list is built at the per-pair superset radius (element-wise max
     # over body orders); each body order's own radii then trim edges per cluster in
-    # `candidate_clusters`.
-    nl = build_neighbor_list(crystal, _superset_cutoff(spec), images)
+    # `candidate_clusters`. `tie_tol` rides on the list (`NeighborList.tol`), which
+    # `candidate_clusters` reads back for the edge admission — one value, both sides.
+    nl = build_neighbor_list(crystal, _superset_cutoff(spec), images; tol = tie_tol)
     clusters = build_clusters(crystal, nl, sg; nbody = spec.nbody, selection = images,
                               cutoff = spec.cutoff)
     salcs = build_salc_basis(crystal, sg, clusters;

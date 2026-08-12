@@ -147,7 +147,8 @@ for the textbook Zou form).
 `pilot = OLS()` matches Zou 2006. For a rank-deficient or near-collinear design (e.g.
 `n_salcs ≥ nconfig` at `torque_weight = 0`) prefer `pilot = Ridge(lambda = small)`: the
 OLS minimum-norm solution puts ~1e-10 noise in the null-space directions, which is
-not floored by `epsilon = eps(Float64)` and miscalibrates those weights. Any pilot is
+not floored by `epsilon = eps(Float64)` and miscalibrates those weights (the pilot
+solve now also warns about the deficiency). Any pilot is
 allowed, including a cross-validating [`ElasticNet`](@ref) or a [`PrecomputedPilot`](@ref)
 reusing a prior fit's coefficients; the pilot's own solve receives the co-fit `groups`.
 
@@ -364,9 +365,56 @@ function solve_coefficients(est::AbstractEstimator, X::AbstractMatrix, y::Abstra
           "package (e.g. `using GLMNet` for Lasso/ElasticNet).")
 end
 
+# Relative conditioning threshold on the pivoted-QR diagonal (|R_ii| / |R|_max).
+# This is a one-sided CONDITIONING gate, not an exact rank witness: since
+# σ_min ≤ min|R_ii| and max|R_ii| ≤ σ_max, the diagonal ratio is ≥ 1/κ₂(X), so
+# the warning CANNOT fire while κ₂(X) < 1e10 — no false alarms on well-conditioned
+# designs — and on an exact dependence (a duplicated column; the MnTe bulk-SOC
+# design whose silent max|coef| ~1e7 motivated this, measured ratio 1e-12–1e-14)
+# it fires reliably. In the band 1e-15 ≲ 1/κ ≲ 1e-10 a design may be full rank
+# and merely severely ill-conditioned (graded columns can reach it), and the QR
+# solve itself truncates only at its own ~min(m,n)·eps tolerance — which is why
+# the message says "or severely ill-conditioned" and does not claim an exact
+# rank. Kahan-type pivoted-QR failures only produce false NEGATIVES (near-
+# deficiency without a small diagonal), i.e. the pre-gate behavior. Not a
+# refusal: OLS still returns the QR solution (the documented min-norm behavior
+# on exact deficiency), but silently returning non-unique coefficients is the
+# bug this warns about.
+const _OLS_RANK_RTOL = 1e-10
+
 function solve_coefficients(::OLS, X::AbstractMatrix, y::AbstractVector;
                             groups = nothing)::Vector{Float64}
-    return X \ y   # QR-based least squares (more robust than the normal equations)
+    # Explicit pivoted QR — the exact factorization `X \ y` uses for a rectangular
+    # dense matrix, reused here for the conditioning check so the solve is not paid
+    # twice (verified bitwise-identical to `X \ y`, tall and wide, full-rank and
+    # deficient). For a SQUARE X, `\` would route through LU: on a nonsingular
+    # square design the QR path differs by ~1e-15 relative (oracle tolerances
+    # absorb it), and on a singular one LU returned ~1e15 garbage where QR gives
+    # the min-norm solution.
+    F = qr(X, ColumnNorm())
+    d = min(size(X)...)
+    if d > 0
+        dmax = maximum(i -> abs(F.R[i, i]), 1:d)
+        r = dmax == 0.0 ? 0 : count(i -> abs(F.R[i, i]) > _OLS_RANK_RTOL * dmax, 1:d)
+        if r < size(X, 2)
+            # maxlog bounds the spam from resampling sweeps (CV folds /
+            # select_support points re-solve the same deficient design many
+            # times); the interactive logger honors it, @test_logs captures all.
+            @warn "OLS design matrix is rank deficient or severely ill-" *
+                  "conditioned: only $r of $(size(X, 2)) columns are independent " *
+                  "at a 1e-10 diagonal threshold (κ ≳ 1e10). The least-squares " *
+                  "solution is non-unique or unstable, so the returned " *
+                  "coefficients (and anything read off them — coeftable, " *
+                  "bilinear_terms, Sunny export) are one arbitrary " *
+                  "representative; predicted energies are still well-defined. " *
+                  "Causes: redundant basis functions the SALC reduction could " *
+                  "not certify (see the build warning), supercell aliasing " *
+                  "across orbits, or too few / degenerate training " *
+                  "configurations. Consider Ridge(lambda > 0), more data, or a " *
+                  "smaller basis." maxlog = 4
+        end
+    end
+    return F \ y   # QR-based least squares (more robust than the normal equations)
 end
 
 function solve_coefficients(est::Ridge, X::AbstractMatrix, y::AbstractVector;

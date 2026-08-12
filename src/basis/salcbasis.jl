@@ -295,6 +295,127 @@ function _transport_term(o::Vector{Int}, F::Array{Float64}, g::Int,
     return o[q], G                          # member ls = o[invperm(perm)]
 end
 
+# ---------------------------------------------------------------------------
+# Function-space reduction of one orbit's SALCs.
+#
+# `evaluate_salc` reads a member's `atoms` but never its `shifts`: under plain
+# periodic evaluation every lattice image of an atom carries the same spin, so two
+# members differing only in `shifts` contribute to the SAME monomials
+# `∏ᵢ Z_{lsᵢμᵢ}(e_{atomᵢ})`. When an orbit folds distinct cluster instances onto one
+# atom set — WS-boundary ties kept whole, or a widened `tie_tol` merging a near-tie
+# shell — their tensors aggregate, and the aggregate can vanish or become linearly
+# dependent across the orbit's SALCs even though every per-instance tensor is
+# nonzero and the SALCs are individually space-group invariant. The design matrix
+# then silently loses rank: OLS returns huge mutually-cancelling coefficients with
+# normal-looking energies and R², and every bond-resolved readout (`bilinear_terms`,
+# Sunny export, MC Hamiltonians) stops being unique. Measured on bulk MnTe with SOC
+# (3×3×3, 108 atoms, P6_3/mmc): 51 SALCs emitted, 14 of them aggregating to zero
+# (relative residual ≤ 5.3e-12), max|coef| ~1e7 from OLS — invisible from the fit
+# diagnostics (found 2026-08-12; the "what a tie costs" phenomenon of
+# docs/src/theory/resolvability.md reaching the basis builder).
+#
+# The reduction below is exact linear algebra, not a numerical heuristic: each SALC
+# is expanded into its aggregated coefficient vector keyed by
+# `(atoms, ls-assignment, tensor index)`. For members with all-distinct atoms these
+# monomials are an orthogonal function family (products of orthonormal `Z_{lμ}` on
+# distinct unit spheres; the atom set is recoverable from the key because cluster
+# sites always carry `l ≥ 1` — `_enumerate_ls` starts every per-site range at 1, so
+# no `l = 0` factor can make a pair monomial collide with a single-site one), so
+# dependence of the vectors is EQUIVALENT to dependence of the Φ's. With a repeated
+# atom in a member (`AllImages` self-pairs) the monomials themselves may be
+# dependent, so vector-dependence still implies function-dependence (dropping stays
+# sound) but independence is not certified — the OLS rank warning is the backstop
+# there, as it is for dependence ACROSS orbits, which this per-orbit pass never
+# sees.
+#
+# Thresholds: an aggregated function is dropped as zero when its vector norm is
+# ≤ `_AGG_ZERO_RTOL ×` its unaggregated tensor norm, and as dependent when its
+# MGS residual against the kept set is ≤ `_AGG_DEP_RTOL ×` its own aggregated
+# norm. Measured gap on the MnTe case: true zeros cancel to ≤ 5.3e-12 relative
+# while surviving SALCs sit at O(1e-2)–O(1) — so 1e-8 has ~3 orders of headroom
+# above the measured zeros and ~6 below the smallest genuine survivor. The zero
+# residual is bounded by the 1e-10 absolute entry prune in `_project_and_fold` /
+# `_transport_term` *per entry per member*, so it scales like √(K·M)·1e-10 with
+# the key count K and member count M — like the prune constants themselves (see
+# the file header), sized for the validated regime (per-site l ≤ 2, small body
+# order) and to be revisited at much higher l or very large orbits. A miss is in
+# the safe direction (a true zero kept, then caught by the OLS rank warning).
+# Dict iteration order (insertion order, deterministic in Julia) fixes the
+# floating-point summation order in `_dictnorm`/`_dictdot`/the MGS update; it is
+# the one place in this file where that order follows hash-map layout rather than
+# an explicit sort, which is fine because only threshold comparisons consume it.
+const _AGG_ZERO_RTOL = 1e-8
+const _AGG_DEP_RTOL = 1e-8
+
+# Aggregated (shift-blind) monomial coefficient vector of one SALC, plus the
+# unaggregated tensor norm used as the zero-test scale.
+function _function_vector(s::SALC)
+    v = Dict{Tuple{Vector{Int},Vector{Int},Int},Float64}()
+    raw2 = 0.0
+    for m in s.members, t in m.terms
+        raw2 += sum(abs2, t.folded)
+        flat = vec(t.folded)                    # reshape view, no copy
+        @inbounds for li in eachindex(flat)
+            c = flat[li]
+            c == 0.0 && continue
+            k = (m.atoms, t.ls, li)
+            v[k] = get(v, k, 0.0) + c
+        end
+    end
+    return v, sqrt(raw2)
+end
+
+_dictnorm(v::Dict) = sqrt(sum(abs2, values(v); init = 0.0))
+function _dictdot(a::Dict, b::Dict)
+    # iterate the smaller dict
+    length(a) > length(b) && return _dictdot(b, a)
+    acc = 0.0
+    for (k, x) in a
+        acc += x * get(b, k, 0.0)
+    end
+    return acc
+end
+
+# Keep the maximal leading (in emission order) subset of `salcs` whose aggregated
+# functions are independent; return `(kept, dropped)` where each dropped entry is
+# `(key, :zero | :dependent)`. Emission order puts lower `Lf` first within an
+# `l`-tuple, so the scalar (Heisenberg-like) channel survives and the exotic
+# aggregate-degenerate ones are the ones named as dropped. Orbit-local and
+# deterministic — safe under the threaded orbit loop.
+function _reduce_orbit_salcs(salcs::Vector{SALC})
+    isempty(salcs) && return salcs, Tuple{SALCKey,Symbol}[]
+    kept = SALC[]
+    keptvecs = Dict{Tuple{Vector{Int},Vector{Int},Int},Float64}[]
+    dropped = Tuple{SALCKey,Symbol}[]
+    for s in salcs
+        v, raw = _function_vector(s)
+        nv0 = _dictnorm(v)
+        if nv0 <= _AGG_ZERO_RTOL * raw
+            push!(dropped, (s.key, :zero))
+            continue
+        end
+        # modified Gram–Schmidt against the kept (orthonormalized) set
+        for q in keptvecs
+            c = _dictdot(q, v)
+            c == 0.0 && continue
+            for (k, x) in q
+                v[k] = get(v, k, 0.0) - c * x
+            end
+        end
+        nv = _dictnorm(v)
+        if nv <= _AGG_DEP_RTOL * nv0
+            push!(dropped, (s.key, :dependent))
+            continue
+        end
+        for k in keys(v)
+            v[k] /= nv
+        end
+        push!(keptvecs, v)
+        push!(kept, s)
+    end
+    return kept, dropped
+end
+
 # All SALCs of one cluster orbit. Self-contained (its `blockcount` and output are
 # orbit-local; `wcache` is read-only), so orbits are processed independently — the
 # unit of parallelism in `build_salc_basis`.
@@ -359,6 +480,21 @@ orbit and body order. For each `(orbit, l-multiset, Lf)` the stabilizer-invarian
 coefficient subspace (over orderings × coupling paths) is found, gauge-fixed, and
 transported to all orbit members.
 
+Each orbit is then **function-space reduced**: SALCs whose orbit sum aggregates to
+the zero function of the cell-periodic spins, or becomes linearly dependent within
+the orbit (a supercell folding distinct cluster instances — WS-boundary ties, merged
+near-tie shells — onto the same atom sets), are dropped with a warning naming the
+orbit, channel, and reason. The reduction is exact (the spanned model space is
+unchanged) and, **per orbit and for members with all-distinct atoms**, guarantees
+the orbit's surviving functions are linearly independent; surviving keys keep their
+`block` numbers, so gaps in `block` are legal. What it does NOT cover — and where
+the design matrix can still lose rank, caught only by the `OLS` rank warning:
+dependence **across** orbits (a trivial/underreported space group can place tied
+images in different orbits; more generally cross-orbit supercell aliasing, which is
+unresolvable from the cell, not mergeable), repeated-atom members (`AllImages`
+self-pairs; dropping stays sound but independence is uncertified), and training
+sets with fewer rows than columns.
+
 # Keyword arguments
 - `lmax_by_species::AbstractVector{<:Integer}`: per-species maximum `l`.
 - `lsum_by_body`: per-body-order cap on `Σl` over the cluster sites, indexed by
@@ -399,12 +535,36 @@ function build_salc_basis(crystal::Crystal, spacegroup::SpaceGroup, clusters::Cl
         end
     end
     parts = Vector{Vector{SALC}}(undef, length(work))
+    drops = Vector{Vector{Tuple{SALCKey,Symbol}}}(undef, length(work))
     Threads.@threads for w in eachindex(work)
         (N, orbit_id, O) = work[w]
-        parts[w] = _orbit_salcs(crystal, spacegroup, N, orbit_id, O, lmax, lsumN(N),
-                                isotropy, wcache)
+        raw = _orbit_salcs(crystal, spacegroup, N, orbit_id, O, lmax, lsumN(N),
+                           isotropy, wcache)
+        parts[w], drops[w] = _reduce_orbit_salcs(raw)
     end
     salcs = isempty(parts) ? SALC[] : reduce(vcat, parts)
     sort!(salcs; by = s -> s.key)
+    dropped = isempty(drops) ? Tuple{SALCKey,Symbol}[] : reduce(vcat, drops)
+    if !isempty(dropped)
+        sort!(dropped; by = first)
+        nz = count(d -> d[2] === :zero, dropped)
+        nd = length(dropped) - nz
+        detail = join(("  $(k.body)-body orbit $(k.orbit_id), ls = $(k.ls), " *
+                       "Lf = $(k.Lf), block $(k.block): $why" for (k, why) in dropped),
+                      "\n")
+        @warn "SALC reduction: dropped $(length(dropped)) redundant basis " *
+              "function(s) ($nz aggregating to identically zero, $nd linearly " *
+              "dependent as functions of the spins). The supercell folds distinct " *
+              "cluster instances of the affected orbit(s) onto the same atom sets " *
+              "(WS-boundary ties, or a merged near-tie shell), so their tensors " *
+              "aggregate — the dropped combinations are not resolvable from this " *
+              "supercell, and keeping them would make the design matrix rank " *
+              "deficient (non-unique coefficients). The reduction is exact: the " *
+              "spanned model space and all energy/torque predictions are " *
+              "unchanged. For a `dependent` drop, note the surviving channel's " *
+              "fitted coefficient absorbs the dropped one's — the bond-level " *
+              "attribution within the affected orbit remains unresolvable from " *
+              "this supercell, with or without the drop.\n" * detail
+    end
     return SALCBasis(salcs, SALCKey[s.key for s in salcs])
 end

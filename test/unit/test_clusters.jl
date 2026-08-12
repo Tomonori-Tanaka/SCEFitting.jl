@@ -5,6 +5,14 @@ using StaticArrays
 using LinearAlgebra
 using Random: Xoshiro, randn
 
+# A backend returning a fixed, hand-assembled space group, so the SCEBasis door
+# (and its `tie_tol` plumbing) can be exercised with the exact manual groups the
+# fixtures below construct — the extension seam `analyze_symmetry` documents.
+struct _FixedGroupBackend <: SCEFitting.AbstractSymmetryBackend
+    sg::SpaceGroup
+end
+SCEFitting.analyze_symmetry(b::_FixedGroupBackend, ::Crystal; tol::Real = 1e-5) = b.sg
+
 @testset "clusters" begin
     lat = Lattice(Matrix(3.0 * I(3)))
 
@@ -120,12 +128,15 @@ using Random: Xoshiro, randn
         end
         spec_hc = BasisSpec(["Mn", "Te"]; nbody = 2, lmax = [2, 2], cutoff = Inf,
                             lsum = [1 => 2, 2 => 2], isotropy = false)
-        function build_hc(frx)
+        function build_hc(frx; tie = nothing)
             cr = Crystal(Lattice(hexlat; pbc = (true, true, false)), frx, sp,
                          ["Mn", "Te"])
             sg = _assemble_spacegroup(cr, rots, trans, "P3(manual)", 143; tol = 1e-3)
-            nl = build_neighbor_list(cr, SCEFitting._superset_cutoff(spec_hc),
-                                     MinimumImage())
+            nl = tie === nothing ?
+                 build_neighbor_list(cr, SCEFitting._superset_cutoff(spec_hc),
+                                     MinimumImage()) :
+                 build_neighbor_list(cr, SCEFitting._superset_cutoff(spec_hc),
+                                     MinimumImage(); tol = tie)
             return SCEFitting.build_clusters(cr, nl, sg; nbody = 2,
                                              selection = MinimumImage(),
                                              cutoff = spec_hc.cutoff)
@@ -143,6 +154,35 @@ using Random: Xoshiro, randn
         end
         @test err isa ErrorException
         @test occursin("not closed under the space group", err.msg)
+        @test occursin("tie_tol", err.msg)   # the message names the remedy
+        # The remedy works: a tie band wider than the split the perturbation causes
+        # (frac noise 1e-5 on bonds of a few Å ⇒ relative splits ≲ 1e-4; genuine
+        # shell spacings are percents) re-merges the ties, the candidate set closes,
+        # and the orbit STRUCTURE (per-body multiplicities and species, not just the
+        # total count) is the ideal one again.
+        clw = build_hc(frp; tie = 1e-3)
+        orbit_shape(cl) = sort([(N, o.multiplicity, o.species)
+                                for (N, os) in cl.by_body for o in os])
+        @test orbit_shape(clw) == orbit_shape(cl)
+        # And end to end through the SCEBasis door — the assertion that fails if the
+        # `tie_tol` keyword were accepted but dropped on the floor: the perturbed
+        # crystal refuses at the default band and builds at the widened one, with
+        # the SAME SALC keys as the ideal-coordinate build (tensors depend only on
+        # the group operations, which the fixed backend pins).
+        cr_ideal = Crystal(Lattice(hexlat; pbc = (true, true, false)), frm, sp,
+                           ["Mn", "Te"])
+        cr_pert = Crystal(Lattice(hexlat; pbc = (true, true, false)), frp, sp,
+                          ["Mn", "Te"])
+        be_ideal = _FixedGroupBackend(_assemble_spacegroup(cr_ideal, rots, trans,
+                                                           "P3(manual)", 143;
+                                                           tol = 1e-3))
+        be_pert = _FixedGroupBackend(_assemble_spacegroup(cr_pert, rots, trans,
+                                                          "P3(manual)", 143;
+                                                          tol = 1e-3))
+        b_ideal = SCEBasis(cr_ideal, spec_hc; backend = be_ideal)
+        @test_throws ErrorException SCEBasis(cr_pert, spec_hc; backend = be_pert)
+        b_healed = SCEBasis(cr_pert, spec_hc; backend = be_pert, tie_tol = 1e-3)
+        @test b_healed.salc_basis.keys == b_ideal.salc_basis.keys
     end
 
     # `search` steers the adaptive minimum-image scan; on the AllImages path it is
@@ -156,5 +196,22 @@ using Random: Xoshiro, randn
         M = fill(2.0, 1, 1)
         @test_throws ArgumentError build_neighbor_list(crystal, M, AllImages();
                                                        search = 1)
+    end
+
+    # `SCEBasis(...; tie_tol)` is the user-facing door to the same-distance band
+    # (the remedy the closure refusal above names). It must validate its range —
+    # a band at/above the hard cap merges genuinely distinct shells — and thread
+    # the value to the neighbor list (candidate_clusters reads it back from
+    # `NeighborList.tol`, so one value governs both sides).
+    @testset "SCEBasis tie_tol: validation and plumbing" begin
+        cr = Crystal(Lattice(Matrix(3.0 * I(3))),
+                     [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+        spec = BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1], isotropy = true)
+        @test_throws ArgumentError SCEBasis(cr, spec; tie_tol = -1e-9)
+        @test_throws ArgumentError SCEBasis(cr, spec; tie_tol = Inf)
+        @test_throws ArgumentError SCEBasis(cr, spec; tie_tol = 1e-2)  # at the cap
+        b1 = SCEBasis(cr, spec)
+        b2 = SCEBasis(cr, spec; tie_tol = 1e-6)   # legal; same basis on clean coords
+        @test b2.salc_basis.keys == b1.salc_basis.keys
     end
 end

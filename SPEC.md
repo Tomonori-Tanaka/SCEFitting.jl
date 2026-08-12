@@ -103,6 +103,11 @@ capability consumed by both the introspection and the Sunny interop.
   clique's atoms are distinct, so a cluster never reuses an atom's image — that would
   alias a lower-body term); under `AllImages` iff within the radial cutoff. The
   `selection` is threaded from `SCEBasis` so the neighbor list and clusters agree.
+  The relative same-distance band for tie/cutoff decisions is user-facing as
+  `SCEBasis(...; tie_tol)` (default `1e-8`, hard cap `1e-2`): it rides on
+  `NeighborList.tol`, which the cluster-edge admission reads back, so one value
+  governs both sides. Widening it is the remedy the closure refusal names for
+  relaxed/noisy coordinates whose symmetry residual splits minimum-image ties.
 
 ### SALC basis (M7) — arbitrary body order
 - `build_salc_basis` projects each orbit's representative onto the trivial irrep of
@@ -114,6 +119,17 @@ capability consumed by both the introspection and the Sunny interop.
   axis-pivoted gauge; per-ordering fold into a multi-term SALC (one `SALCTerm` per
   ordering). `SALCKey` (canonical, injective column address — `block` runs across split
   ordering orbits) + `SALCBasis` (sorted keys + fingerprint). `evaluate_salc(salc, e)`.
+  The build ends with an exact **function-space reduction per orbit**: each SALC's
+  aggregated (shift-blind) monomial coefficients — keyed `(atoms, ls, index)`, the
+  linear space `evaluate_salc` actually spans under cell-periodic evaluation — are
+  checked, and combinations that aggregate to zero or go linearly dependent within
+  the orbit (WS-boundary ties / merged near-tie shells folding distinct instances
+  onto one atom set) are dropped with a warning naming orbit, channel, and reason
+  (surviving keys keep their `block` numbers; gaps are legal). The independence
+  guarantee is per orbit, distinct-atom members only: cross-orbit aliasing (e.g. a
+  trivial space group splitting tied images into separate orbits), repeated-atom
+  `AllImages` members, and row-deficient training data can still leave the design
+  rank deficient — the `OLS` rank warning is the gate there.
 - Validated by the ground-truth tests with non-collinear spins, **all `Lf`, all body
   orders**: space-group invariance `Φ(g·e)=Φ(e)`, time-reversal evenness, linear
   independence; projector eigenvalues exactly 0/1. Improper-op parity is handled
@@ -142,7 +158,10 @@ capability consumed by both the introspection and the Sunny interop.
   **extend StatsAPI** (imported, not shadowed); `predict`/`residuals`/`r2` are thin
   wrappers defaulting to the energy block (`predict_energy`/`residuals_energy`/`r2_energy`).
   `AbstractEstimator` with `OLS`/`Ridge` (validated: `lambda` finite and ≥ 0)/`AdaptiveRidge`
-  (analytic `j0`; centered-`X` `solve_coefficients` contract).
+  (analytic `j0`; centered-`X` `solve_coefficients` contract). `OLS` solves by
+  explicit pivoted QR and **warns on a rank-deficient design** (diagonal ratio below
+  `1e-10`): the solution is returned unchanged (documented min-norm behavior on
+  exact deficiency) but coefficients are flagged non-unique.
 - Validated: OLS recovers an in-span target (R²=1); **a Heisenberg chain fit
   recovers `J = 2√3·jphi` to rtol 1e-8** (the v0 done-line, oracle); torque is the
   exact derivative of the energy surface (on-sphere finite differences, equivariance,
