@@ -226,7 +226,7 @@ evaluation dataset, and applies the same Pareto rule:
 ```julia
 train, held = dataset[1:80], dataset[81:100]        # dataset slicing
 f     = fit(SCEFit, train, GroupAdaptiveRidge(basis; lambda = 1e-5, theta = 1.0))
-front = select_support(f; thresholds = 25, evalset = held, delta = 0.05)
+front = select_support(f; npoints = 25, evalset = held, delta = 0.05)
 front.fit                                           # the selected de-biased refit
 ```
 

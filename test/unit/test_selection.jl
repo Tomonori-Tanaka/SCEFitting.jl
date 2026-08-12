@@ -478,7 +478,7 @@ end
         ds_tr2 = ds_p[1:30]
         ds_ev = ds_p[31:40]                       # held-out evaluation slice
         f = fit(SCEFit, ds_tr2, GroupAdaptiveRidge(basis; lambda = 1e-4))
-        sp = select_support(f; thresholds = 8, evalset = ds_ev)
+        sp = select_support(f; npoints = 8, evalset = ds_ev)
 
         nt = length(sp.threshold)
         @test issorted(sp.threshold; rev = true)                  # sparsest first
@@ -500,7 +500,7 @@ end
         @test sp.rmse_energy[sp.selected] < 1e-2
         @test sp.rmse_energy[sp.selected] < sp.rmse_energy[end]
         # Pareto: widening delta can only cheapen the selection
-        spw = select_support(f; thresholds = 8, evalset = ds_ev, delta = 0.5)
+        spw = select_support(f; npoints = 8, evalset = ds_ev, delta = 0.5)
         @test spw.cost[spw.selected] <= sp.cost[sp.selected]
 
         # explicit thresholds vector; single full-support point
@@ -540,7 +540,7 @@ end
         fco = fit(SCEFit, ds_cofit, GroupAdaptiveRidge(glab, ones(maximum(glab));
                                                        lambda = 1e-3);
                   torque_weight = 0.4)
-        spc = select_support(fco; thresholds = 3)
+        spc = select_support(fco; npoints = 3)
         @test all(isfinite, spc.rmse_torque)
         @test length(spc.threshold) == 1        # single-group basis: grid collapses
         @test_throws ArgumentError select_support(fco;
@@ -550,7 +550,11 @@ end
         @test_throws ArgumentError select_support(f; delta = -0.1)
         @test_throws ArgumentError select_support(f; thresholds = Float64[])
         @test_throws ArgumentError select_support(f; thresholds = [-1.0])
-        @test_throws ArgumentError select_support(f; thresholds = 1)
+        @test_throws ArgumentError select_support(f; npoints = 1)
+        # an Integer `thresholds` used to silently mean "n-point grid"; the count
+        # and the explicit vector are separate keywords now, so it is a TypeError
+        # [Backported behavior from SLCE.jl 2259c54.]
+        @test_throws TypeError select_support(f; thresholds = 8)
         @test_throws ArgumentError select_support(f; costs = [1.0])
         @test_throws ArgumentError select_support(f; estimator = PrecomputedPilot(
             zeros(n_salcs(basis))))

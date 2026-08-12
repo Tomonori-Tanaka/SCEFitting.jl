@@ -10,6 +10,26 @@ using SCEFitting: build_neighbor_list, build_clusters, build_salc_basis, evaluat
 
 const TEST_MODE = get(ENV, "TEST_MODE", "default")
 
+# A misspelled TEST_MODE used to select NO branch below and exit green with a total of
+# zero assertions — CI sets this value from YAML, so a typo there silently deletes the
+# entire suite. [Backported from SLCE.jl a1ac9af.]
+const _TEST_MODES = ("default", "all", "unit", "aqua", "jet")
+TEST_MODE in _TEST_MODES || error(
+    "TEST_MODE=\"$TEST_MODE\" is not one of $(join(_TEST_MODES, ", ")) — refusing to " *
+    "run zero tests and report success")
+
+# Several gates compare a threaded result against a SERIAL reference; at one thread
+# `Threads.@threads` *is* the serial reference, so those testsets pass while asserting
+# nothing (the threaded-vs-serial design builds in test_threading.jl, the deterministic
+# basis builds in test_salc.jl / test_nbody.jl). This used to be a `@warn` that scrolled
+# past 28k assertions, plus a line in CI.yml. Refuse instead.
+# [Backported from SLCE.jl a1ac9af.]
+if Threads.nthreads() == 1 && get(ENV, "SCEFITTING_ALLOW_SINGLE_THREAD", "0") != "1"
+    error("run the suite with `-t N` for N > 1 (CI pins 4): the threaded-vs-serial " *
+          "gates are vacuous at one thread. Set SCEFITTING_ALLOW_SINGLE_THREAD=1 to " *
+          "override.")
+end
+
 @testset "SCEFitting.jl" begin
     if TEST_MODE in ("default", "all", "unit")
         include("unit/testutils.jl")     # shared helpers (rand_unit / randcfg /

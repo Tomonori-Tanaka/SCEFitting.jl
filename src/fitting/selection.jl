@@ -686,7 +686,7 @@ end
 # (sparsest refit first); duplicates and degenerate ranks collapse, so fewer than `n`
 # points can come back (always ≥ 1: the anchor).
 function _support_thresholds(n::Integer, m_g::Vector{Float64})::Vector{Float64}
-    n >= 2 || throw(ArgumentError("thresholds count must be ≥ 2; got $n"))
+    n >= 2 || throw(ArgumentError("npoints must be ≥ 2; got $n"))
     # An empty group vector would reach `log(0)` below and die with a range error
     # naming nothing the caller holds. [Backported from SLCE.jl 54457ca.]
     isempty(m_g) && throw(ArgumentError(
@@ -748,8 +748,9 @@ function Base.show(io::IO, ::MIME"text/plain", p::SupportPath)
 end
 
 """
-    select_support(f::SCEFit; thresholds = 25, delta = 0.05, labels = nothing,
-                   costs = nothing, evalset = f.dataset, estimator = OLS())
+    select_support(f::SCEFit; npoints = 25, thresholds = nothing, delta = 0.05,
+                   labels = nothing, costs = nothing, evalset = f.dataset,
+                   estimator = OLS())
         -> SupportPath
 
 Trace the (predicted Monte-Carlo cost, error) front of **de-biased refits** of `f`
@@ -768,14 +769,23 @@ weak column of an alive group may still be dropped (the group's cost is paid eit
 way). The `score` is the fit's own objective `(1 − w)·MSE_E + w·MSE_T`
 (`w = f.torque_weight`) evaluated on `evalset` — pass a held-out `SCEDataset` (built
 on the same basis; see dataset slicing) for an honest error axis; the default is the
-in-sample training set. `thresholds` is either a point count for the automatic grid
-(**at most** that many points, log-rank-spaced on the per-group magnitude spectrum
-plus the full-support anchor — duplicate ranks and exact magnitude ties collapse) or
-an explicit vector of absolute thresholds. `labels`/`costs` default to
-`SCEFitting.salc_groups` / `SCEFitting.group_costs` of the training basis.
+in-sample training set.
+
+The sweep is either automatic or explicit, and the two are **separate keywords** on
+purpose: `npoints` is a point count for the automatic grid (**at most** that many
+points, log-rank-spaced on the per-group magnitude spectrum plus the full-support
+anchor — duplicate ranks and exact magnitude ties collapse), while `thresholds` is an
+explicit vector of absolute thresholds and overrides it. One keyword carrying both
+meanings turned `thresholds = 10` — "sweep down to a magnitude of 10" — into a
+silent ten-point grid, distinguishable from `thresholds = [10.0]` only by the
+literal's type. `labels`/`costs` default to `SCEFitting.salc_groups` /
+`SCEFitting.group_costs` of the training basis. [The npoints/thresholds keyword
+split is backported from SLCE.jl 2259c54 — the one behavior change of that naming
+batch; the Greek keyword renames stay out.]
 """
 function select_support(f::SCEFit;
-                        thresholds::Union{Integer,AbstractVector{<:Real}} = 25,
+                        npoints::Integer = 25,
+                        thresholds::Union{Nothing,AbstractVector{<:Real}} = nothing,
                         delta::Real = 0.05,
                         labels::Union{Nothing,AbstractVector{<:Integer}} = nothing,
                         costs::Union{Nothing,AbstractVector{<:Real}} = nothing,
@@ -806,8 +816,8 @@ function select_support(f::SCEFit;
         g = lab[j]
         m > m_g[g] && (m_g[g] = m)
     end
-    thr = if thresholds isa Integer
-        _support_thresholds(thresholds, m_g)
+    thr = if thresholds === nothing
+        _support_thresholds(npoints, m_g)
     else
         isempty(thresholds) && throw(ArgumentError("thresholds must be nonempty"))
         all(t -> isfinite(t) && t >= 0, thresholds) ||

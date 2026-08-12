@@ -35,8 +35,11 @@ radial cutoff; `cutoff = Inf` keeps the whole WS cell (Magesty spells this
 
 ## Boundary ties
 
-On the WS boundary several images are exactly equidistant, and they are kept as **distinct
-members** — each is a genuinely different, independently resolvable geometry:
+On the WS boundary several images are exactly equidistant, and they are kept as
+**distinct members** of one cluster orbit. In the infinite crystal they *are*
+different bonds; on the finite reference cell they connect the **same** pair of
+reference-cell atoms, so their design-matrix contributions are evaluated on the same
+spin data and need not be independent:
 
 | WS boundary feature | Multiplicity |
 |---------------------|-------------:|
@@ -56,6 +59,33 @@ length([p for p in nl.pairs if (p.i, p.j) == (1, 2)])     # 8 equidistant corner
 Self-pairs (``i = i + R``) are dropped: both ends share ``\hat{\boldsymbol e}_i``, so the
 term is a constant (``L_f = 0``) or a one-body alias (``L_f > 0``), never an independent
 pair. Likewise an ``N``-body cluster must use distinct atoms.
+
+### What a tie costs on a finite cell
+
+Because the tied images connect the same reference-cell atom pair, the orbit sum over
+a tie can make some of an orbit's SALC content **identically zero as a function of
+cell-periodic spin data** — the column is not merely small, it vanishes for every
+configuration the reference cell can express. The content is *unidentifiable from
+this cell*, not absent from the physics: a fit sees a zero design column and the
+coefficient is unconstrained. A tie is *necessary* for this (with a unique minimum
+image every member has its own atom content and nothing can cancel), but which
+content dies depends on how the space group relates the tied members, not on the tie
+alone. The pattern to expect from the simplest two-fold tie (a pair at half a lattice
+vector) is bond reversal ``\hat{\boldsymbol r} \to -\hat{\boldsymbol r}``, which an
+invariant of bond rank ``L_f`` carries as ``(-1)^{L_f}`` while the site factors are
+unchanged — the odd-``L_f`` content of such a channel goes, the antisymmetric
+DMI-like ``L_f = 1`` one included. Treat that as a guide to *where to look*, not as a
+rule: a larger tie can remove even-``L_f`` content too (measured upstream on the
+eight-fold bcc corner tie with ``l \le 2`` spin factors: 4 of the orbit's 7 SALC
+columns identically zero), and a smaller stabilizer can leave odd content standing.
+
+The remedy is a reference cell that breaks the tie **in every direction whose
+displacement carries a half-lattice-vector component** — doubling one axis alone
+moves only the ties along that axis. (The joint-family SLCE.jl classifies and
+freezes such columns mechanically — `unresolvable_columns` there; this package
+documents the phenomenon and leaves the columns in place, so watch for exactly-zero
+design columns on high-symmetry cells.)
+[Adapted from SLCE.jl de79b92/3e68fc1.]
 
 ## The third edge: compact clusters at `N ≥ 3`
 

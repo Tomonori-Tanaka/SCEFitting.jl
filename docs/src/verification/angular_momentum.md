@@ -335,9 +335,14 @@ vectors:
   Heisenberg invariant ``\hat{\boldsymbol e}_1 \cdot \hat{\boldsymbol e}_2 / \sqrt{3}``.
 - ``L = 1``: the three slices are the Levi-Civita tensor, ``\tilde{C}^{(1)}
   = \varepsilon / \sqrt{2}`` — the cross product
-  ``(\hat{\boldsymbol e}_1 \times \hat{\boldsymbol e}_2) / \sqrt{2}``, an **axial** vector
-  (parity ``(-1)^{l_1 + l_2} = +1``, not ``(-1)^L``), which is why the SALC
-  projector must treat proper and improper operations differently.
+  ``(\hat{\boldsymbol e}_1 \times \hat{\boldsymbol e}_2) / \sqrt{2}``, an **axial** vector:
+  its parity is ``(-1)^{l_1 + l_2} = +1``, not ``(-1)^L``. That mismatch is what the
+  even-``\sum_i l_i`` time-reversal screen buys back. The SALC projector never forms
+  ``\Delta^{(L)}(R)`` at all: it rotates each *site* axis with the full matrix (improper
+  operations included) and reads the ``L_f`` action off by contraction, and because the
+  screen makes ``\det(R)^{\sum_i l_i} \equiv +1``, the axial spin action equals the
+  polar one — **no proper / improper case distinction exists anywhere in the
+  projector**.
 - ``L = 2``: the five quadrupole combinations — reading ``\tilde{M} = -2 \dots 2``:
   ``xy``-, ``yz``-type, ``(2 z_1 z_2 - x_1 x_2 - y_1 y_2)/\sqrt{6}``, ``zx``-type,
   and ``(x_1 x_2 - y_1 y_2)/\sqrt{2}``.

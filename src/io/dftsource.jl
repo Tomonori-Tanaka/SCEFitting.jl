@@ -128,7 +128,8 @@ end
 """
     SCEDataset(basis, data::AbstractVector{SpinDatum}; use_torque = true,
                zero_moment_atol = 1e-10) -> SCEDataset
-    SCEDataset(basis, src::AbstractDFTSource; use_torque = true) -> SCEDataset
+    SCEDataset(basis, src::AbstractDFTSource; use_torque = true,
+               zero_moment_atol = 1e-10) -> SCEDataset
 
 Build a fit-ready [`SCEDataset`](@ref) from training data (or directly from a DFT
 source, which is read first). The spin directions become the configurations and the
@@ -165,5 +166,10 @@ function SCEDataset(basis::SCEBasis, data::AbstractVector{SpinDatum};
     end
 end
 
-SCEDataset(basis::SCEBasis, src::AbstractDFTSource; use_torque::Bool = true)::SCEDataset =
-    SCEDataset(basis, read_configs(src); use_torque = use_torque)
+# `zero_moment_atol` is forwarded: the docstring tells a custom-atol adapter to pass
+# the same value here, and this path used to silently drop it.
+# [Backported from SLCE.jl 011e3c9 (the spin-applicable hunk of the co-fit commit).]
+SCEDataset(basis::SCEBasis, src::AbstractDFTSource; use_torque::Bool = true,
+           zero_moment_atol::Real = 1e-10)::SCEDataset =
+    SCEDataset(basis, read_configs(src); use_torque = use_torque,
+               zero_moment_atol = zero_moment_atol)

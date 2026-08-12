@@ -98,6 +98,27 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
             use_torque = false)
     end
 
+    @testset "zero_moment_atol reaches the guard through the source path" begin
+        # The convenience constructor `SCEDataset(basis, src)` used to silently drop
+        # `zero_moment_atol`, so an adapter that built its `SpinDatum`s with a custom
+        # tolerance could not align the referenced-moment guard with it.
+        # [Backported behavior from SLCE.jl 011e3c9.]
+        lat = Lattice(Matrix(3.0 * I(3)))
+        cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 2], ["Fe", "B"])
+        basis = SCEBasis(cr, BasisSpec(cr; nbody = 2, cutoff = 1.5,
+                                       lmax = ["Fe" => 2, "B" => 0]))
+        # an Fe moment far below the default 1e-10 guard, built with a matching
+        # loose build tolerance so the stored direction is the real one
+        m_tiny = [1.0e-12 0.0; 0.0 0.0; 0.0 0.0]
+        src = _MemSource([SpinDatum(0.0, m_tiny, zeros(3, 2);
+                                    zero_moment_atol = 1.0e-14)])
+        # default guard: the referenced Fe atom reads as quenched — refused
+        @test_throws ArgumentError SCEDataset(basis, src; use_torque = false)
+        # the forwarded loose guard accepts the same source
+        ds = SCEDataset(basis, src; use_torque = false, zero_moment_atol = 1.0e-14)
+        @test length(ds) == 1
+    end
+
     @testset "source → dataset round trip carries directions / energies / torques" begin
         lat = Lattice(Matrix(3.0 * I(3)))
         cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])

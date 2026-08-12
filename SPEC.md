@@ -302,8 +302,9 @@ capability consumed by both the introspection and the Sunny interop.
   that cold solve and the effective absolute threshold is returned as
   `path.threshold`, so `refit(path.fit; threshold = path.threshold)` realizes exactly
   the reported support; `SelectionPath` is a Tables.jl source.
-- **Threshold front** (exported): `select_support(f; thresholds = 25, delta, labels,
-  costs, evalset = f.dataset, estimator = OLS()) -> SupportPath` — the second knob:
+- **Threshold front** (exported): `select_support(f; npoints = 25, thresholds =
+  nothing, delta, labels, costs, evalset = f.dataset, estimator = OLS()) ->
+  SupportPath` — the second knob:
   sweeps the alive threshold at a fixed fit (auto grid = log-rank-spaced points on
   the per-group scaled-magnitude spectrum + the full-support anchor, or an explicit
   vector), de-biases with `refit` per point, scores each refit by the fit's own

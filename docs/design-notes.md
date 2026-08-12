@@ -302,7 +302,9 @@ not vendored.
 
 `test/oracle/` is a separate environment that `dev`s a pinned `Magesty.jl`; the
 core suite never depends on Magesty. The oracle compares only **convention-fixed
-kernels** bit-for-bit (`Zₗₘ`, Clebsch–Gordan vs. `WignerSymbols`, real Wigner-D,
+kernels**, each at its stated tolerance (`Zₗₘ` the tightest at `atol = 1e-13` /
+`rtol = 1e-12`, the others looser — not bit-for-bit; the two packages use different
+Legendre primitives: `Zₗₘ`, Clebsch–Gordan vs. `WignerSymbols`, real Wigner-D,
 coupled tensors) and **gauge-invariant aggregates** (space-group/spacegroup
 numbers, orbit counts, held-out predictions, the recovered Heisenberg `J`). Raw
 SALC coefficients and individual design-matrix columns are *never* compared — they
@@ -444,6 +446,22 @@ to which the update degenerates exactly for singleton groups with unit weights (
 by test). The trade-off versus a group lasso is theory: no convexity, selection
 consistency is empirical. That is the same trade already accepted for `AdaptiveRidge`.
 
+**What the fixed-point argument does and does not say.** `λ·v_g·‖β_g‖²/(‖β_g‖² + p_g ε)
+→ λ·v_g` is a statement about the *quadratic majorizer's* value at the fixed point. The
+objective the IRLS actually descends is the MM surrogate's target
+`λ·Σ_g v_g·log(‖β_g‖² + p_g·ε)`, whose per-group price is
+`λ·v_g·log(1 + ‖β_g‖²/(p_g·ε))` — equivalently, the iteration is the EM algorithm for a
+Gamma–Gaussian scale mixture (a Student-t prior) in which `v_g` reads as a prior *shape*
+`2a_g + p_g`, not as a posterior relevance. At `ε = 1e-8` that log factor spans roughly
+0.3 to 18 across the magnitude range, so it modulates the effective price by an amount
+comparable to the `(c_g/c̄)^θ` tilt itself. This is a plausible mechanism for the
+postscript's observation that nothing dies along the λ path on l044, and it is cheap to
+check: compare `log(1 + ‖β_g‖²/(p_g·ε))` against `(c_g/c̄)^θ` on one fitted model and
+see which term orders the deaths. Note also that `v_g = √p_g·(...)` is the Yuan–Lin
+convention, not the scale-mixture one (`2a_g + p_g`); the two rank small-against-large
+groups differently, so the probabilistic reading is an analogy for orientation, not a
+licence to quote a prior. [Backported from SLCE.jl b9230c0.]
+
 **GCV from the closed-form hat matrix — computed on the smaller Gram side.** The
 converged fit is linear in `y` with the weights frozen (`islinear`), so
 `df = tr(X(X'X + λD)⁻¹X')` is exact in that standard converged-weight sense and GCV
@@ -480,6 +498,9 @@ directly at a fixed fit: each point is one cheap de-biasing `refit`, scored on a
 held-out slice, with the same "cheapest within (1+δ)" rule — `select_support`. On
 l044 this front offered 38 % of the Monte-Carlo cost at a held-out torque RMSE
 *better* than the full model (de-biasing beats the interpolating tail) and 3 % of the
-cost at +19 %. The λ path (`select_fit`) remains the tool that *shapes* coefficients
-group-wise before thresholding; the threshold front is where the cost is actually
-harvested.
+cost at +19 %. (Those percentages were measured under the older nonzero-entry cost
+metric; `group_costs` now prices sweep site-program slots — the a596ea3 backport —
+so the front's *shape* stands but the numbers have not been re-derived under the
+current metric.) The λ path (`select_fit`) remains the tool that *shapes*
+coefficients group-wise before thresholding; the threshold front is where the cost
+is actually harvested.

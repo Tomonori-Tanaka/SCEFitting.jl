@@ -16,8 +16,11 @@ gitignored.
 
 ## What it checks
 
-- **Convention-fixed kernels** (bit-for-bit): tesseral harmonics `Zₗₘ` / `∇Zₗₘ`,
-  Clebsch–Gordan, real Wigner-D, coupled tensors (up to a known global phase).
+- **Convention-fixed kernels** (each at its stated tolerance in `runtests.jl` —
+  `Zₗₘ` the tightest at `atol = 1e-13` / `rtol = 1e-12`, the others looser; not
+  bit-for-bit, the two packages use different Legendre primitives): tesseral
+  harmonics `Zₗₘ` / `∇Zₗₘ`, Clebsch–Gordan, real Wigner-D, coupled tensors (up to
+  a known global phase).
 - **Gauge-invariant aggregates**: SALC counts, projector eigenvalues/rank, orbit
   multiplicities.
 - **Fit parity** (end-to-end): the same EMBSET through both packages, bases built

@@ -67,6 +67,64 @@ jobs:
         env:
           JULIA_NUM_THREADS: "4"
 
+  examples:
+    name: runnable examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.12"
+      - uses: julia-actions/cache@v2
+      # `examples/` carries its own environment (it `dev`s the package and adds
+      # Spglib). Each example self-gates with `@assert`s on a recovered coupling —
+      # the fence that caught the canonical-member J/2 regression — so they have to
+      # RUN somewhere. The docs job executes the tutorials, not these.
+      # [Backported from SLCE.jl 575a4e3.]
+      - name: Instantiate the examples environment
+        run: julia --project=examples -e 'using Pkg; Pkg.instantiate()'
+      - name: Run every example
+        run: |
+          for f in examples/*.jl; do
+            echo "::group::$f"
+            julia --project=examples "$f"
+            echo "::endgroup::"
+          done
+
+  downstream:
+    name: downstream — SCEMonteCarlo.jl
+    runs-on: ubuntu-latest
+    steps:
+      # SCEMonteCarlo.jl's own CI fires only on ITS pushes, so a breaking change
+      # pushed here is invisible until then — this job runs the dependent's suite
+      # against the current commit. A deliberate breaking change turns this red
+      # until the SCEMonteCarlo commit lands; that red is the signal — do not
+      # delete the job for a green tick. [Adapted from SLCE.jl e8b8ee4.]
+      - uses: actions/checkout@v4
+        with:
+          path: SCEFitting.jl
+      - uses: actions/checkout@v4
+        with:
+          repository: Tomonori-Tanaka/SCEMonteCarlo.jl
+          path: SCEMonteCarlo.jl
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.12"
+      - uses: julia-actions/cache@v2
+      - name: Develop the path dependency and instantiate
+        run: |
+          julia --project=SCEMonteCarlo.jl -e '
+            using Pkg
+            Pkg.develop(path = "SCEFitting.jl")
+            Pkg.instantiate()'
+      # Default TEST_MODE (compatibility smoke); SCEMonteCarlo's own CI carries the
+      # full TEST_MODE=all matrix on both operating systems. Threads pinned — its
+      # determinism gates are vacuous at one thread.
+      - name: Run SCEMonteCarlo's suite against this commit
+        run: julia --project=SCEMonteCarlo.jl -e 'using Pkg; Pkg.test()'
+        env:
+          JULIA_NUM_THREADS: "4"
+
   docs:
     name: documentation build
     runs-on: ubuntu-latest

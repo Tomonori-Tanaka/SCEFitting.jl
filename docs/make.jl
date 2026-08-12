@@ -44,7 +44,7 @@ makedocs(;
         "API reference" => "api.md",
     ],
     warnonly = false,   # strict: any @example error / missing docstring fails the build
-    checkdocs = :exports,
+    checkdocs = :public,   # the unexported `public` surface is API too [SLCE 575a4e3]
     doctest = false,
 )
 

@@ -177,6 +177,20 @@ Easy to break silently — confirm before touching the algorithm.
   are the physical / Landau–Lifshitz torque `m × B_eff`. Flip one side only and the co-fit
   silently biases; flipping **both** (as done when the package moved from the `+e×∇E`
   energy-rotation-gradient to this `−e×∇E` Landau–Lifshitz convention) leaves `J` unchanged.
+  **Both sides are gated, independently, and the gates do not cancel.** Model side:
+  `test_torque.jl` "predict_torque = −e × ∇E (finite differences, anisotropic)" builds its
+  reference from `predict_energy` by central differences — an energy surface carries no
+  torque convention, so flipping `predict_torque` (or the design kernel, caught by the
+  `torque_weight = 1` recovery test in the same file) turns it red. Training side:
+  `test_dftsource.jl` "torque convention: τ = m × B, closed form" pins a hand-written
+  literal with the wrong sign named explicitly in the comment. A SIMULTANEOUS flip of both
+  sides is a **gauge**, not a bug — `J` and `predict_energy` come out bit-identical — and it
+  cannot pass anyway, since it would have to edit both a closed-form literal and an
+  energy-derived reference. What is genuinely NOT gated here, and is the one thing to think
+  about by hand, is the semantics of the external file: whether VASP's `lambda*MW_perp`
+  block is `+B` or `−B`. That single bit is anchored only by the (joint-family) SLCETools
+  oracle (parsers vs Magesty), i.e. against a prior implementation rather than against
+  physics. [Backported from SLCE.jl 1495e44.]
   **DFT-code I/O is confined to `AbstractDFTSource` adapters in the SCETools.jl package**
   (`SCETools.VASP`), which produce `SpinDatum`s (rotating moments / field from the `SAXIS`
   frame by `Rz(α)·Ry(β)`); the core consumes only `SpinDatum`/`SCEDataset` and stays
@@ -205,8 +219,11 @@ Easy to break silently — confirm before touching the algorithm.
   `multipole_terms`. `bilinear_terms` is a thin public wrapper of the general
   `_bilinear_terms` extraction (in `sce/bilinear.jl`), so its numerics move with the
   Sunny coupled-site above.
-  Add or rename a `MultipoleTerm` field → update the gate and the `SCETools.jl` consumers
-  (`sce_bridge.jl`).
+  Add or rename a `MultipoleTerm` field → update the gate and any downstream consumer
+  (in the revived spin family that is SCEMonteCarlo.jl's `TiledHamiltonian` ingest; the
+  joint family's SLCETools reads the SLCE equivalent through `mfa/bridge.jl` — the old
+  `sce_bridge.jl` name is dead, grep the consumer package rather than trusting a
+  filename here). [Pointer repaired per SLCE.jl 1495e44.]
 - `solve_coefficients(est, X, y; groups)` receives a **column-centered** `X` (⇒ the
   solver adds no intercept; `j0` is recovered analytically in `fit`). Every estimator —
   in-tree or in an extension — must honor this. `groups` (optional) labels rows from the
@@ -261,9 +278,9 @@ Easy to break silently — confirm before touching the algorithm.
 
 | Command | Purpose |
 |---|---|
-| `julia --project -e 'using Pkg; Pkg.test()'` | unit + Aqua (default) |
-| `TEST_MODE=all julia --project -e 'using Pkg; Pkg.test()'` | unit + Aqua + JET |
-| `TEST_MODE=jet julia --project -e 'using Pkg; Pkg.test()'` | JET type-stability |
+| `julia --project -t 4 -e 'using Pkg; Pkg.test()'` | unit + Aqua (default) |
+| `TEST_MODE=all julia --project -t 4 -e 'using Pkg; Pkg.test()'` | unit + Aqua + JET |
+| `TEST_MODE=jet julia --project -t 4 -e 'using Pkg; Pkg.test()'` | JET type-stability |
 | `julia --project=test/oracle test/oracle/runtests.jl` | from-scratch numerics vs pinned Magesty |
 | `julia --project=test/sunny test/sunny/runtests.jl` | real `Sunny.System` energy vs SCE (extension) |
 | `julia --project=test/glmnet test/glmnet/runtests.jl` | GLMNet Lasso / elastic-net solve (extension) |

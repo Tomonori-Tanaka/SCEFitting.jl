@@ -14,6 +14,52 @@ the spin-only line is carved back out here as its own package. The cut is
 (`4a34ec00-…`; SLCE.jl kept the original), same module name and API. The three
 `docs/specs/spin-lattice-ce*` design records leave with SLCE.jl.
 
+### Fixed — full re-audit of the remaining upstream range (2026-08-12)
+
+The d4660a7 miss prompted a hunk-level re-audit of **every** post-carve-out
+SLCE.jl commit the first audit had not opened (70 of 98; five parallel passes).
+Outcome: nine commits carried spin-applicable material, all small; everything
+else confirmed joint/strain/naming/feature-only.
+
+- `2259c54` (partial, **BREAKING**) — `select_support`'s point count and explicit
+  thresholds are separate keywords (`npoints` / `thresholds`): an Integer
+  `thresholds = 10` used to silently mean a ten-point grid, now a TypeError.
+  The batch's Greek-keyword renames stay out.
+- `011e3c9` (partial) — the `SCEDataset(basis, src::AbstractDFTSource)`
+  convenience constructor forwards `zero_moment_atol` instead of silently
+  dropping it.
+- `a1ac9af` (partial) — the suite refuses a misspelled `TEST_MODE` (it used to
+  run zero tests and report success) and refuses one thread
+  (`SCEFITTING_ALLOW_SINGLE_THREAD=1` overrides); CLAUDE.md's test commands say
+  `-t 4`.
+- `575a4e3` (partial) — CI gains the `examples` job (each example self-gates —
+  the fence that caught the J/2 regression — and nothing ran them);
+  `checkdocs = :public` (the unexported public surface is API too).
+- `e8b8ee4` (adapted) — CI gains the `downstream` job: SCEMonteCarlo.jl's suite
+  runs against every push here.
+- `1495e44` (partial) — CLAUDE.md names the two independent torque-convention
+  gates and repairs the dead `sce_bridge.jl` pointer.
+- `fe1c9d6` (partial) — `grad_Zlm_unsafe`'s docstring writes the tangent
+  projection as `∂Z − û (û·∂Z)`, matching the kernel.
+- `b9230c0` (partial) — design-notes §13: what the IRLS fixed-point argument
+  does and does not say (the objective is the log-sum, whose per-group factor is
+  a plausible mechanism for the l044 nothing-dies observation).
+- `de79b92`/`3e68fc1` (adapted) — the resolvability page corrects the
+  "independently resolvable tie members" claim and documents what a WS-boundary
+  tie costs on a finite cell (identically-zero SALC columns; measured upstream:
+  4 of 7 on the bcc corner tie with `l ≤ 2` spin factors), with the
+  bond-reversal `(−1)^{L_f}` pattern as a guide, not a rule.
+- `bd632f2` (partial) — five spin-era doc corrections: the SALC projector has no
+  proper/improper case distinction (the even-`Σl` screen makes `det(R)^{Σl} ≡ +1`);
+  no channel is "folded into `j0`" on the Sunny path; the `:coupling` dispersion
+  is exact only for uniform `S_eff`; the `clean` check's four conditions; the
+  case-1 energy figure is a whole-cell RMSE; the design-notes cost-front
+  percentages are labeled as measured under the old entry-count metric.
+- Own (not upstream): `test/oracle/README.md` and `docs/design-notes.md` stop
+  claiming the oracle kernels match "bit-for-bit" — the suite asserts
+  `atol = 1e-13` / `rtol = 1e-12` (the same falsehood was corrected in SPEC.md
+  by `b0593ef`; these two sites had survived in both packages).
+
 ### Fixed — the orbit builder refuses a non-group-closed candidate list (2026-08-12)
 
 `build_clusters` silently **skipped** a symmetry image missing from the

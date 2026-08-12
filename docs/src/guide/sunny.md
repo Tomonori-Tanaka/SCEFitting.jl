@@ -22,10 +22,11 @@ Sunny represents two channels, and those are exactly what the conversion keeps:
 |-------------|------------|
 | `ls = [1,1]` 2-body (bilinear) | a `3 × 3` exchange matrix (Heisenberg + Dzyaloshinskii–Moriya + symmetric Γ in one) |
 | `ls = [2]` 1-body | a traceless-symmetric single-ion anisotropy tensor |
-| `ls = [0…]` | folded into the constant `j0` |
 
 Every other channel — three-body and higher, higher `l` — **cannot** be represented by a
-Sunny `System` and is **reported as skipped**, never silently dropped:
+Sunny `System` and is **reported as skipped**, never silently dropped. Nothing is folded
+into a constant: an `l = 0` site factor is not constructible (per-site `l` starts at 1),
+the export reproduces `predict_energy − j0`, and `j0` never enters the Sunny path at all:
 
 ```julia
 sys = to_sunny(model; spins = 3/2)        # @warn lists any skipped channels
@@ -45,8 +46,10 @@ absorb the moment magnitude; `spins` supplies the physical effective spin
 - **`scaling = :coupling`** — keep `Moment` at a placeholder ``s_0 = 1`` and fold
   ``S_{\text{eff}}`` into the couplings instead. Works for **any** positive
   ``S_{\text{eff}}`` (itinerant / non-half-integer moments); the magnon *dispersion* is
-  exact, while the represented static energy is rescaled (the dispersion is invariant
-  under an overall spin rescale).
+  exact for a **uniform** ``S_{\text{eff}}`` — with a non-uniform one the on-site
+  (Larmor) term is only approximate, and the export warns — while the represented
+  static energy is rescaled (the dispersion is invariant under an overall spin
+  rescale).
 - **`scaling = :auto`** (default) — `:moment` when every ``S_{\text{eff}}`` is a
   half-integer, else `:coupling`.
 
@@ -75,8 +78,10 @@ to_sunny(model; spins, placement = :auto)        # primitive if clean, else fall
   translations, groups supercell atoms into sublattices, and places one Sunny bond per
   *primitive* bond (no multiplicity — Sunny's periodic replication restores it), giving the
   *unfolded* dispersion. This is exact only when the model genuinely lives on the primitive
-  cell; a `clean` check detects when it does not (the interaction range reaches the
-  supercell boundary) and falls back to the exact supercell route.
+  cell; a `clean` check detects when it does not and falls back to the exact supercell
+  route. `clean` is the conjunction of four conditions: the recovered primitive cell
+  tiles the supercell exactly, every bond offset is integral in primitive units,
+  translation-equivalent bonds agree, and the per-sublattice on-site matrices agree.
 - **`:auto`** (the default) uses `:primitive` when clean, otherwise `:explicit`.
 
 ## How it is validated

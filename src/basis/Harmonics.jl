@@ -145,7 +145,7 @@ end
 """
     grad_Zlm_unsafe(l, m, u[, cache]) -> SVector{3,Float64}
 
-Tangent-projected Cartesian gradient `∇Zₗₘ(u) = ∂Z − u (u·∂Z)`, without
+Tangent-projected Cartesian gradient `∇Zₗₘ(u) = ∂Z − û (û·∂Z)`, without
 validation. The optional `cache` is the same allocation-free recursion workspace
 as in [`Zlm_unsafe`](@ref) (length ≥ `l + 1`; the value is identical either way).
 """
