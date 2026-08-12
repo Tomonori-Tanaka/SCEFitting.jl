@@ -1,6 +1,7 @@
 using SCEFitting
 import Spglib   # activates the SpglibBackend extension for the executed `@example` blocks
 using Documenter
+using Documenter: Remotes
 
 DocMeta.setdocmeta!(SCEFitting, :DocTestSetup, :(using SCEFitting);
                     recursive = true)
@@ -8,14 +9,12 @@ DocMeta.setdocmeta!(SCEFitting, :DocTestSetup, :(using SCEFitting);
 makedocs(;
     sitename = "SCEFitting.jl",
     modules = [SCEFitting],
-    # Local-only build: there is no published remote yet, so do not try to resolve
-    # "edit on GitHub" / source links. Add a `repolink`/`deploydocs` when a remote exists.
-    remotes = nothing,
+    repo = Remotes.GitHub("Tomonori-Tanaka", "SCEFitting.jl"),
     format = Documenter.HTML(;
         prettyurls = get(ENV, "CI", "false") == "true",
         mathengine = Documenter.MathJax3(),
-        edit_link = nothing,
-        repolink = "",
+        canonical = "https://tomonori-tanaka.github.io/SCEFitting.jl/dev",
+        edit_link = "main",
         footer = "Built with [Documenter.jl](https://documenter.juliadocs.org).",
     ),
     pages = [
@@ -47,4 +46,14 @@ makedocs(;
     warnonly = false,   # strict: any @example error / missing docstring fails the build
     checkdocs = :exports,
     doctest = false,
+)
+
+# Publishes to https://tomonori-tanaka.github.io/SCEFitting.jl/ from the
+# `documentation build` CI job (which needs `permissions: contents: write`). Outside
+# CI this is a no-op, so a local `julia --project=docs docs/make.jl` still just
+# builds into `docs/build/`.
+deploydocs(;
+    repo = "github.com/Tomonori-Tanaka/SCEFitting.jl",
+    devbranch = "main",
+    push_preview = false,
 )
