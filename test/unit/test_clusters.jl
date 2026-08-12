@@ -3,6 +3,7 @@ using SCEFitting
 using SCEFitting: _assemble_spacegroup, candidate_clusters, _canonical_key
 using StaticArrays
 using LinearAlgebra
+using Random: Xoshiro, randn
 
 @testset "clusters" begin
     lat = Lattice(Matrix(3.0 * I(3)))
@@ -84,5 +85,76 @@ using LinearAlgebra
         # a relative band outside [0, 1) is not a tolerance
         @test_throws ArgumentError SCEFitting.NeighborList(2.0, nl.pairs, 1.5)
         @test_throws ArgumentError SCEFitting.NeighborList(2.0, nl.pairs, -1e-9)
+    end
+
+    # The orbit builder must REFUSE a candidate list that is not closed under the
+    # space group, never skip the missing image: a skipped image leaves the orbit
+    # short — a biased design column — and the SALCs projected on a short orbit are
+    # not actually invariant. The failure is REACHABLE, not theoretical: coordinates
+    # that are symmetric only approximately (relaxed DFT output; the symmetry
+    # analysis at tol ~1e-3 still reports the ideal group) split minimum-image
+    # distance ties beyond the neighbor band (1e-8), so symmetry-partner pairs keep
+    # DIFFERENT tie images and the candidate set loses closure. On the MnTe(0001)
+    # 3×3 slab this silently produced 54 spurious Lf ≠ 0 SALCs whose model broke
+    # its own space group by ~4 meV (found 2026-08-12).
+    # [Backported gate from SLCE.jl d4660a7; the reproducer fixture is ours.]
+    @testset "orbit build refuses a non-group-closed candidate list" begin
+        a = 1.0
+        hexlat = Matrix([3a 0 0; -3a/2 3a*sqrt(3)/2 0; 0 0 8.0]')
+        fr = Float64[]
+        sp = Int[]
+        for (s, (u, v)) in enumerate([(0.0, 0.0), (1 / 3, 2 / 3)]), i = 0:2, j = 0:2
+            append!(fr, [(u + i) / 3, (v + j) / 3, 0.0])
+            push!(sp, s)
+        end
+        frm = reshape(fr, 3, :)
+        # exact C3-about-origin × the nine supercell translations (27 ops); the
+        # honeycomb B sublattice at (1/3, 2/3) maps onto itself under this group
+        E3 = SMatrix{3,3,Float64}(I)
+        C3 = SMatrix{3,3,Float64}([0 -1 0; 1 -1 0; 0 0 1])
+        rots = SMatrix{3,3,Float64}[]
+        trans = SVector{3,Float64}[]
+        for W in (E3, C3, C3 * C3), i = 0:2, j = 0:2
+            push!(rots, W)
+            push!(trans, SVector{3,Float64}(i / 3, j / 3, 0))
+        end
+        spec_hc = BasisSpec(["Mn", "Te"]; nbody = 2, lmax = [2, 2], cutoff = Inf,
+                            lsum = [1 => 2, 2 => 2], isotropy = false)
+        function build_hc(frx)
+            cr = Crystal(Lattice(hexlat; pbc = (true, true, false)), frx, sp,
+                         ["Mn", "Te"])
+            sg = _assemble_spacegroup(cr, rots, trans, "P3(manual)", 143; tol = 1e-3)
+            nl = build_neighbor_list(cr, SCEFitting._superset_cutoff(spec_hc),
+                                     MinimumImage())
+            return SCEFitting.build_clusters(cr, nl, sg; nbody = 2,
+                                             selection = MinimumImage(),
+                                             cutoff = spec_hc.cutoff)
+        end
+        # the ideal coordinates build (the fixture itself is legal)…
+        cl = build_hc(frm)
+        @test sum(length, values(cl.by_body)) == 10
+        # …and the 1e-5-perturbed ones — same group, split ties — are refused loudly
+        frp = frm .+ 1.0e-5 .* randn(Xoshiro(1), size(frm))
+        err = try
+            build_hc(frp)
+            nothing
+        catch e
+            e
+        end
+        @test err isa ErrorException
+        @test occursin("not closed under the space group", err.msg)
+    end
+
+    # `search` steers the adaptive minimum-image scan; on the AllImages path it is
+    # inert and must be refused, not ignored. [Backported from SLCE.jl d4660a7.]
+    @testset "AllImages refuses the inert search keyword" begin
+        crystal = Crystal(lat, [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["Fe"])
+        @test_throws ArgumentError build_neighbor_list(crystal, 2.0, AllImages();
+                                                       search = 3)
+        @test build_neighbor_list(crystal, 2.0, AllImages();
+                                  search = 2) isa SCEFitting.NeighborList
+        M = fill(2.0, 1, 1)
+        @test_throws ArgumentError build_neighbor_list(crystal, M, AllImages();
+                                                       search = 1)
     end
 end

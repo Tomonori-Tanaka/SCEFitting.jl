@@ -111,6 +111,7 @@ build_neighbor_list(crystal::Crystal, cutoff::Real, ::AllImages;
     (isfinite(cutoff) ||
          throw(ArgumentError("AllImages needs a finite cutoff; got $cutoff " *
                              "(use MinimumImage for the full Wigner–Seitz cell)"));
+     _reject_allimages_search(search);
      build_neighbor_list(crystal, cutoff; tol = tol))
 
 # Shared validation for the per-species-pair matrix methods.
@@ -131,7 +132,20 @@ function build_neighbor_list(crystal::Crystal, cutoff::AbstractMatrix{<:Real},
     all(isfinite, cutoff) ||
         throw(ArgumentError("AllImages needs finite cutoffs; the matrix has Inf " *
                             "entries (use MinimumImage for the full Wigner–Seitz cell)"))
+    _reject_allimages_search(search)
     return _build_nl_allimages(crystal, Float64.(cutoff), Float64(tol))
+end
+
+# `search` steers the adaptive minimum-image scan; on the AllImages path it was
+# inert — a caller who raised `search` to widen a suspect scan and then switched
+# `selection` got no effect and no word about it. [Backported from SLCE.jl d4660a7.]
+function _reject_allimages_search(search::Integer)
+    search == 2 || throw(ArgumentError(
+        "`search` has no meaning for AllImages: its image box is derived from the cutoff " *
+        "(ceil(cutoff·‖bᵈ‖), exactly tight), so there is no scan to widen. Drop the " *
+        "keyword, or pass MinimumImage if the adaptive minimum-image search is what you " *
+        "meant to control"))
+    return nothing
 end
 
 build_neighbor_list(crystal::Crystal, cutoff::AbstractMatrix{<:Real}, ::MinimumImage;

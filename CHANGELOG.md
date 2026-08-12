@@ -14,6 +14,27 @@ the spin-only line is carved back out here as its own package. The cut is
 (`4a34ec00-…`; SLCE.jl kept the original), same module name and API. The three
 `docs/specs/spin-lattice-ce*` design records leave with SLCE.jl.
 
+### Fixed — the orbit builder refuses a non-group-closed candidate list (2026-08-12)
+
+`build_clusters` silently **skipped** a symmetry image missing from the
+candidate list, building the orbit short — and the SALCs projected on a short
+orbit are not invariant under the space group they claim. Reachable, not
+theoretical: on the MnTe(0001) 3×3 slab (relaxed coordinates, symmetric only to
+~2.4e-6 Å; spglib at tol 1e-3 still reports P-6m2), the minimum-image distance
+ties split at ~2e-7 relative — beyond the 1e-8 neighbor band — so
+symmetry-partner pairs kept different tie images, the candidate set lost group
+closure, and the basis carried **54 spurious Lf ≠ 0 SALCs** (201 vs Magesty's
+147) whose fitted model broke its own space group by ~4 meV. The builder now
+errors loudly, naming the missing image ([backported from SLCE.jl `d4660a7` —
+missed by the original audit; found via the slab crosscheck 2026-08-12]). Also
+from `d4660a7`: `build_neighbor_list(…, AllImages(); search = …)` refuses the
+inert keyword instead of ignoring it. Regression: a hand-built exact C3 group
+over a 1e-5-perturbed 3×3 honeycomb reproduces the refusal without Spglib.
+
+Remedies for a refused input: symmetrize the coordinates to the reported group
+(then all tie images are kept within the band and closure holds), or use
+`images = AllImages()` with finite cutoffs.
+
 ### Fixed — backports from SLCE.jl (2026-07-25 … 2026-08-11)
 
 Every post-carve-out SLCE.jl fix was audited; the ones whose defect exists in
