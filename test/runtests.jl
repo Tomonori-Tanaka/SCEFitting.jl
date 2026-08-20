@@ -44,6 +44,7 @@ end
         include("unit/test_truncation.jl")
         include("unit/test_ws_nbody.jl")
         include("unit/test_salc.jl")
+        include("unit/test_normalization.jl")
         include("unit/test_fit.jl")
         include("unit/test_selection.jl")
         include("unit/test_validation.jl")
