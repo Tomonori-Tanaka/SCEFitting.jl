@@ -259,7 +259,8 @@ Easy to break silently — confirm before touching the algorithm.
 - **The moment channel's evaluation axis is keyed by `constraint_mode`, never by
   field presence** (`io/dftsource.jl` `SpinDatum` ctor invariants ↔
   `check_moment_gates` ↔ `io/extxyz.jl` reader/writer ↔ `io/embset.jl`
-  `read_embset_pair` ↔ the future moment dataset layer): mode 4 (direction-pinning
+  `read_embset_pair` ↔ `fitting/momentfit.jl` `MomentDataset` / `predict_moment`):
+  mode 4 (direction-pinning
   type) reads `ê` from `directions`, mode 1 (transverse-penalty type) from
   `constraint_axes` — an availability-keyed fallback ("use `mconstr` if present, else
   MW") would silently drop a mode-1 datum with missing axes into the broken `ê_MW`
@@ -286,6 +287,26 @@ Easy to break silently — confirm before touching the algorithm.
   code's scheme maps onto class 1 or 4 at its adapter. The extxyz dialect (column
   names, info keys, shortest-round-trip printing) is SLCE.jl's — keep it identical,
   it is the interchange format between the packages.
+  The dataset layer (`fitting/momentfit.jl`) carries the rule's consequences:
+  `predict_moment`'s runtime default `axes = e` IS the mode-4 identity
+  substitution (change one and the train/predict coordinates split); a mode-1
+  marked atom with an exactly-zero axis has NO defined target — its rows are
+  `defined = false` with `y = NaN` (loud on raw use) and a placeholder design
+  row, excluded from BOTH the gated and ungated solves, never imputed; and the
+  fit does NO centering and adds NO global intercept because the l = 0 1-body
+  `[MARK]` columns already are the per-orbit intercepts μ₀ — wiring the moment
+  design into any estimator path that centers columns or appends an intercept
+  column double-counts μ₀. `predict_moment` is a spin-reading entry point and
+  therefore a validating DOOR (the unit-norm rule with the component bound): `e`
+  unit everywhere, `axes` unit on the MARKED columns only (unmarked axes columns
+  are never read — a whole-matrix door would refuse the legitimate closed-form
+  ê = x̂/ŷ/ẑ readout). `MomentDataset` runs `moment_resolvability` at construction
+  and `fit` freezes the vanishing columns to EXACT zero — the same frozen-column
+  discipline as the energy side, so `coef != 0` reads structure; weakening either
+  half silently reintroduces arbitrary min-norm coefficients for columns no cell
+  determines. The moment side is NOT persisted (design record §4.2): `save`
+  refuses `MomentBasis` / `MomentFit` / `MomentModel` by name; a later schema
+  version adds it — do not "just write the coefficients" into the v5 document.
 - **`coeftable` columns ↔ `SALCKey` fields** (`sce/coeftable.jl`): each result row is
   read straight off a `SALCKey` (`body` / `orbit_id` / `decors`→comma string / `L_S` /
   `Lf` / `block`) plus `jphi`; the `J` column pairs with `basis.salc_basis.keys` **positionally**

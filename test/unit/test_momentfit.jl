@@ -385,6 +385,19 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         @test err isa ArgumentError && occursin("orbit 5", err.msg)
     end
 
+    @testset "the dataset door is hard on an unclassifiable basis" begin
+        # the primitive-cell STAR basis keeps repeated-image environment members
+        # (upstream parity); moment_resolvability refuses it, and MomentDataset
+        # propagates that refusal instead of building a design it cannot vouch for
+        sstar = MomentSpec(; lmax_env = [2, 2], sampled = [true, true], lmax_mark = 2,
+                           nbody = 3, cutoff_pair = 3.3, cutoff_star = 3.3)
+        mstar = MomentBasis(xt, sstar; backend = bk)
+        e = _mb_unit(rng, nat)
+        @test_throws SCEFitting.UnclassifiableBasis MomentDataset(
+            mstar, [_mf_datum(e; M = randn(rng, 3, nat), mode = 4)]; gate_eps = 1e6,
+            coverage_floor = 0.0)
+    end
+
     @testset "persistence is refused by name (design record §4.2)" begin
         f = _mf_fit(_mf_ds(mb, _mf_data(6); gate_eps = 1e-8))
         path = tempname() * ".toml"

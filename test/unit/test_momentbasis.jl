@@ -158,18 +158,46 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
                   env_ls(ks[j]) == [1, 1] && all(==(1), mb.records[j].species) &&
                   all(abs(x - 2.881) < 0.05 for x in mb.records[j].edges)]
         @test length(jstars) == 1
-        for a = 1:4
-            @test X1[a, jstars[1]] ≈ 6.0 * star_ref(a) rtol = 1e-10
+        # The INDEPENDENT oracle is the geometry: the SALC column is one constant
+        # times the triangle sum, the same constant on every atom and on a second
+        # random configuration (a missing ordering or a doubled triangle breaks
+        # this ratio, which is what caught the enumeration bug upstream).
+        rs = [X1[a, jstars[1]] / star_ref(a) for a = 1:4]
+        @test all(r -> isapprox(r, rs[1]; rtol = 1e-10), rs)
+        e_b = _mb_unit(rng, nat)
+        X1b = _design_moment(mb, [e_b], [copy(e_b)])
+        star_ref_b(a) = begin
+            nbrs = nn_neighbors(a)
+            acc = 0.0
+            for i = 1:length(nbrs), j = (i + 1):length(nbrs)
+                (jj, pj) = nbrs[i]; (kk, pk) = nbrs[j]
+                abs(norm(pj - pk) - 2.881) < 0.05 || continue
+                acc += dot(e_b[:, jj], e_b[:, kk])
+            end
+            acc
         end
+        @test all(isapprox(X1b[a, jstars[1]] / star_ref_b(a), rs[1]; rtol = 1e-10)
+                  for a = 1:4)
+        # PIN (change detector, not an oracle): the constant 6.0 was read off the
+        # design-record prototype's run of the upstream machinery
+        # (prototype/01_basis_oracles.jl, SLCE-pinned 2026-08-19). Recapture only
+        # on an explicit decision to change the SALC normalization.
+        @test rs[1] ≈ 6.0 rtol = 1e-10
         # nn Fe–Fe pointed (1,1): exactly 2 SALC blocks (the C₃ split of the 6-shell
         # into 3+3), whose SUM is the 2√3-normalized shell sum
         jnn = [j for j in 1:length(ks) if ks[j].body == 2 && mark_l(ks[j]) == 1 &&
                env_ls(ks[j]) == [1] && all(==(1), mb.records[j].species) &&
                abs(mb.records[j].edges[1] - 2.881) < 0.05]
         @test length(jnn) == 2
-        for a = 1:4
-            @test sum(X1[a, j] for j in jnn) ≈ 2 * sqrt(3) * p1_ref(a) rtol = 1e-10
-        end
+        # same discipline: the shell sum is the oracle (ratio constant across
+        # atoms and configurations); 2√3 is the pinned constant (change detector,
+        # captured from the same prototype run)
+        rp = [sum(X1[a, j] for j in jnn) / p1_ref(a) for a = 1:4]
+        @test all(r -> isapprox(r, rp[1]; rtol = 1e-10), rp)
+        p1_ref_b(a) = sum(dot(e_b[:, a], e_b[:, j]) for (j, _) in nn_neighbors(a))
+        @test all(isapprox(sum(X1b[a, j] for j in jnn) / p1_ref_b(a), rp[1];
+                           rtol = 1e-10) for a = 1:4)
+        @test rp[1] ≈ 2 * sqrt(3) rtol = 1e-10
         # the marked-multiplicity structure of the nn pointed pair: 12 members
         # (6 bonds × 2 orderings), mark histogram 3 per Fe atom of the split
         s = salcs(mb)[jnn[1]]
@@ -239,6 +267,10 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
         X = _design_moment(pmb, cfgs, axes)
         sv = svd(X).S
         @test count(>(1e-9 * sv[1]), sv) == res.rank
+        # the two thresholds (1e-9 here, the gate's 1e-10) agree because the
+        # spectrum has a clear gap at the rank — asserted, so the equality above
+        # is not threshold luck
+        @test res.rank == length(sv) || sv[res.rank] / sv[res.rank + 1] > 1e3
         # every symbolic null combination annihilates the actual design
         for comb in res.null_combinations
             v = zeros(n_salcs(pmb))
@@ -270,6 +302,17 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
         @test_throws UnclassifiableBasis moment_resolvability(mb)
         @test occursin("UnclassifiableBasis", sprint(showerror,
                                                      UnclassifiableBasis("x")))
+        # ... and the star basis really carries the repeated-image member shape
+        # that triggers it (two environment slots on one reference-cell atom)
+        function _repeated_env(t, m)
+            ms = findfirst(sl -> sl.factor.channel == SCEFitting.DISP, t.slots)
+            envs = [m.atoms[sl.site] for sl in t.slots
+                    if sl.factor.channel == SCEFitting.SPIN &&
+                       sl.site != t.slots[ms].site]
+            return !allunique(envs)
+        end
+        @test any(_repeated_env(t, m) for s in salcs(mb) for m in s.members
+                  for t in m.terms)
     end
 
     @testset "saboteur closures: marked ≠ 1:n, species rules, labels, census, chain" begin

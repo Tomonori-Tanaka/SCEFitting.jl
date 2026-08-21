@@ -6,6 +6,76 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — `MomentDataset` / `fit(MomentFit, …)` / `MomentModel` / `predict_moment` (2026-08-21)
+
+Step M4 of the pointed site-moment backport (upstream SLCE.jl `837135d`, adapted to
+the pure-spin `SpinDatum`: no provenance, so no setup-uniformity / reference-identity
+doors; no displacements, so no reference-geometry door — every datum sits at the
+reference by construction).
+
+- **`MomentDataset`** (`fitting/momentfit.jl`): rows `(config, marked atom)` with
+  `y = ê·M` under the mode rule (4 → `directions`, identity substitution; 1 →
+  `constraint_axes`; mixed allowed; a mode-1 zero-axis marked atom is
+  `defined = false` with `y = NaN`, excluded from every fit). Decomposability gate
+  `g = ‖M⊥‖²/|M| = |M| sin²θ ≤ gate_eps` (required keyword, cancellation-free form,
+  `|M| = 0` passes) with per-orbit survival, rms `‖M⊥‖`, the antiparallel census
+  `n_anti`, and a `coverage_floor` refusal before the design build.
+  `moment_resolvability` runs at the door: unclassifiable refuses, vanishing
+  columns are recorded (frozen to exact zero by `fit`), dependent combinations are
+  warned and disclosed.
+- **`fit(MomentFit, ds, estimator = OLS())`** solves the gated rows and, for
+  disclosure, the ungated ones (`groups = row_config`, no centering — the `l = 0`
+  `[MARK]` columns are the per-orbit intercepts μ₀); `residuals` / `rmse_moment`
+  read either solve.
+- **`MomentModel` / `predict_moment(model, e; axes = e)`**: a validating door
+  (`e` unit everywhere; `axes` unit and component-bounded on the marked columns
+  only — unmarked columns are never read) whose default `axes = e` is the mode-4
+  identity.
+- **Persistence is refused by name** (design record §4.2, decided here): `save`
+  on a `MomentBasis` / `MomentFit` / `MomentModel` throws and writes nothing; a
+  later schema version adds the moment side. Upstream cannot save it either.
+
+Gated in `test_momentfit.jl` on the FeGe B20 fixture: hand-arithmetic targets and
+gates under both modes, mode-1 ≡ mode-4 identity, planted-model recovery and
+held-out prediction equivalence, the gate's keep/reject disclosure with a
+hand-oracle transverse rms, the `|M| = 0` pass, zero-axis exclusion (and that the
+caller's datum is not mutated), the coverage-floor refusal naming the orbit,
+bitwise time reversal in both modes, the per-orbit μ₀ absorbing a constant shift,
+the vanishing-column freeze mechanism, the prediction door (including the
+component bound), multi-orbit bookkeeping, the hard refusal of an unclassifiable
+basis at the dataset door, and the persistence refusal.
+
+### Added — `MomentBasis` gates closed after the saboteur and numerical reviews (2026-08-21)
+
+Every fixture had `marked_atoms == 1:8`, so a slot or row index used as an atom
+number was invisible, and only two orbits were ever named. New gates: a Ge-only
+marked basis (`marked_atoms == 5:8`) with locality in atom numbers; the
+configuration-major row contract; the M3-1 species rule on a real basis
+(`lmax_env = [2, 0]`: no environment spin ever sits on a Ge atom, Ge is still
+marked); `_moment_labels` against a hand enumeration of its four rules, with and
+without `lsum`, plus an `lsum`-capped basis; `isotropy = false` on the 3-body
+star basis containing the isotropic keys; the census with exact counts (nn Fe–Fe
+4, Fe–Ge 8, Ge–Ge 4, and 4 with Ge unmarked); rank–nullity on the reported null
+space and `rtol` monotonicity; vanishing columns against the random design; and a
+P1 chain whose re-anchored triangle has a non-minimum-image environment edge, so
+only the anchor may carry the mark — the `(0,1,1)` column is exactly zero on the
+other two rows.
+
+The numerical review then separated oracle from pin in the FeGe gates: the
+geometric enumeration is the independent reference and is now asserted
+**scale-free** (the ratio of the SALC column to the geometry sum is one constant
+across atoms and random configurations — what caught the missing-orderings bug
+upstream); the constants `6.0` and `2√3` were read off a run of the upstream
+prototype, so they are pinned separately and labelled as change detectors. Two
+doors tightened: `_mark_term_index` asserts the one-mark invariant the whole
+substitution argument rests on, and `_design_moment` validates the shape of every
+axes matrix. The census docstring now says what the code computes (distinct marked
+atoms per orbit, not stabilizer-inequivalent placements — the `≥ 2` reading was a
+false positive with one species unmarked). The repeated-image star members are
+kept, as upstream keeps them (column parity on small cells); the enumeration site
+says so, and the dataset door's `UnclassifiableBasis` refusal on such a basis is
+now a test.
+
 ### Added — `MomentBasis`: the pointed SALC basis for adiabatic site moments (2026-08-21)
 
 Step M3 of the pointed site-moment backport. Ported from upstream SLCE.jl at

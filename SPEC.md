@@ -239,7 +239,31 @@ capability consumed by both the introspection and the Sunny interop.
   references (`test_momentbasis.jl`): FeGe B20 star closed form = 6.0 × a geometric
   triangle enumeration, shell-sum normalization 2√3, G_i covariance with axes,
   bitwise TR, substitution locality, symbolic ≡ random-design rank. The 1-body
-  `[MARK]` columns are the per-orbit intercepts μ₀.
+  `[MARK]` columns are the per-orbit intercepts μ₀. The star enumeration keeps a
+  triangle whose two environment sites are two minimum images of ONE neighbor (as
+  upstream does, for column parity on small cells); such members reduce to
+  lower-body functions, and the resolvability gate refuses the basis as
+  `UnclassifiableBasis` — a hard door at `MomentDataset`, not an option.
+- **Moment dataset / fit / model** (`fitting/momentfit.jl`; included after the io
+  layer — its constructor takes `SpinDatum`s): rows `(config, marked atom)`,
+  `y = ê·M` under the mode rule (mixed modes allowed; a mode-1 zero-axis marked atom
+  is `defined = false`, `y = NaN`, excluded from every fit and recorded). Doors:
+  `moments_bare` + `constraint_mode` required per datum; every `SpinDatum` sits at
+  the reference geometry by construction. Decomposability gate
+  `g = ‖M⊥‖²/|M| = |M| sin²θ ≤ gate_eps` (required keyword; cancellation-free
+  `M⊥ = M − y ê` form; `|M| = 0` passes; no `m_min`); per marked-atom orbit
+  (`map_sym` min-atom) survival + rms `‖M⊥‖` + antiparallel census `n_anti` reported
+  and the `coverage_floor` refusal BEFORE the design build; `moment_resolvability`
+  at the same door (unclassifiable → refuse, vanishing columns recorded, dependent
+  combinations warned + stored). `X` built for all rows with `defined`/`keep` masks;
+  `fit(MomentFit, ds, est = OLS())` solves gated and (for disclosure) ungated rows
+  with `groups = row_config`, freezes vanishing columns to exact zero, and does no
+  centering — the `l = 0` μ₀ `[MARK]` columns are the per-orbit intercepts, and
+  regularizers penalize them like any column (v1 OLS-first). `MomentModel` carries
+  basis + gated coefficients (no mode flag); `predict_moment(model, e; axes = e)`
+  defaults to the mode-4 identity and is a validating door (`e` unit everywhere,
+  `axes` unit + component-bounded on marked columns only). **Not persisted** (design
+  record §4.2): `save` refuses the moment types by name.
 - **Tabular results** (`sce/coeftable.jl`): `coeftable(fit | model) -> SCECoefficients`
   is a **Tables.jl** source — one row per SALC (`body`, `orbit_id`, `decors` as a
   comma string — `"1,1,2"` on a pure-spin key, exactly the old `ls` column —, `L_S`,

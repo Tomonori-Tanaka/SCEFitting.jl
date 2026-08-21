@@ -226,6 +226,16 @@ function _pointed_star_candidates(crystal::Crystal, nl::NeighborList,
         for x = 1:length(ns), y = (x + 1):length(ns)
             (j, Rj) = ns[x]
             (k, Rk) = ns[y]
+            # Only an exact (atom, shift) repeat is skipped. Two DIFFERENT minimum
+            # images of one neighbor (j == k, Rj != Rk — a small cell's tie) are
+            # kept, as upstream keeps them, so the pointed columns agree with
+            # SLCE.jl on the same cell. Under plain PBC both environment factors
+            # then read the one spin e_j and the member reduces to a lower-body
+            # function; `moment_resolvability` refuses such a basis as
+            # `UnclassifiableBasis`, and `MomentDataset` runs that gate at its
+            # door — a hard refusal, never a silent overcount. (The energy side's
+            # `candidate_clusters` drops these members instead; the pointed
+            # enumeration does not, deliberately.)
             (j, Rj) == (k, Rk) && continue
             m = ClusterMember([i, j, k], [z, Rj, Rk])
             get!(classes, _member_sig(m), m)
@@ -409,7 +419,10 @@ mode 1 → its `constraint_axes`); only the marked column of `e` is substituted 
 row, environment columns stay configuration coordinates in both modes.
 `member_index = true` (default) evaluates each row through the mark→term index —
 value-identical to the full per-SALC evaluation (`member_index = false`, the
-in-tree oracle path); see `_mark_term_index`.
+in-tree oracle path); see `_mark_term_index`. Precondition, not checked here: the
+columns of every `configs[c]` and the MARKED columns of every `axes[c]` are unit
+vectors (the harmonic kernels assume it); the public doors (`predict_moment`, the
+datum constructors, the extxyz gates) enforce it.
 """
 function _design_moment(mb::MomentBasis, configs::Vector{Matrix{Float64}},
                         axes::Vector{Matrix{Float64}};
@@ -429,6 +442,8 @@ function _design_moment(mb::MomentBasis, configs::Vector{Matrix{Float64}},
         for (ci, e) in enumerate(configs)
             size(e) == (3, nat) ||
                 throw(ArgumentError("config $ci is $(size(e)), expected (3, $nat)"))
+            size(axes[ci]) == (3, nat) ||
+                throw(ArgumentError("axes $ci is $(size(axes[ci])), expected (3, $nat)"))
             for (ai, a) in enumerate(atoms)
                 copyto!(esub, e)
                 esub[1, a] = axes[ci][1, a]
@@ -469,16 +484,22 @@ function _mark_term_index(sal::Vector{SALC},
         # additionally needs the mark's radial power k ≥ 1 (0.0^0 == 1.0 would
         # make skipped terms nonzero) — pinned loudly, not assumed.
         site = 0
+        nmarks = 0
         for sl in t.slots
             if sl.factor.channel == DISP
                 sl.factor.k >= 1 ||
                     error("pointed SALC $j member $mi term $ti: mark radial " *
                           "power k = $(sl.factor.k) < 1 breaks the dead-term skip")
+                nmarks += 1
                 site = sl.site
-                break
             end
         end
         site == 0 && error("pointed SALC $j member $mi term $ti carries no mark")
+        # The marked-column substitution is exact only with ONE mark per label;
+        # every consumer of "the mark slot" in this file rests on it — asserted,
+        # not assumed.
+        nmarks == 1 || error("pointed SALC $j member $mi term $ti carries $nmarks " *
+                             "marks; the marked-column substitution needs exactly one")
         a = m.atoms[site]
         # A mark on an atom outside `atoms` contributes to no design row in either
         # path (no row ever raises its |u|²); it is simply absent from the index.
@@ -534,10 +555,15 @@ cell can and cannot determine about the pointed columns. Returns
   numerical rank of the kept signature block and, per flat direction, the column
   indices with their weights (the gate names the dependent columns, not just the
   count);
-- `census::Vector` — per cluster orbit, the number of stabilizer-inequivalent
-  admissible mark placements (`n_mark_atoms ≥ 2` preregisters the face-(b)
-  hazard: same unmarked cluster, different marks — the pairs whose columns can
-  collapse to a determined sum under a boundary tie).
+- `kept::Vector{Int}` — the columns that entered the rank computation (the
+  complement of `vanishing`);
+- `census::Vector` — per cluster orbit, `n_mark_atoms` = the number of DISTINCT
+  reference-cell atoms that carry the mark somewhere in the orbit (what the code
+  counts; not the number of stabilizer-inequivalent mark placements of one
+  representative — with one species unmarked an Fe–Ge orbit still reports 4). It
+  is bookkeeping for the face-(b) hazard (same unmarked cluster, different marks,
+  whose columns can collapse to a determined sum under a boundary tie), not a
+  decision criterion by itself.
 
 Purely structural (the symbolic expansion, never sampled data); a full-rank result
 certifies resolvability of the basis on this cell, not identifiability from any
