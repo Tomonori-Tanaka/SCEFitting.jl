@@ -508,10 +508,17 @@ end
 # All SALCs of one cluster orbit for explicitly-given decoration labels (sorted
 # `SiteDecor` multisets). Callers hand the labels in; nothing enumerates them
 # yet. `isotropy = true` keeps only L_S = 0.
+#
+# `isotropy` is a REQUIRED KEYWORD on purpose. Upstream SLCE.jl's engine takes
+# `soc::Bool` in this positional slot with the opposite meaning (`soc = true`
+# keeps every L_S; `isotropy = true` keeps L_S = 0 only), so a verbatim copy of
+# an upstream call would compile here and silently invert the screen. As a
+# keyword with no default, a positional copy is a MethodError and an omitted
+# screen an UndefKeywordError — both loud.
 function _orbit_salcs_decors(crystal::Crystal, spacegroup::SpaceGroup, N::Int,
                              orbit_id::Int, O::ClusterOrbit,
-                             labels::Vector{Vector{SiteDecor}}, isotropy::Bool,
-                             wcache::_WigCache;
+                             labels::Vector{Vector{SiteDecor}}, wcache::_WigCache;
+                             isotropy::Bool,
                              admit::Union{Nothing,Function} = nothing)::Vector{SALC}
     # `admit(t::Vector{SiteDecor})::Bool` screens a whole site-permutation orbit of
     # assignments, at the canonical representative and before any block index is

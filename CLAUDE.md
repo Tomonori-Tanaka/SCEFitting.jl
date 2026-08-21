@@ -98,7 +98,11 @@ Easy to break silently — confirm before touching the algorithm.
   breaks. A label is a sorted multiset, so a per-site rule (the pure-spin engine's
   per-species `lmax`) has to be handed in through `admit`, whose verdict must be a
   permutation-orbit invariant. `isotropy` screens `Lf` in the pure-spin engine and
-  `L_S` in the decor one; those coincide only on pure-spin labels. Gate: "engines
+  `L_S` in the decor one; those coincide only on pure-spin labels. In the decor
+  engine it is a **required keyword**: upstream's engine takes `soc::Bool` in that
+  positional slot with the OPPOSITE polarity (`soc = true` keeps every `L_S`), so a
+  positional copy of an upstream call must be a `MethodError`, never a silently
+  inverted screen. Keep it a keyword when porting. Gate: "engines
   agree on pure spin" in `test/unit/test_mixedsalc.jl`, incl. the Cs-triangle
   (2 ordering orbits) and C3v-triangle (3 assignments) shapes. Change either engine
   → re-run that gate + the oracle suite.

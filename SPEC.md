@@ -143,7 +143,10 @@ capability consumed by both the introspection and the Sunny interop.
   tuple. Coupling runs over the slots spin-first, so the total spin rank `L_S` is a
   good quantum number of each coupling path, and projection is per `(L_S, Lf)`
   block; `isotropy` screens `L_S` here where the pure-spin engine screens `Lf`
-  (identical on a pure-spin label, where `L_S ≡ Lf`). A label is a sorted multiset
+  (identical on a pure-spin label, where `L_S ≡ Lf`). It is a required keyword,
+  not the positional flag upstream SLCE.jl's engine takes in that slot (`soc`,
+  with the opposite polarity), so a verbatim upstream call fails to compile
+  instead of silently inverting the screen. A label is a sorted multiset
   and cannot express a per-site rule, so the per-species cap arrives through an
   `admit` predicate applied to an orbit of assignments. Nothing calls the engine
   from a public builder yet; the pure-spin production path is unchanged, and the

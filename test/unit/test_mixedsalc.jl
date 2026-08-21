@@ -190,8 +190,8 @@ end
         admit = t -> all(t[i].spin_l <= lmax[O.species[i]] for i in eachindex(t))
         for lab in labels
             olab = [s for s in old if spin_ls(s.key) == lab]
-            new = _orbit_salcs_decors(xt, sgx, N, 1, O, [spin_decors(lab)],
-                                      isotropy, wcx; admit = admit)
+            new = _orbit_salcs_decors(xt, sgx, N, 1, O, [spin_decors(lab)], wcx;
+                                      isotropy = isotropy, admit = admit)
             @test [s.key for s in olab] == [s.key for s in new]
             @test all(s.key.L_S == s.key.Lf for s in new)
             for (a, b) in zip(olab, new)
@@ -230,10 +230,11 @@ end
         # apex, which shifts every `block` index of the admissible orbit. The
         # count below is the one the apex cap forbids.
         lab112 = spin_decors([1, 1, 2])
-        capped = _orbit_salcs_decors(xt2, st2, 3, 1, O3, [lab112], false, wc2;
-            admit = t -> all(t[i].spin_l <= [2, 1][O3.species[i]]
+        capped = _orbit_salcs_decors(xt2, st2, 3, 1, O3, [lab112], wc2;
+                                     isotropy = false,
+                                     admit = t -> all(t[i].spin_l <= [2, 1][O3.species[i]]
                              for i in eachindex(t)))
-        uncapped = _orbit_salcs_decors(xt2, st2, 3, 1, O3, [lab112], false, wc2)
+        uncapped = _orbit_salcs_decors(xt2, st2, 3, 1, O3, [lab112], wc2; isotropy = false)
         @test length(uncapped) > length(capped) > 0
         @test [s.key for s in uncapped] != [s.key for s in capped]
         # `isotropy = true` is the same screen in both engines: the pure-spin
@@ -243,11 +244,11 @@ end
         @test anti_drift(xt2, st2, 3, O3, [2, 1], true, wc2) > 0
         @test anti_drift(xtalB, sgB, 2, O2, [2], true, wcB) > 0
         full = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2,
-                                   [spin_decors([1, 1]), spin_decors([2, 2])],
-                                   false, wcB)
+                                   [spin_decors([1, 1]), spin_decors([2, 2])], wcB;
+                                   isotropy = false)
         iso = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2,
-                                  [spin_decors([1, 1]), spin_decors([2, 2])],
-                                  true, wcB)
+                                  [spin_decors([1, 1]), spin_decors([2, 2])], wcB;
+                                  isotropy = true)
         sub = [s for s in full if s.key.L_S == 0]
         @test 0 < length(iso) < length(full)
         @test [s.key for s in iso] == [s.key for s in sub]
@@ -260,22 +261,23 @@ end
         # Single site, spin l = 2 × disp (k = 0, l = 2): two rank-2 factors on
         # one site under O_h.
         lab_e = [SiteDecor(; spin = 2, disp = (0, 2))]
-        se = _orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab_e], false, wc)
+        se = _orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab_e], wc; isotropy = false)
         @test length(se) == _count_single_site_l2_invariants(rots, 2)
         @test length(se) == 2                       # E_g ⊕ T_2g, one square each
         @test all(s.key.L_S == 2 for s in se)
         # |u|² trace channel: one rank-2 factor times a scalar ⇒ no invariant.
         lab_t = [SiteDecor(; spin = 2, disp = (1, 0))]
         @test _count_single_site_l2_invariants(rots, 1) == 0
-        @test isempty(_orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab_t], false, wc))
+        @test isempty(_orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab_t], wc;
+                                          isotropy = false))
         # `isotropy = true` (L_S = 0 only) empties the L_S = 2 sector.
-        @test isempty(_orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab_e], true, wc))
+        @test isempty(_orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab_e], wc; isotropy = true))
 
         # Both bond sites carry spin l = 1 AND disp (0, 1): the degree-(1,1,1,1)
         # form on the d4h bond.
         lab = [SiteDecor(; spin = 1, disp = (0, 1)),
                SiteDecor(; spin = 1, disp = (0, 1))]
-        sall = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], false, wcB)
+        sall = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], wcB; isotropy = false)
         @test length(sall) ==
               _count_bond_1111_invariants(rotsB, R -> R[1, 1] < 0)
         # The literal is Burnside by hand, and it is NOT redundant with the
@@ -289,7 +291,7 @@ end
         # The chirality twist (ê₁×ê₂)·(u₁×u₂) lives in L_S = 1 and survives the
         # centrosymmetric bond; `isotropy = true` (L_S = 0) removes it.
         @test any(s.key.L_S == 1 for s in sall)
-        s0 = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], true, wcB)
+        s0 = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], wcB; isotropy = true)
         @test all(s.key.L_S == 0 for s in s0)
         subset = [s for s in sall if s.key.L_S == 0]
         @test [s.key for s in s0] == [s.key for s in subset]
@@ -316,15 +318,15 @@ end
     @testset "u = 0 degeneracy, pure-spin consistency, and the refusals" begin
         lab = [SiteDecor(; spin = 1, disp = (0, 1)),
                SiteDecor(; spin = 1, disp = (0, 1))]
-        sall = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], false, wcB)
+        sall = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], wcB; isotropy = false)
         e = reduce(hcat, [normalize(randn(rng, 3)) for _ = 1:2])
         u0 = zeros(3, 2)
         for s in sall
             @test evaluate_salc(s, e, u0) == 0.0     # exact: homogeneous ≥ 1
         end
         # pure-spin SALCs evaluate identically through the joint form, ∀u
-        pure = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [spin_decors([1, 1])],
-                                   false, wcB)
+        pure = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [spin_decors([1, 1])], wcB;
+                                   isotropy = false)
         u = randn(rng, 3, 2) * 0.3
         for s in pure
             @test evaluate_salc(s, e, u) === evaluate_salc(s, e)
@@ -339,15 +341,15 @@ end
         lab2 = [SiteDecor(; spin = 1, disp = (0, 1)),
                 SiteDecor(; spin = 1, disp = (0, 1))]
         @test_throws ArgumentError _orbit_salcs_decors(xtalB, sgB, 2, 1, O2,
-                                                       [lab2, lab2], false, wcB)
+                                                       [lab2, lab2], wcB; isotropy = false)
     end
 
     @testset "mixed space-group invariance + time reversal" begin
         lab = [SiteDecor(; spin = 1, disp = (0, 1)),
                SiteDecor(; spin = 1, disp = (0, 1))]
-        sall = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], false, wcB)
+        sall = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], wcB; isotropy = false)
         lab1 = [SiteDecor(; spin = 2, disp = (0, 2))]
-        s1 = _orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab1], false, wc)
+        s1 = _orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab1], wc; isotropy = false)
         for _ = 1:6
             # bond crystal: ops with x → −x swap the two atom columns
             e = reduce(hcat, [normalize(randn(rng, 3)) for _ = 1:2])
@@ -378,12 +380,23 @@ end
 
     @testset "label validation" begin
         @test_throws ArgumentError _orbit_salcs_decors(xtalB, sgB, 2, 1, O2,
-            [[SiteDecor(; spin = 1), SiteDecor(; spin = 2)]], false, wcB)  # Σl odd
+            [[SiteDecor(; spin = 1), SiteDecor(; spin = 2)]], wcB;
+            isotropy = false)                                                  # Σl odd
         @test_throws ArgumentError _orbit_salcs_decors(xtalB, sgB, 2, 1, O2,
-            [[SiteDecor(; spin = 1)]], false, wcB)                         # wrong N
+            [[SiteDecor(; spin = 1)]], wcB; isotropy = false)                 # wrong N
         @test_throws ArgumentError _orbit_salcs_decors(xtalB, sgB, 2, 1, O2,
-            [[SiteDecor(; spin = 2), SiteDecor(; spin = 1, disp = (0, 1))]],
-            false, wcB)                                                    # unsorted
+            [[SiteDecor(; spin = 2), SiteDecor(; spin = 1, disp = (0, 1))]], wcB;
+            isotropy = false)                                                  # unsorted
+        # `isotropy` is a required keyword: upstream SLCE.jl's engine takes
+        # `soc::Bool` in that positional slot with the OPPOSITE polarity, so a
+        # verbatim upstream call must fail to dispatch, not invert the screen.
+        lab = [SiteDecor(; spin = 1, disp = (0, 1)), SiteDecor(; spin = 1, disp = (0, 1))]
+        @test_throws MethodError _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab],
+                                                     false, wcB)
+        @test_throws MethodError _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab],
+                                                     true, wcB)
+        @test_throws UndefKeywordError _orbit_salcs_decors(xtalB, sgB, 2, 1, O2,
+                                                           [lab], wcB)
     end
 
     @testset "group_costs refuses a decorated basis" begin
@@ -391,7 +404,7 @@ end
         # its own contract, so the surface refuses rather than under-counting.
         lab = [SiteDecor(; spin = 1, disp = (0, 1)),
                SiteDecor(; spin = 1, disp = (0, 1))]
-        sall = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], false, wcB)
+        sall = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], wcB; isotropy = false)
         sb = SCEFitting.SALCBasis(sall, [s.key for s in sall])
         spec = SCEFitting.BasisSpec(xtalB; nbody = 2, lmax = 1, cutoff = 1.1)
         @test_throws ArgumentError SCEFitting.group_costs(
@@ -499,7 +512,7 @@ end
         ]
         rngP = MersenneTwister(0x9a25)
         for (xt, sgx, N, O, wcx, label) in cases
-            ss = _orbit_salcs_decors(xt, sgx, N, 1, O, [label], false, wcx)
+            ss = _orbit_salcs_decors(xt, sgx, N, 1, O, [label], wcx; isotropy = false)
             # completeness: Π(2l+1) over every factor, per arrangement
             nfull = sum(prod((SCEFitting.has_spin(d) ? 2d.spin_l + 1 : 1) *
                              (SCEFitting.has_disp(d) ? 2d.disp_l + 1 : 1) for d in a)
@@ -523,7 +536,8 @@ end
         # the (4π) exponent counts SPIN slots, not slots: the spin-free mark
         # evaluates to |u|² R₀₀ = |u|² exactly (here 0.09 + 0.16 + 1.44), no 4π
         sm = only(_orbit_salcs_decors(xtal, sgP1, 1, 1, O1P1,
-                                      [[SiteDecor(; disp = (1, 0))]], false, wcP1))
+                                      [[SiteDecor(; disp = (1, 0))]], wcP1;
+                                      isotropy = false))
         um = reshape([0.3, -0.4, 1.2], 3, 1)
         @test evaluate_salc(sm, reshape([0.0, 0.0, 1.0], 3, 1), um) ≈ 1.69 rtol = 1e-13
     end

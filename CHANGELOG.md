@@ -27,7 +27,12 @@ builder yet — the production pure-spin path is untouched.
   it keeps `Lf == 0`, here `L_S == 0`. On a pure-spin label the two are the same
   statement (`L_S ≡ Lf`); on a mixed label neither implies the other, so
   `AngularMomentum.build_real_bases` gained a `keep` path predicate and the
-  screen is applied **before** a rejected path builds its tensor.
+  screen is applied **before** a rejected path builds its tensor. It is a
+  **required keyword** of the decor engine (review finding P1): upstream
+  SLCE.jl's engine takes `soc::Bool` in that positional slot with the opposite
+  polarity, so a verbatim upstream call compiled here and silently inverted the
+  screen; now a positional copy is a `MethodError` and an omitted screen an
+  `UndefKeywordError`, both asserted.
 - **`admit`**: an optional per-orbit-of-assignments predicate. A label is a
   sorted multiset and cannot say which site may carry which rank; the pure-spin
   engine expresses that through its per-species `lmax`, and a caller that needs
