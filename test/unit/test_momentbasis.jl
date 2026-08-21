@@ -271,4 +271,150 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
         @test occursin("UnclassifiableBasis", sprint(showerror,
                                                      UnclassifiableBasis("x")))
     end
+
+    @testset "saboteur closures: marked ≠ 1:n, species rules, labels, census, chain" begin
+        # (1) marked_atoms ≠ 1:n — every other fixture has ai == a, so a slot/row
+        # index used as an atom number was invisible. Ge only: marked 5:8.
+        sge = MomentSpec(; lmax_env = [1, 1], sampled = [true, true], lmax_mark = 1,
+                         nbody = 2, cutoff_pair = 3.0, marked = [false, true])
+        mge = MomentBasis(xt, sge; backend = bk)
+        @test mge.marked_atoms == [5, 6, 7, 8]
+        e2 = _mb_unit(rng, nat)
+        axg = _mb_unit(rng, nat)
+        Xg = _design_moment(mge, [e2], [axg])
+        @test size(Xg) == (4, n_salcs(mge))
+        @test Xg == _design_moment(mge, [e2], [axg]; member_index = false)
+        # locality in atom numbers: changing the axis of atom 7 changes row 3 only
+        ax7 = copy(axg); ax7[:, 7] = normalize(randn(rng, 3))
+        X7 = _design_moment(mge, [e2], [ax7])
+        @test findall([any(X7[r, :] .!= Xg[r, :]) for r = 1:4]) == [3]
+        # and changing the axis of an UNMARKED atom (Fe 2) changes nothing
+        ax2 = copy(axg); ax2[:, 2] = normalize(randn(rng, 3))
+        @test _design_moment(mge, [e2], [ax2]) == Xg
+        # every mark in this basis sits on a Ge atom
+        for sx in salcs(mge), m in sx.members, t in m.terms, sl in t.slots
+            sl.factor.channel == SCEFitting.DISP && @test m.atoms[sl.site] in 5:8
+        end
+        # (2) the row order is configuration-major (the docstring's contract):
+        # a two-config design is the single-config designs stacked
+        e3 = _mb_unit(rng, nat)
+        @test _design_moment(mb, [e2, e3], [copy(e2), copy(e3)]) ==
+              vcat(_design_moment(mb, [e2], [copy(e2)]),
+                   _design_moment(mb, [e3], [copy(e3)]))
+        # (3) the M3-1 species rule on a REAL basis: lmax_env = [2, 0] — Ge is
+        # never an environment spin, yet Ge is still marked (its induced moment is
+        # what the channel predicts). Read off the slots, not the keys.
+        s20 = MomentSpec(; lmax_env = [2, 0], sampled = [true, false], lmax_mark = 2,
+                         nbody = 3, cutoff_pair = 3.3)
+        m20 = MomentBasis(xt, s20; backend = bk)
+        @test m20.marked_atoms == collect(1:8)
+        n_env_ge = 0
+        n_mark_ge = 0
+        for sx in salcs(m20), m in sx.members, t in m.terms
+            msite = findfirst(sl -> sl.factor.channel == SCEFitting.DISP, t.slots)
+            marka = m.atoms[t.slots[msite].site]
+            marka in 5:8 && (n_mark_ge += 1)
+            for sl in t.slots
+                sl.factor.channel == SCEFitting.SPIN || continue
+                sl.site == t.slots[msite].site && continue      # the mark's own ê
+                m.atoms[sl.site] in 5:8 && (n_env_ge += 1)
+            end
+        end
+        @test n_env_ge == 0 && n_mark_ge > 0
+        # Ge rows of the design are nonzero (the μ₀ intercept at least)
+        X20 = _design_moment(m20, [e2], [copy(e2)])
+        @test all(any(X20[r, :] .!= 0.0) for r = 5:8)
+        # (4) labels against a hand enumeration of the four rules (one mark of rank
+        # 0…lmax_mark, env ranks 1…lem, even total, ≤ lsum)
+        # (encode a label as the sorted tuple of ranks, the mark's rank + 100)
+        labs(spec, N) = Set(Tuple(sort([d.spin_l + (has_disp(d) ? 100 : 0) for d in l]))
+                            for l in SCEFitting._moment_labels(spec, N))
+        sp22 = MomentSpec(; lmax_env = [2, 2], sampled = [true, true], lmax_mark = 2,
+                          cutoff_pair = 3.0)
+        @test labs(sp22, 1) == Set([(100,), (102,)])
+        @test labs(sp22, 2) == Set([(2, 100), (1, 101), (2, 102)])
+        @test labs(sp22, 3) == Set([(1, 1, 100), (2, 2, 100), (1, 2, 101),
+                                    (1, 1, 102), (2, 2, 102)])
+        sp3 = MomentSpec(; lmax_env = [2, 2], sampled = [true, true], lmax_mark = 2,
+                         cutoff_pair = 3.0, lsum = 3)
+        @test labs(sp3, 1) == Set([(100,), (102,)])
+        @test labs(sp3, 2) == Set([(2, 100), (1, 101)])
+        @test labs(sp3, 3) == Set([(1, 1, 100)])
+        @test_throws ArgumentError MomentSpec(; lmax_env = [2], sampled = [true],
+                                              cutoff_pair = 3.0, lsum = -1)
+        mls = MomentBasis(xt, MomentSpec(; lmax_env = [2, 2], sampled = [true, true],
+                                         lmax_mark = 2, nbody = 2, cutoff_pair = 3.3,
+                                         lsum = 2); backend = bk)
+        @test all(sum(d.spin_l for d in k.decors) <= 2 for k in mls.salc_basis.keys)
+        ranks(k) = sort([d.spin_l for d in k.decors])
+        @test any(ranks(k) == [1, 1] for k in mls.salc_basis.keys)
+        @test !any(ranks(k) == [2, 2] for k in mls.salc_basis.keys)
+        # (5) isotropy = false on the 3-body STAR basis removes nothing that
+        # isotropy = true keeps and adds L_S ≠ 0 star blocks
+        full3 = MomentBasis(xt, MomentSpec(; lmax_env = [2, 2], sampled = [true, true],
+                                           lmax_mark = 2, nbody = 3, cutoff_pair = 3.3,
+                                           cutoff_star = 3.3, isotropy = false);
+                            backend = bk)
+        @test any(k.L_S != 0 && k.body == 3 for k in full3.salc_basis.keys)
+        @test [k for k in full3.salc_basis.keys if k.L_S == 0] == mb.salc_basis.keys
+        # (6) census with exact Wyckoff-derived counts: the nn Fe–Fe pair orbit
+        # marks 4 atoms (4a, both ends), an Fe–Ge pair orbit marks 8, and with Ge
+        # unmarked the same Fe–Ge orbit marks 4
+        pm = MomentBasis(xt, MomentSpec(; lmax_env = [1, 1], sampled = [true, true],
+                                        lmax_mark = 1, nbody = 2, cutoff_pair = 3.0);
+                         backend = bk)
+        cen = moment_resolvability(pm).census
+        rec_of(o) = pm.records[findfirst(k -> (k.body, k.orbit_id) ==
+                                              (o.body, o.orbit_id), pm.salc_basis.keys)]
+        fefe = [c for c in cen if c.body == 2 && rec_of(c).species == (1, 1)]
+        fege = [c for c in cen if c.body == 2 && rec_of(c).species == (1, 2)]
+        gege = [c for c in cen if c.body == 2 && rec_of(c).species == (2, 2)]
+        @test length(fefe) == 1 && all(c.n_mark_atoms == 4 for c in fefe)
+        @test length(fege) == 2 && all(c.n_mark_atoms == 8 for c in fege)
+        @test length(gege) == 1 && all(c.n_mark_atoms == 4 for c in gege)
+        @test all(c.n_mark_atoms == 4 for c in cen if c.body == 1)
+        pmf = MomentBasis(xt, MomentSpec(; lmax_env = [1, 1], sampled = [true, true],
+                                         lmax_mark = 1, nbody = 2, cutoff_pair = 3.0,
+                                         marked = [true, false]); backend = bk)
+        cenf = moment_resolvability(pmf).census
+        @test all(c.n_mark_atoms == 4 for c in cenf if c.body == 2)
+        # (7) rank–nullity on the reported null space, and rtol monotonicity
+        res = moment_resolvability(pm)
+        @test length(res.null_combinations) == length(res.kept) - res.rank
+        @test moment_resolvability(pm; rtol = 1.0).rank <= 1
+        @test moment_resolvability(pm; rtol = 1e-12).rank == res.rank
+        # (8) vanishing columns against the random design (none on FeGe — pinned
+        # against data, not against the same code)
+        cf = [_mb_unit(rng, nat) for _ = 1:40]
+        Xr = _design_moment(pm, cf, cf)
+        cn = [norm(@view Xr[:, j]) for j = 1:size(Xr, 2)]
+        @test res.vanishing == findall(<=(1e-9 * maximum(cn)), cn)
+        # (9) the mark–environment edge rule after RE-ANCHORING: a P1 chain
+        # i(0) j(+d) k(−d) on a short axis L with 2d ≤ cutoff_star < L and
+        # L − 2d < d. The triangle {i; j, k} is enumerated from i; the j–k edge of
+        # that embedding (2d) is inside the radius but is NOT the minimum image
+        # (L − 2d is), so only i may carry the mark: the (0,1,1) column is exactly
+        # zero on the j and k rows. A reference with no SALC code in it.
+        d, L = 1.0, 2.5
+        lat = Lattice(Matrix(Diagonal([L, 10.0, 10.0])))
+        xch = Crystal(lat, [0.0 d/L 1-d/L; 0.0 0.0 0.0; 0.0 0.0 0.0], [1, 1, 1], ["Fe"])
+        sgch = _assemble_spacegroup(xch, [SMatrix{3,3,Float64}(I)],
+                                    [SVector{3,Float64}(0, 0, 0)], "P1", 1; tol = 1e-6)
+        mch = MomentBasis(xch, MomentSpec(; lmax_env = [1], sampled = [true],
+                                          lmax_mark = 0, nbody = 3, cutoff_pair = 1.1,
+                                          cutoff_star = 2.1); backend = _MBFixedSG(sgch))
+        kch = mch.salc_basis.keys
+        jt = [j for j in eachindex(kch) if kch[j].body == 3 &&
+              mch.records[j].edges == (1.0, 1.0, 2.0)]
+        @test !isempty(jt)
+        ech = _mb_unit(rng, 3)
+        Xch = _design_moment(mch, [ech], [copy(ech)])
+        for j in jt
+            @test Xch[2, j] == 0.0 && Xch[3, j] == 0.0 && Xch[1, j] != 0.0
+        end
+        cch = moment_resolvability(mch).census
+        @test all(c.n_mark_atoms == 1 for c in cch
+                  if c.body == 3 && any(j -> (kch[j].body, kch[j].orbit_id) ==
+                                             (c.body, c.orbit_id), jt))
+    end
 end
