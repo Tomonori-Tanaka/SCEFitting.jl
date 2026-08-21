@@ -277,11 +277,14 @@ literally the Cartesian components `R₁₋₁, R₁₀, R₁₁ = y, z, x`. Onl
 carry the per-factor `(4π)^(−1/2)`, so the per-term design-matrix scale stays
 `(4π)^(n_spin/2)` with displacement factors scale-free.
 
-In this pure-spin package the kernel is reached through exactly one production
-route: the **mark** of the pointed site-moment channel is the displacement decor
-`SiteDecor(disp = (1, 0))`, evaluated on a synthetic indicator field, so the mark
-factor is `|u|² R₀₀` — 1 on the marked atom and 0 everywhere else. No physical
-displacement field enters this package's models.
+In this pure-spin package no physical displacement field enters any model, and
+the production route reads the kernel only at `l = 0`: the **mark** of the
+pointed site-moment channel is the displacement decor `SiteDecor(disp = (1, 0))`
+evaluated on a synthetic indicator field, so the mark factor is `|u|² R₀₀` — 1
+on the marked atom and 0 everywhere else — and `R₀₀ ≡ 1`. What uses the harmonic
+expansion at `l ≥ 1` is the decor engine's verification layer, whose gates
+evaluate displacement-decorated SALCs to pin the rotation convention, the `(4π)`
+scale, and the slot order independently of the pure-spin engine.
 
 ```@docs
 SolidHarmonics

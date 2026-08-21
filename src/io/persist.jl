@@ -168,7 +168,7 @@ function _term_from(d)::SALCTerm
     # maps to the identity pure-spin slot list.
     slots = haskey(d, "slots") ?
         Slot[Slot(Int(t[1]), SiteFactor(Channel(UInt8(t[2])), Int(t[3]), Int(t[4])))
-                for t in d["slots"]] :
+            for t in d["slots"]] :
         spin_slots(_intvec(d["ls"]))
     shape = _intvec(d["shape"])
     flat = _floatvec(d["folded"])

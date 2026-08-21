@@ -184,8 +184,9 @@ end
         @test !isempty(labels)
         # The decor engine sees a sorted multiset, so which site may carry which
         # rank has to be handed in: this is the per-species cap of `_enumerate_ls`,
-        # rewritten here rather than called, so the two are independent statements
-        # of the same rule.
+        # written out here instead of called. That is not an independent
+        # derivation — it is the same rule transcribed; get it wrong and the gate
+        # below goes red, which is the safe direction.
         admit = t -> all(t[i].spin_l <= lmax[O.species[i]] for i in eachindex(t))
         for lab in labels
             olab = [s for s in old if spin_ls(s.key) == lab]
@@ -277,6 +278,13 @@ end
         sall = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], false, wcB)
         @test length(sall) ==
               _count_bond_1111_invariants(rotsB, R -> R[1, 1] < 0)
+        # The literal is Burnside by hand, and it is NOT redundant with the
+        # projector above: `rotsB` feeds both the space group and the oracle, so
+        # a broken op list would put them in agreement on the wrong answer. With
+        # R = (s₁) ⊕ B over the 8 signed 2×2 permutations B: the 8 site-fixing
+        # ops (s₁ = +1) contribute (tr R)⁴ = 81 + 7·1 = 88, and the 8 swapping
+        # ops (s₁ = −1) contribute tr(R²)² = 6·9 + 2·1 = 56, so the invariant
+        # count is (88 + 56)/16 = 9.
         @test length(sall) == 9
         # The chirality twist (ê₁×ê₂)·(u₁×u₂) lives in L_S = 1 and survives the
         # centrosymmetric bond; `isotropy = true` (L_S = 0) removes it.

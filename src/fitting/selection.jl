@@ -87,8 +87,8 @@ of its real sweep cost relative to a 2-body group at equal entry count.
 [Backported from SLCE.jl a596ea3.] This is an **a-priori proxy (a lower bound)**
 for what a sweep realizes: an entry vanishes only when the whole group is zero.
 The relative ordering it induces is what the selection needs. Costs are additive
-across the [`salc_groups`](@ref) partition (distinct `(body, orbit_id, ls)` groups
-never share an entry key); `labels` may also be any coarser contiguous `1:G`
+across the [`salc_groups`](@ref) partition (distinct `(body, orbit_id, decors)`
+groups never share an entry key); `labels` may also be any coarser contiguous `1:G`
 partition of the columns.
 """
 function group_costs(basis::SCEBasis,

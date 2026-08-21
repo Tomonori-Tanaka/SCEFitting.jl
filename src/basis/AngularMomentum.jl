@@ -308,9 +308,9 @@ a screen on the total SPIN rank of a mixed-decoration path is not a screen on
 `Lf = 0` forces `L_S = 1`, so the two accepted sets are disjoint and `isotropy`
 cannot stand in for it.
 """
-function build_real_bases(ls::AbstractVector{<:Integer};
-                          isotropy::Bool = false,
-                          keep = (Lseq, Lf) -> true)::Vector{Tuple{Vector{Int},Int,Array{Float64}}}
+function build_real_bases(
+        ls::AbstractVector{<:Integer}; isotropy::Bool = false,
+        keep = (Lseq, Lf) -> true)::Vector{Tuple{Vector{Int},Int,Array{Float64}}}
     out = Tuple{Vector{Int},Int,Array{Float64}}[]
     for (Lseq, Lf) in coupling_paths(ls)
         (isotropy && Lf != 0) && continue

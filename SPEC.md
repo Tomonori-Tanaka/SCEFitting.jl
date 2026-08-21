@@ -153,7 +153,11 @@ capability consumed by both the introspection and the Sunny interop.
   displacement axes as `|u|^{2k} R_{lm}(u)` through the 4π-free `SolidHarmonics`
   kernel, scaled by `(4π)^(n_spin/2)`. The spin-only `evaluate_salc(salc, e)`,
   `accumulate_grad!`, and `group_costs` **refuse** a decorated SALC rather than read
-  a `DISP` rank as a spin harmonic under the wrong scale.
+  a `DISP` rank as a spin harmonic under the wrong scale. Every `DISP` factor a
+  pointed label carries is `(k = 1, l = 0)` (the marked site's angular rank is its
+  SPIN part), so the production channel reads the kernel only at `R₀₀ ≡ 1`; the
+  `l ≥ 1` path exists for the engine's own gates, which evaluate decorated SALCs to
+  pin the rotation convention, scale, and slot order.
 
 ### fitting + SCE API (M8, M9)
 - `BasisSpec` (validated: `nbody ≥ 1`, symmetric per-body `cutoff` matrices with

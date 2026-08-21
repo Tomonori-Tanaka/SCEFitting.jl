@@ -191,14 +191,14 @@ real Wigner matrix: `D_channel(l, R) = rep_scale(channel, det R, l) · D_polar(l
 `SPIN` is axial (`det(R)^l` — spin directions are pseudovectors), `DISP` polar
 (`1.0`); `OCC` is reserved (its representation is not declared yet) and throws.
 
-This is the **single declared source of the per-channel group action** (design
-record §4). Production projection never applies it: the even-`Σl_spin`
-enumeration screen makes the product over spin slots `det(R)^{Σl_spin} ≡ +1`,
-so the one polar Wigner cache is exactly correct for both channels. The seat
-exists for the verification layer — the independent oracle and the gate (o)
-representation pins (e.g. inversion: axial `+I` for every `l`, polar
-`(−1)^l I`) consume it, and a mutation reinstating a global `det(R)^{Σl_all}`
-rule must fail against it.
+This is the **single declared source of the per-channel group action**.
+Production projection never applies it: the even-`Σl_spin` enumeration screen
+makes the product over spin slots `det(R)^{Σl_spin} ≡ +1`, so the one polar
+Wigner cache is exactly correct for both channels. The seat exists so the
+convention is written down once instead of being implied by that cancellation;
+what holds it is the value pin in `test/unit/test_decor.jl` (inversion: axial
+`+I` for every `l`, polar `(−1)^l I`), which a mutation reinstating a global
+`det(R)^{Σl_all}` rule must fail.
 """
 function rep_scale(channel::Channel, detR::Real, l::Integer)::Float64
     channel == OCC &&

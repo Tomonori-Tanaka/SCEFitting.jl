@@ -51,8 +51,9 @@ One tensor axis ("slot") of a `SALCTerm`: the member-site index it
 contracts against (an index into the member's `atoms`, not an atom number) plus
 its decoration factor. Mixed-channel SALCs may carry several slots on one site
 (a spin factor and a displacement factor); the slot → site map is what
-generalizes the v4 axis-`i` ↔ site-`i` identity, and it is what the
-decorated-term view publishes.
+generalizes the v4 axis-`i` ↔ site-`i` identity. On the bases this pure-spin
+package builds the map is the identity, so `spin_slots(ls)` reconstructs it
+from a v4 `ls` label exactly.
 """
 struct Slot
     site::Int
@@ -434,12 +435,17 @@ end
 # Mixed-channel evaluation — the pointed site-moment channel's mark
 # ---------------------------------------------------------------------------
 #
-# This package's MODELS are pure spin; the joint form below exists because the
-# mark of the pointed moment expansion is realized as a displacement decor
-# (`SiteDecor(disp = (1, 0))`) evaluated on a synthetic indicator field, so the
-# mark factor `|u|²R₀₀` is 1 on the marked atom and 0 on every other. Keeping
-# the mark arithmetic rather than procedural is what makes an unmarked member
-# die on an exact zero instead of on an index lookup.
+# This package's MODELS are pure spin. The joint form below exists for the mark
+# of the pointed moment expansion, a displacement decor `SiteDecor(disp = (1, 0))`
+# evaluated on a synthetic indicator field, so the mark factor `|u|²R₀₀` is 1 on
+# the marked atom and 0 on every other — arithmetic rather than procedural, which
+# is what makes an unmarked member die on an exact zero instead of on an index
+# lookup. Note the production reach: a pointed label puts the marked site's
+# angular rank in its SPIN part, so EVERY DISP factor it carries is (k=1, l=0)
+# and the SolidHarmonics call below is only ever made at `R₀₀ ≡ 1`. The `l ≥ 1`
+# branch is exercised by the decor engine's gates (test/unit/test_mixedsalc.jl),
+# which evaluate decorated SALCs to pin the rotation convention, the (4π) scale,
+# and the slot order independently of the pure-spin engine.
 
 """
     evaluate_salc(salc, e, u[, scratch]) -> Float64

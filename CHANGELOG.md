@@ -66,13 +66,27 @@ they are regular and exactly `0` (for `l ≥ 1`) at `u = 0`, together with their
 `Rₗₘ(û) = √(4π/(2l+1)) · Harmonics.Zlm(l, m, û)` on the unit sphere, and the
 rank-1 factors are literally `R₁₋₁, R₁₀, R₁₁ = y, z, x`.
 
-Why a pure-spin package carries a displacement kernel: the **mark** of the
-pointed site-moment channel is the displacement decor `SiteDecor(disp = (1, 0))`
-evaluated on a synthetic indicator field, i.e. the factor `|u|² R₀₀` — 1 on the
-marked atom, 0 on every other. That makes the mark arithmetic rather than
-procedural (a member not marked at the row's atom is killed by an exact zero
-before it can contribute), which is what keeps the selection independently
-checkable. No physical displacement field enters this package's models.
+Why a pure-spin package carries a displacement kernel — stated precisely,
+because the short version overstates it. The **mark** of the pointed site-moment
+channel is the displacement decor `SiteDecor(disp = (1, 0))` evaluated on a
+synthetic indicator field, so the mark factor is `|u|² R₀₀` — 1 on the marked
+atom, 0 on every other. That makes the mark arithmetic rather than procedural
+(a member not marked at the row's atom is killed by an exact zero before it can
+contribute), which is what keeps the selection independently checkable. But that
+factor is the **only** one the pointed enumeration ever builds: the marked site's
+angular rank lives in its SPIN part, environment sites are pure spin, so every
+`DISP` factor in a pointed label is `(k = 1, l = 0)` and the kernel is read at
+`R₀₀ ≡ 1`. The production channel needs `|u|²`, not a harmonic expansion.
+
+What genuinely needs `l ≥ 1` is the **verification layer**: the decor engine's
+own gates evaluate displacement-decorated SALCs at `l = 1, 2` — the chirality
+twist against its closed form, mixed space-group invariance under the axial
+spin / polar displacement action, and the exact zero at `u = 0`. Those are what
+pin the engine's rotation convention, `(4π)` scale, and slot order independently
+of the pure-spin engine, and they are the reason to carry the module rather than
+special-case `l = 0`. Basis *construction* never calls it at all (`l = 0` axes
+skip rotation, `l > 0` axes go through the Wigner cache), and no physical
+displacement field enters this package's models.
 
 The kernel is ported from SLCE.jl `0ba2dc5` unchanged; its tests are
 independent of it (the Racah relation against `Harmonics.Zlm` up to `l = 16`,
