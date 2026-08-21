@@ -6,6 +6,33 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — decoration labels: the shared key vocabulary (2026-08-21)
+
+- **`src/basis/decor.jl`** — the `isbits` value labels that name what decorates a
+  cluster site, ported verbatim from the spin–lattice engine so both packages
+  speak one vocabulary:
+  - `Channel` (`SPIN < DISP < OCC`, a `UInt8` enum whose order is load-bearing —
+    it fixes the canonical factor order, the coupling order, and the persisted
+    integer codes, so channels may only ever be appended). `OCC` is **reserved
+    and unconstructable**.
+  - `SiteFactor(channel, k, l)` with per-channel validation (`SPIN` requires
+    `k = 0`, `l ≥ 1`; `DISP` requires degree `2k + l ≥ 1`), `SiteDecor` (at most
+    one factor per `(site, channel)` slot), the accessors `has_spin` / `has_disp`
+    / `spin_rank` / `disp_degree` / `factors` / `is_pure_spin`, the relabel helper
+    `spin_decors`, and `rep_scale` — the single declared source of the
+    per-channel group action (`SPIN` axial `det(R)^l`, `DISP` polar).
+  - `Slot` (in `src/basis/salc.jl`): the axis → `(site, factor)` map that
+    generalizes the v4 axis-`i` ↔ site-`i` identity, with the internal
+    `spin_slots` producing the pure-spin identity list.
+- **Pure addition.** Nothing existing changed: `SALCKey` still carries its v4
+  `ls` field, every construction path is untouched, and the whole suite is
+  byte-identical. The names are declared `public` (unexported — `Channel` would
+  shadow `Base.Channel`) and documented under *Decoration labels* in `api.md`.
+- `test/unit/test_decor.jl` covers channel order, both constructors' validation,
+  the ordering law (pure-spin decors sort exactly like the sorted `ls` label),
+  the slot map, and the `rep_scale` trait including the even-`Σl_spin` identity
+  that makes one polar Wigner cache correct for both channels.
+
 ### Added — the pin tier: change detectors over the SALC chain (2026-08-21)
 
 - **`test/pin/`** — a byte-level pin over five real crystals (bcc Fe, B2 FeRh,

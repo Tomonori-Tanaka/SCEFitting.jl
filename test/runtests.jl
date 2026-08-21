@@ -43,6 +43,7 @@ end
         include("unit/test_imageselection.jl")
         include("unit/test_truncation.jl")
         include("unit/test_ws_nbody.jl")
+        include("unit/test_decor.jl")
         include("unit/test_salc.jl")
         include("unit/test_normalization.jl")
         include("unit/test_fit.jl")

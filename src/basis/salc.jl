@@ -20,6 +20,32 @@ Base.:(==)(a::SALCKey, b::SALCKey) = _keytuple(a) == _keytuple(b)
 Base.hash(k::SALCKey, h::UInt) = hash(_keytuple(k), h)
 
 """
+    Slot
+
+One tensor axis ("slot") of a SALC term: the member-site index it contracts
+against (an index into the member's `atoms`, not an atom number) plus its
+decoration factor. Mixed-channel SALCs may carry several slots on one site (a
+spin factor and a displacement factor); the slot → site map is what generalizes
+the v4 axis-`i` ↔ site-`i` identity, and it is what the decorated-term view
+publishes.
+"""
+struct Slot
+    site::Int
+    factor::SiteFactor
+end
+
+_slotkey(s::Slot) = (s.factor.channel, s.site, s.factor.k, s.factor.l)
+
+"""
+    spin_slots(ls) -> Vector{Slot}
+
+The identity pure-spin slot list of a per-site `l` assignment: axis `i` is
+`SiteFactor(SPIN, 0, ls[i])` on site `i` (the v4 term shape).
+"""
+spin_slots(ls::AbstractVector{<:Integer})::Vector{Slot} =
+    Slot[Slot(i, SiteFactor(SPIN, 0, ls[i])) for i in eachindex(ls)]
+
+"""
     SALCTerm
 
 One `l`-assignment contributing to a (member of a) SALC: per-site angular momenta

@@ -61,6 +61,32 @@ ClusterSet
 build_clusters
 ```
 
+## Decoration labels
+
+The `isbits` value labels of the basis: a [`SiteFactor`](@ref) is one per-site
+decoration factor (channel + `(k, l)` labels), a [`SiteDecor`](@ref) the combined
+decoration of one site (at most one factor per channel), and a [`Slot`](@ref) the
+axis → `(site, factor)` map of a SALC term. The `SPIN` channel is the one this
+package constructs; `DISP` and `OCC` exist so the label layer is the same
+vocabulary the spin–lattice expansion uses. All public but unexported
+(`SCEFitting.SiteDecor` etc.; `SCEFitting.Channel` would shadow `Base.Channel`
+if exported).
+
+```@docs
+SCEFitting.Channel
+SCEFitting.SiteFactor
+SCEFitting.SiteDecor
+SCEFitting.Slot
+SCEFitting.has_spin
+SCEFitting.has_disp
+SCEFitting.spin_rank
+SCEFitting.disp_degree
+SCEFitting.factors
+SCEFitting.is_pure_spin
+SCEFitting.spin_decors
+SCEFitting.rep_scale
+```
+
 ## SALC basis
 
 ```@docs
