@@ -1,7 +1,11 @@
 # The pointed (site-marked) SALC basis for the adiabatic site-moment expansion
 # m_i(e) — the moment channel's counterpart of `SCEBasis`. Design record:
 # _brain_storming/adiabatic-moment-sce (D1–D10 + the D8 addendum, M3-1/M3-2).
-# Ported from SLCE.jl `6960276`; the one spelling change is the screen keyword
+# Ported from SLCE.jl at `3d54abb` = `6960276` (the basis) + `bd03517` (the
+# mark→term index fast design path, asserted value-identical to the full
+# evaluation) + `28dfa24` (the resolvability cache AND the fix for the null
+# report of a WIDE signature block, which the economy SVD under-enumerated — the
+# QR completion below). The one spelling change is the screen keyword
 # (`isotropy = true` keeps L_S = 0 only — this package's name for upstream's
 # `soc = false`, see the divergence ledger in CLAUDE.md).
 #
@@ -151,7 +155,8 @@ end
 _mark_decor(l::Int)::SiteDecor =
     l == 0 ? SiteDecor(disp = (1, 0)) : SiteDecor(spin = l, disp = (1, 0))
 
-is_marked(d::SiteDecor)::Bool = has_disp(d)   # in a pointed label the disp factor IS the mark
+# In a pointed label the disp factor IS the mark.
+is_marked(d::SiteDecor)::Bool = has_disp(d)
 
 # All sorted decor multisets for body order N: exactly one marked slot (spin rank
 # 0…lmax_mark), every environment slot a pure spin factor (rank ≥ 1), total spin

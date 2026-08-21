@@ -8,9 +8,16 @@ release, so everything lives under *Unreleased*.
 
 ### Added — `MomentBasis`: the pointed SALC basis for adiabatic site moments (2026-08-21)
 
-Step M3 of the pointed site-moment backport (upstream SLCE.jl `6960276`, ported with
-one spelling change: the screen is `MomentSpec(; isotropy = true)`, this package's
-name for upstream's `soc = false`).
+Step M3 of the pointed site-moment backport. Ported from upstream SLCE.jl at
+`3d54abb`, which is `6960276` (the basis) plus two later commits this file
+carries with it: `bd03517` (the mark→term index fast design path, asserted
+value-identical to the full evaluation) and `28dfa24` (the `moment_resolvability`
+result cache **and a bug fix**: the null-combination report of a WIDE signature
+block — more kept columns than signature rows — came back empty upstream because
+the economy SVD lists only `min(r, c)` directions; the orthogonal complement is
+now read off a QR completion). One spelling change: the screen is
+`MomentSpec(; isotropy = true)`, this package's name for upstream's `soc = false`.
+The review panel caught the citation (the first draft said `6960276` alone).
 
 The moment channel's counterpart of `SCEBasis` (`src/basis/momentbasis.jl`): per
 marked reference-cell atom the design row is the pointed SALC vector, and one
