@@ -40,8 +40,6 @@ same envelope as `Harmonics.Zlm`). Physical expansions live at `l ≲ 20`; treat
 """
 module SolidHarmonics
 
-using StaticArrays
-
 # Not exported: callers reach these via `SolidHarmonics.Rlm` etc.
 
 """
@@ -124,11 +122,10 @@ function _solid_harmonics_impl!(
 )::Nothing
     r2 = x * x + y * y + z * z
 
-    # c_n, s_n recurrence state: current (c, s) and previous (cm1, sm1).
+    # c_n, s_n recurrence state: current (c, s); the previous pair (cm1, sm1)
+    # lives inside the loop, where the advance reads it right after writing it.
     c = 1.0
     s = 0.0
-    cm1 = 0.0
-    sm1 = 0.0
 
     @inbounds for n = 0:lmax
         # A-recurrence state along l = n .. lmax at fixed n: A = A_l^n.

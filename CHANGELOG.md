@@ -14,10 +14,21 @@ an axis whose extent is not `2l + 1` was built as is (`SALCTerm` has no inner
 constructor) and failed later, inside a kernel, as a `BoundsError` or a
 silently truncated contraction. The reader now refuses all three with a named
 `ArgumentError`, on both the v5 `slots` and the v2–v4 `ls` spellings, and
-`_member_from` hands it the member's site count. Two of the three holes
-(slot/rank and axis-extent) predate this branch and exist in `main`; the site
-range is this branch's, since `ls`-addressed terms could not name a site.
-Upstream SLCE.jl has the identical reader and receives the identical patch.
+`_member_from` hands it the member's site count. `main`'s reader has the same
+two gaps for slot/rank and axis extent (its `ls` terms could mis-state the rank
+or the extent just as freely); the site range is new to this branch, since an
+`ls`-addressed term could not name a site. Upstream SLCE.jl has the identical
+reader and receives the identical patch.
+
+The review panel then found the one **silent** member of the family: nothing
+checked a term against its **key**. A DISP slot under a pure-spin key passed
+every per-term check and then slipped past the spin-only kernels' refusal,
+which reads the key's `decors` — the DISP axis was evaluated as a spin harmonic
+under the wrong `(4π)` scale and a plausible wrong energy came back.
+`_salc_from` now requires `body == length(decors)`, every member to have `body`
+atoms, and every term's slots to reconstruct the key's decoration label exactly
+(`_term_decors`; two factors of one channel on a site, or a site with none, is
+refused too). Load-time only; same patch upstream.
 
 ### Added — the mixed-channel (decor) SALC engine (2026-08-21)
 
@@ -96,6 +107,13 @@ builder yet — the production pure-spin path is untouched.
   (`n_spin = 0`, value `|u|²` exactly) and mark-and-rank on different sites; a
   per-SALC contraction written from the public `Zlm`/`Rlm` sits beside it.
   Mutation-checked: each of the three escapes is killed by this testset alone.
+  A second panel then closed what this gate still let through: a spectator-atom
+  fixture whose bond atoms are `[2, 3]` (a slot's site index used as its atom
+  number was invisible on every `atoms == 1:N` fixture), the total spin rank
+  `L_S` and the `isotropy = true` subset asserted on every asymmetric label,
+  the refusals exercised on the pointed label shape (where one decor *is* pure
+  spin, so an `any`-shaped guard would admit it), and a two-DISP-slot label
+  under the C3v 3-cycle.
 - **Performance**: the basis build is allocation-neutral to the byte; the design
   matrices cost exactly +92 allocations each, fully attributed to the one new
   `SALCScratch` field over the bench's 46 columns. See `bench/BENCH_LOG.md`.
@@ -223,7 +241,8 @@ this commit, which is the evidence that the relabel is value-preserving).
   `multipole_terms` (the downstream Monte-Carlo program-array proxy).
 - **`coeftable` columns are now `body`, `orbit_id`, `decors`, `L_S`, `Lf`,
   `block`, `J`.** A pure-spin row still renders as `"1,1,2"`, so the string a
-  reader sees is unchanged; displacement factors would render as `u(k:l)` (colon inside the token, so the comma-joined column stays splittable).
+  reader sees is unchanged; displacement factors would render as `u(k:l)`
+  (colon inside the token, so the comma-joined column stays splittable).
 - `salc_groups` groups on `(body, orbit_id, decors)` — identical groups on a
   pure-spin basis. Bilinear extraction classifies on `decors` and reports any
   displacement-decorated SALC as `:unsupported` rather than dropping it.
