@@ -6,6 +6,19 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — the persist reader validates a term against its slots (2026-08-21)
+
+`_term_from` accepted any slot list alongside any tensor: a term with more
+slots than tensor axes, a slot addressing a site the member does not have, or
+an axis whose extent is not `2l + 1` was built as is (`SALCTerm` has no inner
+constructor) and failed later, inside a kernel, as a `BoundsError` or a
+silently truncated contraction. The reader now refuses all three with a named
+`ArgumentError`, on both the v5 `slots` and the v2–v4 `ls` spellings, and
+`_member_from` hands it the member's site count. Two of the three holes
+(slot/rank and axis-extent) predate this branch and exist in `main`; the site
+range is this branch's, since `ls`-addressed terms could not name a site.
+Upstream SLCE.jl has the identical reader and receives the identical patch.
+
 ### Added — the mixed-channel (decor) SALC engine (2026-08-21)
 
 A second projection engine, `_orbit_salcs_decors`, alongside the pure-spin
