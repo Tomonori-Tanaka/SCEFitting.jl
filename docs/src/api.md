@@ -315,6 +315,28 @@ AngularMomentum.coeff_tensor_complex
 AngularMomentum.complex_to_real_tensor
 ```
 
+## Pointed moment basis (adiabatic site moments)
+
+The site-moment expansion `m_i(e)` is fitted on a **pointed** (site-marked) SALC
+basis: the mark is the displacement decor `SiteDecor(disp = (1, 0))` riding the
+ordinary decor engine, so projection, canonical members and evaluation carry the
+basis unchanged, and the marked site's own `ê` factor is the decor's spin part. Per
+marked reference-cell atom the design row is the SALC vector with the spin matrix's
+marked column substituted by the evaluation axis (identity for a direction-pinning
+datum, the constraint axis for a transverse-penalty one). The truncation is
+mark-aware: the mark's `ê` rank is allowed for any species, environment spins only
+for species the consumer samples; 3-body stars are cut on the two mark–environment
+bonds, the environment–environment edge free. `isotropy = true` (the default) keeps
+the `L_S = 0` blocks only — this package's spelling of upstream SLCE.jl's
+`soc = false`.
+
+```@docs
+MomentSpec
+MomentBasis
+moment_resolvability
+UnclassifiableBasis
+```
+
 ## DFT data sources
 
 The **code-agnostic boundary** of the training-data input: the SCE pipeline only ever sees

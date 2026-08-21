@@ -228,6 +228,34 @@ Easy to break silently — confirm before touching the algorithm.
   persistence, `show` — reads only the dense fields. Add a sugar form or change the
   specificity rule → update the TOML reader (`_cutoff_from_input` etc.), the BasisSpec
   docstring, and `test/unit/test_truncation.jl` together.
+- **The pointed moment basis rides the decor engine, and three conventions keep it
+  honest** (`basis/momentbasis.jl` ↔ `basis/salcbasis.jl` `_orbit_salcs_decors`'s
+  `admit` kwarg ↔ `clusters/orbits.jl` `_orbits_from_members` ↔
+  `clusters/enumerate.jl` `candidate_clusters`): (1) **member multiplicity is the
+  engine's all-orderings convention** — `candidate_clusters` lists every physical
+  instance once per site ordering (3! for a 3-body), and the SALC value scales with
+  that count, so a pointed enumeration emitting fewer orderings silently rescales
+  its columns per orbit (upstream measured half the prototype's 6.0 star oracle) —
+  `_pointed_star_candidates` therefore expands every translation class to all 3!
+  re-anchored orderings, and any new candidate source must do the same. (2) an
+  `admit` predicate handed to `_orbit_salcs_decors` is judged on the lex-min
+  representative of each permutation orbit, so its verdict MUST be a
+  permutation-orbit invariant — anything built from (decor, species,
+  edge-lengths-from-site) data is, because stabilizer perms preserve species and
+  are isometries; a rule reading raw site indices is not. (3) the marked-column
+  substitution in `_design_moment` is exact only because every pointed label
+  carries exactly one mark (a member not marked at the row's atom dies on its
+  |u|² = 0 factor before reading the substituted column) — a future label with
+  two marks breaks the argument, not just the numbers. `moment_resolvability`
+  refuses a member with two ENVIRONMENT spin factors on one reference-cell atom
+  (two periodic images of one neighbor) as `UnclassifiableBasis` — the monomial
+  signature would overcount the rank (harmonic products on one sphere reduce by
+  Clebsch–Gordan; upstream measured 108 symbolic vs 98 actual on the FeGe
+  primitive cell). The gates in `test_momentbasis.jl` are INDEPENDENT references
+  (a geometric triangle enumeration, the 2√3 shell sum, symbolic ≡ random-design
+  rank) — keep them that way; a reference through the SALC machinery gates
+  nothing. `MomentSpec.isotropy = true` is upstream's `MomentSpec.soc = false`
+  (same screen, opposite name — the ledger row).
 - **The moment channel's evaluation axis is keyed by `constraint_mode`, never by
   field presence** (`io/dftsource.jl` `SpinDatum` ctor invariants ↔
   `check_moment_gates` ↔ `io/extxyz.jl` reader/writer ↔ `io/embset.jl`
@@ -385,6 +413,7 @@ the one that bites.
 | Divergence | SLCE.jl spelling | This package | Polarity / caution |
 |---|---|---|---|
 | Decor engine screen | `_orbit_salcs_decors(…, labels, soc::Bool, wcache; lmax_by_species, pmax_by_species, admit)` — 7th **positional**; `soc = true` keeps every `L_S` | `_orbit_salcs_decors(…, labels, wcache; isotropy::Bool)` — **required keyword**; `isotropy = true` keeps `L_S = 0` only | **Opposite meaning in the same slot.** A verbatim upstream call must be a `MethodError` here; never make `isotropy` positional or give it a default |
+| Moment-basis screen | `MomentSpec(; soc = false)` — `soc = true` keeps every `L_S` | `MomentSpec(; isotropy = true)` — `isotropy = false` keeps every `L_S` | Same polarity trap as the engine row, one level up; the field is named `isotropy` here and forwarded as the engine's keyword |
 | Path screen placement | `_decor_coupled_bases(slots)` builds every path; the screen is applied afterwards | `_decor_coupled_bases(slots, isotropy)` hands `AngularMomentum.build_real_bases` a `keep` predicate so a rejected path never builds its tensor | Same SALCs, different call shape; port logic, not signatures |
 | Admission | `_admit_assignment(t, species, …)` — a production, species-resolved rule | only the `admit` hook; callers (tests) transcribe the per-species `lmax` | The pointed builder (D4) will need its own mark-aware rule; upstream's is the reference, not a drop-in |
 | Function-space reduction | none | `_function_vector` / `_reduce_orbit_salcs` (pure-spin only; refuses decorated SALCs, message = wiring checklist) | Exists only here; upstream ports nothing back |

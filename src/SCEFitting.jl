@@ -10,8 +10,8 @@ diagnostics, persistence, Sunny export, introspection) is realized; see `SPEC.md
 """
 module SCEFitting
 
-using LinearAlgebra: norm, det, I, eigen, eigvals, svdvals, Symmetric, Diagonal, dot,
-    cross, qr, ColumnNorm
+using LinearAlgebra: norm, det, I, eigen, eigvals, svdvals, svd, Symmetric, Diagonal,
+    dot, cross, qr, ColumnNorm
 using StaticArrays
 using Statistics: mean
 using Random: AbstractRNG, default_rng
@@ -80,6 +80,10 @@ include("io/dftsource.jl")
 include("io/embset.jl")
 include("io/extxyz.jl")
 
+# Pointed (site-marked) SALC basis for the adiabatic site-moment channel — rides the
+# decor engine; the data boundary above supplies its trio.
+include("basis/momentbasis.jl")
+
 # --- Public API (exported) --------------------------------------------------------
 # The fitting workflow a user reaches for. Construction internals (cluster / neighbor /
 # SALC builders, symmetry analysis) are *public but unexported* — see the block below.
@@ -91,6 +95,7 @@ export AbstractImageSelection, MinimumImage, AllImages
 export AbstractSymmetryBackend, NoSymmetry, SpglibBackend
 # the SCE pipeline
 export BasisSpec, SCEBasis, SCEDataset, SCEPredictor, SCEFit, fit, refit, n_salcs, read_setup
+export MomentSpec, MomentBasis, moment_resolvability
 export predict_energy, predict_torque, has_torque
 # estimators
 export AbstractEstimator, OLS, Ridge, ElasticNet, Lasso, AdaptiveLasso, AdaptiveRidge,
@@ -129,6 +134,7 @@ public Harmonics, SolidHarmonics, AngularMomentum                     # numeric 
 public build_neighbor_list, NeighborPair, NeighborList, interplanar_spacing
 public analyze_symmetry, n_ops, SymOp, SpaceGroup, AbstractTrainingDatum
 public check_moment_gates                                             # moment-channel axis gates
+public UnclassifiableBasis                                            # resolvability refusal
 public build_clusters, ClusterMember, ClusterOrbit, ClusterSet
 public build_salc_basis, evaluate_salc, salcs, SALC, SALCKey, SALCBasis
 public Channel, SPIN, DISP, OCC, SiteFactor, SiteDecor                # decoration labels

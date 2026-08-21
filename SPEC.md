@@ -220,6 +220,26 @@ capability consumed by both the introspection and the Sunny interop.
   cell, optional `[symmetry]`);
   keyword arguments override the file's backend/tol. Training data and the estimator
   stay in Julia (mirrors the basis/data separation).
+- **Pointed moment basis** (`basis/momentbasis.jl`): `MomentSpec` / `MomentBasis` /
+  `moment_resolvability`, the adiabatic site-moment channel's counterpart of
+  `SCEBasis`. The mark is `SiteDecor(disp = (1, 0))` riding the decor engine through
+  its `admit` kwarg; mark-aware admission (mark `ê` factor for any species up to
+  `lmax_mark`, environment spins only for `sampled` species up to `lmax_env` —
+  refused loudly when a spin-bearing species is unsampled); 1/2-body clusters from
+  the ordinary enumeration at `cutoff_pair`, 3-body stars mark–environment-bond cut
+  at `cutoff_star` (env–env edge free) with `candidate_clusters`' all-orderings
+  multiplicity convention (`_orbits_from_members` is `build_clusters`' factored
+  core); even-Σl (TR) only; `isotropy = true` keeps `L_S = 0` (upstream's
+  `soc = false`). `_design_moment`: rows `(config, marked atom)`, marked-column
+  substitution (exact — one mark per label), threaded per column, a mark→term index
+  value-identical to the full evaluation. `moment_resolvability` (D9′): symbolic
+  signature rank in the independent variables `(a, ê_a, e)`, null combinations naming
+  dependent columns, mark-class census; refuses repeated-image environment members
+  (`UnclassifiableBasis`) rather than overcounting. Validated by independent
+  references (`test_momentbasis.jl`): FeGe B20 star closed form = 6.0 × a geometric
+  triangle enumeration, shell-sum normalization 2√3, G_i covariance with axes,
+  bitwise TR, substitution locality, symbolic ≡ random-design rank. The 1-body
+  `[MARK]` columns are the per-orbit intercepts μ₀.
 - **Tabular results** (`sce/coeftable.jl`): `coeftable(fit | model) -> SCECoefficients`
   is a **Tables.jl** source — one row per SALC (`body`, `orbit_id`, `decors` as a
   comma string — `"1,1,2"` on a pure-spin key, exactly the old `ls` column —, `L_S`,

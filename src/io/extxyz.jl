@@ -244,7 +244,10 @@ absent, and a `config_type=joint` claim is refused — all by name, pointing at
 SLCE.jl, which reads joint files. A file is never silently flattened to its spins.
 With a `reference::Crystal`, the stored lattice, species and positions must match it
 exactly (the writer prints shortest-round-trip, so a file this package wrote matches
-bit for bit); without one the file is taken on its own terms.
+bit for bit); without one the file is taken on its own terms — which for a
+**single-frame** file means a displaced structure cannot be told from a reference
+one (there is no second frame to differ from): pass `reference` whenever that
+distinction matters.
 
 Every load re-runs the axis-consistency gates ([`check_moment_gates`](@ref)) — the
 archived constraint axes are re-verified against the converged moment directions,
