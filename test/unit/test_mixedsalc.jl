@@ -348,6 +348,7 @@ end
         # centrosymmetric bond; `isotropy = true` (L_S = 0) removes it.
         @test any(s.key.L_S == 1 for s in sall)
         s0 = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], wcB; isotropy = true)
+        @test !isempty(s0)                          # or the four checks below are vacuous
         @test all(s.key.L_S == 0 for s in s0)
         subset = [s for s in sall if s.key.L_S == 0]
         @test [s.key for s in s0] == [s.key for s in subset]
@@ -367,7 +368,7 @@ end
             abs(F) < 1e-3 && continue
             push!(ratios, evaluate_salc(tw, e, u) / F)
         end
-        @test !isempty(ratios)
+        @test length(ratios) >= 4                   # ≥ 2 is what makes the next line a test
         @test all(r -> isapprox(r, ratios[1]; rtol = 1e-9), ratios)
     end
 
@@ -460,16 +461,39 @@ end
                                                            [lab], wcB)
     end
 
-    @testset "group_costs refuses a decorated basis" begin
-        # the MC entry-key model prices SPIN axes; a decorated basis has none of
-        # its own contract, so the surface refuses rather than under-counting.
+    @testset "pure-spin surfaces refuse a decorated basis; persistence keeps it" begin
+        # the MC entry-key model prices SPIN axes and `multipole_terms` has no
+        # displacement factor; neither surface has a contract for a decorated
+        # basis, so both refuse rather than under-count or mis-scale.
         lab = [SiteDecor(; spin = 1, disp = (0, 1)),
                SiteDecor(; spin = 1, disp = (0, 1))]
         sall = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], wcB; isotropy = false)
         sb = SCEFitting.SALCBasis(sall, [s.key for s in sall])
         spec = SCEFitting.BasisSpec(xtalB; nbody = 2, lmax = 1, cutoff = 1.1)
-        @test_throws ArgumentError SCEFitting.group_costs(
-            SCEFitting.SCEBasis(xtalB, sgB, sb, spec))
+        sce = SCEFitting.SCEBasis(xtalB, sgB, sb, spec)
+        @test_throws ArgumentError SCEFitting.group_costs(sce)
+        @test_throws ArgumentError SCEFitting.multipole_terms(
+            SCEFitting.SCEPredictor(sce, 0.0, ones(length(sall)), sb.keys))
+        # The v5 document's DISP branch: `slots` carry the channel code 2, a
+        # site appears twice (its spin and its displacement slot), and the
+        # key's decors carry (k, l). None of this is reachable from a pure-spin
+        # basis, so the round-trip is asserted here, bit-exact, through a file.
+        doc = SCEFitting._to_doc(sce)
+        @test any(t[2] == Int(DISP) for s in doc["salcs"] for m in s["members"]
+                                    for t in m["terms"] for t in t["slots"])
+        @test any(!allunique(t[1] for t in t["slots"]) for s in doc["salcs"]
+                  for m in s["members"] for t in m["terms"])
+        path = tempname() * ".toml"
+        SCEFitting.save(path, sce)
+        b2 = SCEFitting.load(SCEFitting.SCEBasis, path)
+        rm(path)
+        @test b2.salc_basis.keys == sb.keys
+        @test length(b2.salc_basis.salcs) == length(sall)
+        for (a, b) in zip(sall, b2.salc_basis.salcs)
+            @test a.key == b.key && a.decors == b.decors
+            @test a.L_S == b.L_S && a.Lf == b.Lf
+            @test same_members(a.members, b.members)
+        end
     end
 
     @testset "joint evaluation values: Parseval closed form + hand contraction" begin

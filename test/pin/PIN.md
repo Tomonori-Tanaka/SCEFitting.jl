@@ -41,7 +41,7 @@ are allowed to do about it.
 
 | layer | content | strictness | recapture |
 |---|---|---|---|
-| **L0** structure | `n_salcs`, every key component, each member's `atoms` / `shifts`, each term's slot ranks and tensor shape | **exact on every platform** (integers and labels only) | forbidden |
+| **L0** structure | `n_salcs`, the pure-spin key components (`body`, `orbit_id`, `ls`, `Lf`, `block` — `L_S` and `decors` are derived on a pure-spin key, `L_S ≡ Lf` and `decors ≡ spin_decors(ls)`, and that relation is guarded by `test_persist.jl`'s v4 back-read, not by this pin), each member's `atoms` / `shifts`, each term's slot ranks and tensor shape | **exact on every platform** (integers and labels only) | forbidden |
 | **L0′** coarse mask | the sign/support pattern of `folded` at `eps = 5e-6` | **exact on every platform** | forbidden |
 | **L1** values | every `folded` entry, as the raw IEEE-754 bit pattern in hex | exact on the capture platform, `rtol = 1e-12` elsewhere | conditional |
 | **L2** physics | `‖X_E‖_F²`, `r2`, the fitted `coef`, and held-out predicted energies | exact on the capture platform, loose tolerance elsewhere | conditional |
