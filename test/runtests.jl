@@ -58,6 +58,7 @@ end
         include("unit/test_dftsource.jl")
         include("unit/test_dataset.jl")
         include("unit/test_embset.jl")
+        include("unit/test_extxyz.jl")
         include("unit/test_coeftable.jl")
         include("unit/test_sunny.jl")
         include("unit/test_introspect.jl")

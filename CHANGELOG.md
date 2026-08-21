@@ -6,6 +6,38 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — extended-XYZ training container, axis gates, EMBSET pair reader (2026-08-21)
+
+Step M2 of the pointed site-moment backport (upstream SLCE.jl `d2f9d2f`, adapted to
+the pure-spin `SpinDatum`).
+
+- **`write_extxyz` / `read_extxyz` / `ExtxyzFile`** (`io/extxyz.jl`): the canonical
+  on-disk format for new constrained-noncollinear training sets, in SLCE.jl's
+  dialect so spin-only files interchange between the packages unchanged. The
+  structure is always stored (self-containment removes the "which POSCAR pairs
+  with which EMBSET" bug class); per-atom columns `mw` / `bcon` / `mint` /
+  `mconstr` map 1:1 onto the datum's channels; numbers print shortest-round-trip,
+  so every stored value survives bit-exactly (directions / magmoms / torques
+  re-derive from the written moment vectors, exact to rounding). **This package
+  refuses a joint file by name** — displaced frames, `forces` columns, or a
+  `config_type=joint` claim all error pointing at SLCE.jl — and never flattens one
+  to its spins; spin-only vs joint is measured from positions, the claim only
+  cross-checked. Upstream's provenance keys are accepted and ignored.
+- **`check_moment_gates`** (public, unexported): the moment channel's
+  axis-consistency gates — mode-1 sign consistency (`sign(ê_MW·ê_c) == sign(y)`
+  on rows with `|y| > 5e-3 μ_B`) and the axis-angle 99th percentile (`< 5°`) —
+  run at extxyz generation, at every extxyz load, and in the pair reader, so
+  archived constraint axes are re-verified, never believed. Ported unchanged.
+  Pinned subtleties: a whole-axis flip in mode 1 is a gauge and must not fire;
+  the angle gate is a percentile because collapse rows carry large single-row
+  angles.
+- **`read_embset_pair`** (`io/embset.jl`): the legacy `EMBSET` (smoothed `MW`) +
+  `EMBSET_mint` (bare `M`) sibling reader with loud pairing checks (config
+  count, block shape, field blocks bitwise); energy lines deliberately uncompared
+  (upstream measured ΔE = 0.148 eV between the two writers on the FeRh archive).
+  `read_embset` now shares the parsing core (`_read_embset_blocks`) and is
+  otherwise unchanged.
+
 ### Fixed — `constraint_axes` carries the component bound (2026-08-21)
 
 Review of M1: the axis validation had the `1e-6` norm band but not the

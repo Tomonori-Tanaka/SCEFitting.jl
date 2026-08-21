@@ -331,12 +331,34 @@ SpinDatum
 read_configs
 ```
 
-The one in-core concrete format is Magesty's (code-agnostic) EMBSET training set,
-for legacy-data reuse:
+Two in-core concrete formats. The **extended-XYZ training container** is the canonical
+one for new data — self-contained (the structure is always stored), per-atom columns 1:1
+with the datum's channels, shortest-round-trip numbers, and the same dialect as SLCE.jl
+(a spin-only file moves between the packages unchanged; a joint file is refused here by
+name, never flattened to its spins):
+
+```@docs
+ExtxyzFile
+read_extxyz
+write_extxyz
+```
+
+Magesty's (code-agnostic) EMBSET training set is kept for legacy-data reuse, with a
+reader for the `EMBSET` (smoothed `MW`) + `EMBSET_mint` (bare `M`) sibling pair:
 
 ```@docs
 EmbsetFile
 read_embset
+read_embset_pair
+```
+
+The moment channel's axis-consistency gates run at every boundary an axis-carrying
+datum crosses (extxyz generation, extxyz load, the EMBSET pair reader); archived
+constraint axes are re-verified against the converged moment directions, never
+believed. Public, unexported:
+
+```@docs
+check_moment_gates
 ```
 
 ## Persistence

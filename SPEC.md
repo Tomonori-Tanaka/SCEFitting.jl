@@ -234,7 +234,16 @@ capability consumed by both the introspection and the Sunny interop.
   `constraint_mode ∈ {1, 4}` — mode 1 requires the axes, axes require a mode, the
   bare moment is validated for finiteness only; the E/T paths never read them) and
   `read_configs(src::AbstractDFTSource) -> Vector{SpinDatum}`, with `SCEDataset(basis, src)`
-  going source → dataset. The **concrete per-code adapters live in the `SCETools.jl`
+  going source → dataset. Two in-core formats: the **extended-XYZ training container**
+  (`io/extxyz.jl`: `write_extxyz` / `read_extxyz` / `ExtxyzFile`; the structure is
+  always stored, per-atom columns 1:1 with the datum's channels, shortest-round-trip
+  numbers, the same dialect as SLCE.jl — spin-only files interchange, a joint file is
+  refused by name, never flattened) and Magesty's legacy EMBSET set (`read_embset`,
+  plus `read_embset_pair` for `EMBSET` + `EMBSET_mint` sibling archives: config count /
+  block shape / field blocks bitwise, energies deliberately uncompared). The moment
+  channel's axis gates (`check_moment_gates`: mode-1 sign consistency on decomposable
+  rows + axis-angle p99) run at extxyz generation, extxyz load and the pair reader.
+  The **concrete per-code adapters live in the `SCETools.jl`
   package** (`SCETools.VASP`: `read_poscar`/`write_poscar`, `Oszicar` with SAXIS rotation,
   and the INCAR writer), not in the core. Adding a DFT code is one sibling adapter there —
   neither the core nor its export list changes; the VASP parsers are cross-checked bit-for-bit

@@ -228,6 +228,36 @@ Easy to break silently — confirm before touching the algorithm.
   persistence, `show` — reads only the dense fields. Add a sugar form or change the
   specificity rule → update the TOML reader (`_cutoff_from_input` etc.), the BasisSpec
   docstring, and `test/unit/test_truncation.jl` together.
+- **The moment channel's evaluation axis is keyed by `constraint_mode`, never by
+  field presence** (`io/dftsource.jl` `SpinDatum` ctor invariants ↔
+  `check_moment_gates` ↔ `io/extxyz.jl` reader/writer ↔ `io/embset.jl`
+  `read_embset_pair` ↔ the future moment dataset layer): mode 4 (direction-pinning
+  type) reads `ê` from `directions`, mode 1 (transverse-penalty type) from
+  `constraint_axes` — an availability-keyed fallback ("use `mconstr` if present, else
+  MW") would silently drop a mode-1 datum with missing axes into the broken `ê_MW`
+  coordinate (`‖M‖ → 0` folds the MW direction; upstream measured σ 2.1× on FeRh),
+  so the ctor REFUSES mode 1 without axes AND axes without a declared mode. The
+  gates (`check_moment_gates`) run at every boundary an axis-carrying datum crosses
+  — extxyz generation, extxyz load, the EMBSET pair reader — because archived axes
+  are re-verified, never believed. Two subtleties the tests pin (`test_extxyz.jl`):
+  a whole-axis flip in mode 1 flips `y` with it (the axis sign is a GAUGE — the sign
+  gate must NOT fire, and "fixing" it to fire would refuse every legitimately
+  re-gauged archive), and the angle gate is a PERCENTILE (p99 < 5°), because
+  collapse rows legitimately carry large single-row angles (FeGe τ0.5 max 5.6° at
+  p99 0.14°). The same never-trust-the-flag rule shapes the extxyz reader: spin-only
+  vs joint is MEASURED from positions (bitwise across frames), `config_type` is only
+  a cross-checked claim — and this package, being pure spin, REFUSES a joint file by
+  name (displaced frames, `forces` columns, a `joint` claim; SLCE.jl reads them)
+  rather than flattening it to its spins. `moments_bare` (bare `M_int`) and the
+  smoothed `magmoms·directions` (`MW_int`) are BOTH stored and neither substitutes
+  for the other: the constraint acts on MW (τ and the configuration coordinates),
+  the projection target reads M_int, and their ratio is configuration-dependent
+  (0.691 ± 0.017 on FeGe τ0.5). VASP vocabulary (OSZICAR/INCAR parsing, λ printing,
+  SAXIS, sign conventions) stays in SCETools' generator; the `constraint_mode`
+  numbers follow `I_CONSTRAINED_M`, but the KEY is the physical class — another
+  code's scheme maps onto class 1 or 4 at its adapter. The extxyz dialect (column
+  names, info keys, shortest-round-trip printing) is SLCE.jl's — keep it identical,
+  it is the interchange format between the packages.
 - **`coeftable` columns ↔ `SALCKey` fields** (`sce/coeftable.jl`): each result row is
   read straight off a `SALCKey` (`body` / `orbit_id` / `decors`→comma string / `L_S` /
   `Lf` / `block`) plus `jphi`; the `J` column pairs with `basis.salc_basis.keys` **positionally**

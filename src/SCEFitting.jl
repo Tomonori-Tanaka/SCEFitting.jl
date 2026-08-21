@@ -78,6 +78,7 @@ include("io/persist.jl")
 include("io/input.jl")
 include("io/dftsource.jl")
 include("io/embset.jl")
+include("io/extxyz.jl")
 
 # --- Public API (exported) --------------------------------------------------------
 # The fitting workflow a user reaches for. Construction internals (cluster / neighbor /
@@ -111,11 +112,13 @@ export to_sunny
 export MultipoleTerm, multipole_terms, bilinear_terms
 # DFT data I/O: only the code-agnostic boundary is exported; per-code adapters live in
 # downstream packages as namespaced submodules (e.g. `SCETools.VASP.read_poscar`), so
-# adding a code touches neither the core nor this export list. The one in-core format
-# is Magesty's EMBSET training set — code-agnostic (it carries exactly what SpinDatum
-# stores), kept here for legacy-data reuse.
+# adding a code touches neither the core nor this export list. Two in-core formats:
+# the extended-XYZ training container (canonical for new data; the dialect is shared
+# with SLCE.jl, spin-only files move between the packages unchanged) and Magesty's
+# legacy EMBSET training set (plus its MW + M_int sibling-pair reader).
 export AbstractDFTSource, SpinDatum, read_configs
-export EmbsetFile, read_embset
+export ExtxyzFile, read_extxyz, write_extxyz
+export EmbsetFile, read_embset, read_embset_pair
 
 # --- Public, unexported -----------------------------------------------------------
 # Reachable as `SCEFitting.<name>` (and documented), but kept out of the flat `using`
@@ -125,6 +128,7 @@ export EmbsetFile, read_embset
 public Harmonics, SolidHarmonics, AngularMomentum                     # numeric kernels
 public build_neighbor_list, NeighborPair, NeighborList, interplanar_spacing
 public analyze_symmetry, n_ops, SymOp, SpaceGroup, AbstractTrainingDatum
+public check_moment_gates                                             # moment-channel axis gates
 public build_clusters, ClusterMember, ClusterOrbit, ClusterSet
 public build_salc_basis, evaluate_salc, salcs, SALC, SALCKey, SALCBasis
 public Channel, SPIN, DISP, OCC, SiteFactor, SiteDecor                # decoration labels
