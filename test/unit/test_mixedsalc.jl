@@ -216,6 +216,62 @@ end
         end
     end
 
+    @testset "mixed labels under a genuine 3-cycle (C3v triangle)" begin
+        # The mixed invariance gate below runs on one site (identity permutation)
+        # and on a bond (an involution): no stabilizer op there moves three sites
+        # cyclically, so a transport that relabelled the slots wrongly under a
+        # 3-cycle — the case the C3v anti-drift covers for PURE spin only — would
+        # pass it. The triangle supplies the cycle; first make sure it is there.
+        xt, st = _mx_triangle_c3v()
+        wc3 = _build_wig_cache(st, 2)
+        cs3 = build_clusters(xt, build_neighbor_list(xt, 2.2), st; nbody = 3)
+        O3 = cs3.by_body[3][1]
+        perms = unique(last.(SCEFitting._stabilizer(xt, st, O3.representative)))
+        @test any(p -> p[p] != 1:3, perms)
+        # each op's Cartesian rotation and site map, read off the geometry
+        ctr = [0.5, 0.5, 0.5]
+        pos = [xt.lattice.vectors * (xt.frac_positions[:, i] - ctr) for i = 1:3]
+        acts = map(st.ops) do op
+            R = op.rotation_cart
+            σ = [findfirst(j -> norm(R * pos[i] - pos[j]) < 1e-8, 1:3) for i = 1:3]
+            @test !any(isnothing, σ)
+            (R, σ)
+        end
+        @test any(((R, σ),) -> σ[σ] != 1:3, acts)
+        # the pointed shape (mark on one site, ranks on the other two) and an
+        # asymmetric three-way label
+        labs = [sort([SiteDecor(; spin = 1), SiteDecor(; spin = 1),
+                      SiteDecor(; disp = (1, 0))]),
+                sort([SiteDecor(; spin = 1), SiteDecor(; spin = 1, disp = (0, 1)),
+                      SiteDecor(; spin = 2)])]
+        rng3 = MersenneTwister(0xc3c3)
+        for lab in labs
+            ss = _orbit_salcs_decors(xt, st, 3, 1, O3, [lab], wc3; isotropy = false)
+            @test !isempty(ss)
+            for _ = 1:4
+                e = reduce(hcat, [normalize(randn(rng3, 3)) for _ = 1:3])
+                u = randn(rng3, 3, 3) * 0.4
+                for s in ss
+                    v0 = evaluate_salc(s, e, u)
+                    for (R, σ) in acts
+                        eg = zeros(3, 3)
+                        ug = zeros(3, 3)
+                        for i = 1:3
+                            eg[:, σ[i]] = det(R) * R * e[:, i]   # axial spin
+                            ug[:, σ[i]] = R * u[:, i]            # polar displacement
+                        end
+                        @test evaluate_salc(s, eg, ug) ≈ v0 atol = 1e-10
+                    end
+                end
+                # not vacuous: the rotation WITHOUT its site map is not a
+                # symmetry of the triangle, and some SALC must notice
+                (R, σ) = acts[findfirst(((R, σ),) -> σ[σ] != 1:3, acts)]
+                @test any(s -> !isapprox(evaluate_salc(s, det(R) * R * e, R * u),
+                                         evaluate_salc(s, e, u); atol = 1e-6), ss)
+            end
+        end
+    end
+
     @testset "heterogeneous lmax and the isotropy screen" begin
         # Per-species caps [2, 1]: the apex reaches l = 2, the base pair l = 1,
         # so a label's sites carry different ranks and the l = 1 sites are the

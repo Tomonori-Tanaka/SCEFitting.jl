@@ -70,6 +70,14 @@ builder yet — the production pure-spin path is untouched.
   review found broken: the Cs isosceles triangle (`ls = [1,1,2]` splits into two
   ordering orbits sharing one sorted label) and the C3v triangle (one orbit of
   three assignments, where the gauge is column-order dependent).
+- **Mixed labels are checked under a genuine 3-cycle**: the mixed invariance
+  gate had only the single site (identity permutation) and the bond (an
+  involution), so a slot relabelling that is wrong under a cyclic site map — the
+  case the C3v anti-drift covers for pure spin only — would have passed. The C3v
+  triangle now runs the pointed shape (mark on one site, ranks on the other two)
+  and an asymmetric three-way label through all six ops with their site maps,
+  after asserting the stabilizer really contains a 3-cycle and that the rotation
+  without its site map is not a symmetry.
 - **The invariant counts are checked against a Cartesian projector** that shares
   no code with the SALC machinery — no Clebsch–Gordan, no Wigner-D, no spherical
   harmonics — built by averaging the group action over the multilinear forms in
