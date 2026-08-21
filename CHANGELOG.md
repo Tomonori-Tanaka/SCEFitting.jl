@@ -45,6 +45,13 @@ the vanishing-column freeze mechanism, the prediction door (including the
 component bound), multi-orbit bookkeeping, the hard refusal of an unclassifiable
 basis at the dataset door, and the persistence refusal.
 
+Real-data acceptance (design record §3.3, the "right after M3" item): on the
+2×2×2 FeGe B20 sets SLCE.jl wrote (τ0.1 + τ0.5 training, τ0.3 held-out, gate
+2.2e-4 μB), read here through `read_extxyz(...; reference)`, the L1 pair basis
+(13 columns) reproduces upstream's held-out σ = 0.0699 μB to +0.00 % and the L2
+pair basis (25 columns) 0.0824 μB to +0.03 %, with identical kept counts
+(12757/12800). Script and log: the design record's `step2_assets/fege/`.
+
 ### Added — `MomentBasis` gates closed after the saboteur and numerical reviews (2026-08-21)
 
 Every fixture had `marked_atoms == 1:8`, so a slot or row index used as an atom
