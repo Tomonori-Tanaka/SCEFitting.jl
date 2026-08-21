@@ -337,6 +337,26 @@ Easy to break silently — confirm before touching the algorithm.
   (`residuals_energy` returns the stored vector, `residuals_torque`/`rss_torque` recompute
   `y_T − X_T·jϕ` and validate `has_torque`; `r2_*`/`rmse_*` build on `rss_*`).
 
+## Upstream divergence ledger (SLCE.jl ↔ this package)
+
+This package is the pure-spin carve-out of SLCE.jl and stays a **standalone**
+package (no dependency on it). Ported files are kept close to upstream so patches
+apply both ways, but the divergences below are deliberate and must survive a
+"re-sync". Before porting anything across, read this table; the polarity column is
+the one that bites.
+
+| Divergence | SLCE.jl spelling | This package | Polarity / caution |
+|---|---|---|---|
+| Decor engine screen | `_orbit_salcs_decors(…, labels, soc::Bool, wcache)` — 7th **positional**; `soc = true` keeps every `L_S` | `_orbit_salcs_decors(…, labels, wcache; isotropy::Bool)` — **required keyword**; `isotropy = true` keeps `L_S = 0` only | **Opposite meaning in the same slot.** A verbatim upstream call must be a `MethodError` here; never make `isotropy` positional or give it a default |
+| Path screen placement | `_decor_coupled_bases(slots)` builds every path; the screen is applied afterwards | `_decor_coupled_bases(slots, isotropy)` hands `AngularMomentum.build_real_bases` a `keep` predicate so a rejected path never builds its tensor | Same SALCs, different call shape; port logic, not signatures |
+| Admission | `_admit_assignment(t, species, …)` — a production, species-resolved rule | only the `admit` hook; callers (tests) transcribe the per-species `lmax` | The pointed builder (D4) will need its own mark-aware rule; upstream's is the reference, not a drop-in |
+| Function-space reduction | none | `_function_vector` / `_reduce_orbit_salcs` (pure-spin only; refuses decorated SALCs, message = wiring checklist) | Exists only here; upstream ports nothing back |
+| `SolidHarmonics` | values + Euclidean gradient API (`solid_harmonics_grad[!]`, `grad_Rlm`) + `solid_harmonic_poly` (ASR builder) | **values only** (347 → 240 lines); the value recurrence is upstream's line for line | No force rows here; do not re-port the gradient "because upstream has it" — count what the production path actually reads (`R₀₀ ≡ 1`) |
+| `hash(::SiteFactor)` / `hash(::SiteDecor)` | none (falls back to `objectid`-free struct hashing of the fields) | content-based, via `_decortuple` | Scheduled for upstream as RP-1; the row disappears once it lands |
+| `_decor_string` token | `u(k,l)` (comma inside a comma-joined column) | `u(k:l)` | Fixed here first (MIN-5); same patch scheduled upstream |
+| Persist reader | `_term_from(d)` — slot count / site range / axis extent unchecked | `_term_from(d, natoms)` — all three refused | Fixed here first (M2); same patch scheduled upstream |
+| Test oracles | `CountingOracle` (852 lines), `_ls_block_stats` (C-2 block diagonality) | a ~45-line Cartesian projector; C-2 deferred to wiring | Counts agree; the oracle here shares no code with the SALC machinery |
+
 ## Tests
 
 | Command | Purpose |
