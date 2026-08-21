@@ -99,11 +99,14 @@ function group_costs(basis::SCEBasis,
     for j in eachindex(sl)
         set = sets[labels[j]]
         for m in sl[j].members, t in m.terms
-            _push_entries!(set, m.atoms, m.shifts, t.ls, t.folded)
+            # Pure-spin entry key (the MC-contract migration moves this to
+            # slots); identical values to the v4 per-site ls on today's bases.
+            _push_entries!(set, m.atoms, m.shifts, _term_spin_ls(t), t.folded)
         end
     end
     # One site-program slot per member site of each distinct entry (k[3] is the
-    # entry's l-assignment; its length is the member's site count = body order).
+    # entry's SPIN-axis rank list; on a pure-spin basis every axis is a distinct
+    # site, so its length is the member's site count = body order).
     return [sum(k -> length(k[3]), s; init = 0) for s in sets]
 end
 

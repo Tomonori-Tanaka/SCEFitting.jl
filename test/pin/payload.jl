@@ -54,7 +54,7 @@ function pin_payload(fx)::Dict{String,Any}
             push!(mems, string(c, " ", mi, " [", join(m.atoms, ","), "] ",
                                join("(" * join(v, ",") * ")" for v in m.shifts)))
             for (ti, t) in enumerate(m.terms)
-                lst = collect(Int, t.ls)
+                lst = Int[sl.factor.l for sl in t.slots]
                 push!(terms, string(c, " ", mi, " ", ti, " [", join(lst, ","), "] [",
                                     join(size(t.folded), ","), "]"))
                 push!(support, join(abs(v) <= PIN_EPS ? '.' : (v > 0 ? '+' : '-')

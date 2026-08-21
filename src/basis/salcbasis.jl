@@ -354,11 +354,19 @@ function _function_vector(s::SALC)
     raw2 = 0.0
     for m in s.members, t in m.terms
         raw2 += sum(abs2, t.folded)
+        # The SPIN-axis ranks stand in for the old per-site `ls`: this engine only
+        # ever builds pure-spin terms, whose slots are the identity map, so the
+        # partition is the one it always was. Hoisted out of the entry loop —
+        # `_term_spin_ls` allocates where the old `t.ls` was a field read.
+        # Keying on `t.slots` directly would save that allocation and cost 44%
+        # wall time (measured): `hash(::Slot)` goes through `objectid`, and this
+        # dict is looked up once per nonzero tensor entry.
+        tls = _term_spin_ls(t)
         flat = vec(t.folded)                    # reshape view, no copy
         @inbounds for li in eachindex(flat)
             c = flat[li]
             c == 0.0 && continue
-            k = (m.atoms, t.ls, li)
+            k = (m.atoms, tls, li)
             v[k] = get(v, k, 0.0) + c
         end
     end
@@ -452,7 +460,7 @@ function _orbit_salcs(crystal::Crystal, spacegroup::SpaceGroup, N::Int, orbit_id
                     mterms = SALCTerm[]
                     for (o, F) in terms_rep
                         mls, G = _transport_term(o, F, g, perm, wcache)
-                        push!(mterms, SALCTerm(mls, G))
+                        push!(mterms, SALCTerm(spin_slots(mls), G))
                     end
                     push!(members, SALCMember(m.atoms, m.shifts, mterms))
                 end

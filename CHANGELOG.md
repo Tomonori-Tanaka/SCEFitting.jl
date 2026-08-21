@@ -6,6 +6,42 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — SALC terms carry slots, not a per-site `ls` (2026-08-21)
+
+**Breaking** for anything that read `SALCTerm.ls` or built a `SALCTerm`
+positionally. `MultipoleTerm` is unchanged, so the downstream Monte-Carlo
+contract is untouched.
+
+- **`SALCTerm.ls::Vector{Int}` -> `SALCTerm.slots::Vector{Slot}`**: one entry per
+  tensor axis, carrying the member-site index it contracts against plus its
+  decoration factor. A pure-spin term is the identity slot list
+  `spin_slots(ls)`, so every moved path is bit-identical on the bases this
+  package builds.
+  - `_canonicalize_members` remaps slot sites under the `(atom, shift)` sort and
+    brings the axes to the canonical slot order — which reduces exactly to the
+    old axes-follow-sites `permutedims` for identity terms.
+  - The evaluation and gradient kernels read `l` and the atom through the slots.
+  - `group_costs` and the orbit reduction key on `_term_spin_ls(t)`, the term's
+    SPIN-axis ranks — the same values the per-site `ls` gave.
+- **Persistence**: v5 term docs store `"slots"` (`[site, channel code, k, l]`
+  per axis); a v2-v4 term's `"ls"` maps to the identity spin slot list on read.
+  The gate-(a) test now downgrades both halves of a document.
+- **`multipole_terms` refuses a displacement-decorated basis** rather than
+  dropping or mis-scaling: a `MultipoleTerm` has no displacement factor, and
+  consumers derive the `(4π)^(body/2)` scale from the term shape.
+- **Verified by a cross-commit bit-identity probe**, not only by the suites: a
+  model built and serialized by the pre-refactor commit reproduces byte-equal
+  keys, coefficients, energies, torques, fingerprints and `multipole_terms`
+  both when rebuilt on the new code and when its file is read through the new
+  reader (5 crystals, 643 compared lines, both arms identical).
+- **Performance**: the design-matrix path is allocation-neutral to the byte; the
+  basis build costs +3.4 % allocations and +3.8 % wall time for the wider label.
+  Numbers, attribution and one rejected micro-optimisation are in
+  `bench/BENCH_LOG.md`.
+- `test/unit/test_selection.jl` gains a direct assertion that on a pure-spin
+  basis a term's slot count IS the body order — the identity the Monte-Carlo
+  slot pricing rests on, and one that byte-equality of the basis cannot catch.
+
 ### Fixed — `SALCKey`'s hash is content-based again (2026-08-21)
 
 Adding `SiteDecor` to the key silently made `SALCBasis.fingerprint` a function

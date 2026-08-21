@@ -102,3 +102,57 @@ Same machine, same session, same fixtures. Both packages emit **the same
   Fixed with an explicit `using <Pkg>: solve_coefficients`. The script had been
   dead since the export/public split; nothing runs `bench/` in CI, so nothing
   caught it.
+
+---
+
+## Slot-based SALC term layout (D2) — 2026-08-21
+
+**Context**: branch `feat/pointed-moment` · baseline `6967364` (pre-D2) measured on
+the same machine in the same session as the after numbers · local macOS (darwin
+24.6, aarch64) · julia 1.12.6 · threads = 1 · stress defaults.
+
+`SALCTerm` moved from a per-site `ls::Vector{Int}` to a per-axis
+`slots::Vector{Slot}` (a `Slot` is `(site::Int, factor::SiteFactor)`, so four
+words per axis where an `l` was one).
+
+### GATE — `bench_salcbasis` (bcc Fe 4x4x4, 128 atoms, lmax 3, cutoff 6.0)
+
+| | before (`6967364`) | after (D2) | delta |
+|---|---|---|---|
+| median | 2806 ms | **2914 ms** | **+3.8 %** |
+| allocs | 70,873,129 | **73,263,913** | **+2,390,784 (+3.4 %)** |
+| memory | 4256.84 MiB | 4389.00 MiB | +3.1 % |
+| `n_salcs` | 129 | 129 | — |
+
+**The allocation gate trips (zero tolerance), deliberately.** What was traded:
+the term label is now channel-aware, which is the whole point of the slice, and
+it costs one `Vector{Slot}` per raw term at construction plus one more in
+`_canonicalize_members`' remap, where the old layout allocated one
+`Vector{Int}`. Wall time stays inside the 5 % secondary gate.
+
+Note the scale: the finished basis holds 137,472 terms over 109,568 members, so
+the +2.39 M allocations are dominated by the *pre-reduction* term population,
+not by the surviving one.
+
+### GATE — `bench_design_matrix` (bcc Fe 4x4x4, 100 cfg, lmax 2)
+
+| | before (`116c4fd`) | after (D2) | delta |
+|---|---|---|---|
+| `_design_energy` median | 466 ms | 469 ms | +0.6 % |
+| `_design_energy` allocs | 11,299,224 | **11,299,224** | **0** |
+| `_design_torque` median | 991 ms | 1030 ms | +3.9 % |
+| `_design_torque` allocs | 7,527,192 | **7,527,192** | **0** |
+
+**The evaluation half is allocation-neutral to the byte.** Reading `l` and the
+site through a slot instead of a parallel `ls` vector costs nothing in the
+kernels — the indirection is resolved at compile time.
+
+### One micro-optimisation tried and rejected
+
+`_function_vector` (the orbit-reduction key builder) allocates one
+`Vector{Int}` per term for `_term_spin_ls(t)`. Keying the dictionary on
+`t.slots` directly removes that allocation — measured 73,263,913 -> 72,988,981 —
+but costs **+44 % wall time** (2914 -> 4206 ms), because `hash(::Slot)` goes
+through `objectid` and that dictionary is probed once per nonzero tensor entry.
+Reverted; the comment in `_function_vector` records the measurement so nobody
+re-tries it.

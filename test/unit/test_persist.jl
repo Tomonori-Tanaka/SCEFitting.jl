@@ -28,7 +28,7 @@ function _basis_identical(a::SCEBasis, b::SCEBasis)
             (ma.atoms == mb.atoms && ma.shifts == mb.shifts) || return false
             length(ma.terms) == length(mb.terms) || return false
             for (ta, tb) in zip(ma.terms, mb.terms)
-                (ta.ls == tb.ls && ta.folded == tb.folded) || return false
+                (ta.slots == tb.slots && ta.folded == tb.folded) || return false
             end
         end
     end
@@ -135,9 +135,10 @@ end
                 N = length(m.atoms)
                 p = collect(N:-1:1)
                 push!(members, MR.SALCMember(m.atoms, m.shifts,
-                    [MR.SALCTerm(t.ls, 0.5 .* t.folded) for t in m.terms]))
+                    [MR.SALCTerm(copy(t.slots), 0.5 .* t.folded) for t in m.terms]))
                 push!(members, MR.SALCMember(m.atoms[p], [sh + R0 for sh in m.shifts[p]],
-                    [MR.SALCTerm(t.ls[p], 0.5 .* permutedims(t.folded, p))
+                    [MR.SALCTerm(MR.spin_slots(MR._term_spin_ls(t)[p]),
+                                 0.5 .* permutedims(t.folded, p))
                      for t in m.terms]))
             end
             MR.SALC(s.key, s.body, s.decors, s.L_S, s.Lf, members)
@@ -163,6 +164,10 @@ end
         end
         for sd in doc["salcs"]
             _v4key!(sd["key"])
+            for md in sd["members"], td in md["terms"]
+                td["ls"] = Int[t[4] for t in td["slots"]]   # identity spin slots
+                delete!(td, "slots")
+            end
         end
         for cd in doc["couplings"]
             _v4key!(cd["key"])

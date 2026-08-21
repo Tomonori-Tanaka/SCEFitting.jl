@@ -141,21 +141,39 @@ end
             G = maximum(labels)
             @test length(costs) == G
 
-            # independent brute force with a structurally different key encoding
+            # independent brute force with a structurally different key encoding:
+            # nested tuples rather than the vectors `_EntryKey` uses, and the slot
+            # labels spelled out here rather than routed through `_slotkey` or
+            # `_term_spin_ls`.
             bysets = [Set{Any}() for _ = 1:G]
             for (j, s) in enumerate(salcs(b))
                 for mem in s.members, t in mem.terms
+                    slotkey = Tuple((Int(sl.factor.channel), sl.site,
+                                     sl.factor.k, sl.factor.l) for sl in t.slots)
                     for idx in CartesianIndices(t.folded)
                         t.folded[idx] == 0.0 && continue
                         key = (Tuple(mem.atoms), Tuple(Tuple.(mem.shifts)),
-                               Tuple(t.ls), Tuple(idx))
+                               slotkey, Tuple(idx))
                         push!(bysets[labels[j]], key)
                     end
                 end
             end
+            # The identity the slot price rests on, asserted directly: on a
+            # pure-spin basis every term's slot list is the identity site map, so
+            # the slot count IS the body order. A regression that made a term
+            # carry two slots on one site would leave every stored number
+            # unchanged and only show up here.
+            @test all(length(t.slots) == s.body == length(mem.atoms) &&
+                      all(sl.factor.channel === SCEFitting.SPIN for sl in t.slots) &&
+                      [sl.site for sl in t.slots] == collect(eachindex(mem.atoms))
+                      for s in salcs(b) for mem in s.members for t in mem.terms)
+
             # sweep pricing: each distinct entry costs one site-program slot per
-            # member site (k[3] of the brute-force key is the ls tuple, so its
-            # length is the member's site count). [Backported from SLCE.jl a596ea3.]
+            # SLOT of the term (k[3] of the brute-force key is the slot tuple).
+            # On a pure-spin basis every slot is a distinct site, so this is still
+            # the member's site count = body order — the equality below is what
+            # pins that, and it is NOT caught by byte-equality of the basis.
+            # [Backported from SLCE.jl a596ea3.]
             slotsum(S) = sum(k -> length(k[3]), S; init = 0)
             @test costs == slotsum.(bysets)
             # the sweep price is bounded below by the bare entry count (a 1-body
