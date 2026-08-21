@@ -98,7 +98,7 @@ design-matrix-column identity), plus the fitted coefficient:
 |---|---|
 | `body` | body order ``N`` of the cluster (2 = pair, 3 = triplet, …) |
 | `orbit_id` | index of the cluster symmetry orbit at that body order |
-| `decors` | the per-site decoration multiset, as a comma-joined string. A pure-spin site renders as its bare ``l``, so this package's keys read `"1,1,2"` exactly as the old `ls` column did |
+| `decors` | the per-site decoration multiset, as a comma-joined string. A pure-spin site renders as its bare ``l``, so this package's keys read `"1,1,2"` exactly as the old `ls` column did; a displacement factor would render as `u(k:l)` (colon inside the token, so the column always splits on commas back into its sites) |
 | `L_S` | total coupled **spin** rank of the label. Every key this package builds is pure spin, so `L_S == Lf` throughout; the column exists because the key layout is shared with the spin–lattice expansion, where the two differ |
 | `Lf` | final coupled angular momentum ``L_f`` of the invariant |
 | `block` | disambiguates independent ``l``-orderings / coupling paths sharing the same `(body, orbit_id, decors, L_S, Lf)` |

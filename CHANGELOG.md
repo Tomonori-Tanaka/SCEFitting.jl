@@ -223,7 +223,7 @@ this commit, which is the evidence that the relabel is value-preserving).
   `multipole_terms` (the downstream Monte-Carlo program-array proxy).
 - **`coeftable` columns are now `body`, `orbit_id`, `decors`, `L_S`, `Lf`,
   `block`, `J`.** A pure-spin row still renders as `"1,1,2"`, so the string a
-  reader sees is unchanged; displacement factors would render as `u(k,l)`.
+  reader sees is unchanged; displacement factors would render as `u(k:l)` (colon inside the token, so the comma-joined column stays splittable).
 - `salc_groups` groups on `(body, orbit_id, decors)` — identical groups on a
   pure-spin basis. Bilinear extraction classifies on `decors` and reports any
   displacement-decorated SALC as `:unsupported` rather than dropping it.

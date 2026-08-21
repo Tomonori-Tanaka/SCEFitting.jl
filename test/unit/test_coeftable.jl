@@ -50,7 +50,10 @@ using Random
         # mixed decors render the displacement factor explicitly
         mixed = [SCEFitting.SiteDecor(; spin = 2, disp = (0, 1)),
                  SCEFitting.SiteDecor(; disp = (1, 0))]
-        @test SCEFitting._decor_string(mixed) == "2+u(0,1),u(1,0)"
+        @test SCEFitting._decor_string(mixed) == "2+u(0:1),u(1:0)"
+        # the column must split on commas back into its sites (a consumer reads
+        # this from CSV / Arrow), so no token may contain a comma
+        @test length(split(SCEFitting._decor_string(mixed), ",")) == length(mixed)
     end
 
     @testset "rows, indexing, iteration, accessors" begin
