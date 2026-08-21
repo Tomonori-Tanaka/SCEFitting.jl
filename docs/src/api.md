@@ -290,10 +290,7 @@ scale, and the slot order independently of the pure-spin engine.
 SolidHarmonics
 SolidHarmonics.solid_harmonics
 SolidHarmonics.solid_harmonics!
-SolidHarmonics.solid_harmonics_grad
-SolidHarmonics.solid_harmonics_grad!
 SolidHarmonics.Rlm
-SolidHarmonics.grad_Rlm
 SolidHarmonics.solid_harmonic_index
 SolidHarmonics.num_solid_harmonics
 ```

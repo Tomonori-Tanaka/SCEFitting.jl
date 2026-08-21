@@ -105,8 +105,8 @@ builder yet — the production pure-spin path is untouched.
 A pure addition: no existing code path calls it yet. `SolidHarmonics` is the
 counterpart of `Harmonics` for polar factors — real solid harmonics `Rₗₘ(u)`
 evaluated as homogeneous polynomials in the Cartesian components of `u`, so
-they are regular and exactly `0` (for `l ≥ 1`) at `u = 0`, together with their
-**Euclidean** gradients. Its normalization is 4π-free (Racah-type):
+they are regular and exactly `0` (for `l ≥ 1`) at `u = 0`. Its normalization
+is 4π-free (Racah-type):
 `Rₗₘ(û) = √(4π/(2l+1)) · Harmonics.Zlm(l, m, û)` on the unit sphere, and the
 rank-1 factors are literally `R₁₋₁, R₁₀, R₁₁ = y, z, x`.
 
@@ -132,10 +132,15 @@ special-case `l = 0`. Basis *construction* never calls it at all (`l = 0` axes
 skip rotation, `l > 0` axes go through the Wigner cache), and no physical
 displacement field enters this package's models.
 
-The kernel is ported from SLCE.jl `0ba2dc5` unchanged; its tests are
-independent of it (the Racah relation against `Harmonics.Zlm` up to `l = 16`,
-homogeneity `R(λu) = λˡ R(u)`, the closed-form rank-1 and `u = 0` values, and
-central differences for the gradient).
+The value kernel is ported from SLCE.jl `0ba2dc5`; its tests are independent
+of it (the Racah relation against `Harmonics.Zlm` up to `l = 16`, homogeneity
+`R(λu) = λˡ R(u)`, the closed-form rank-1 and `u = 0` values). **The gradient
+API upstream ships alongside it (`solid_harmonics_grad`, `solid_harmonics_grad!`,
+`grad_Rlm`, and the `∂A/∂z`, `∂A/∂r²` recurrence state inside the evaluator)
+was dropped before merge**: a pure-spin package has no force rows, the
+production route reads the kernel at `R₀₀ ≡ 1` alone, and the joint gradient
+form refuses a decorated SALC, so it had no caller and no prospect of one. The
+value recurrence is the upstream one line for line.
 
 ### Changed — SALC terms carry slots, not a per-site `ls` (2026-08-21)
 
