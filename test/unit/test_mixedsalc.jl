@@ -337,6 +337,11 @@ end
         @test_throws ArgumentError SCEFitting.accumulate_grad!(zeros(3, 2), mixed,
                                                                e, 1.0)
         @test_throws ArgumentError evaluate_salc(mixed, e, zeros(3, 1))  # size
+        # the function-space reduction keys on SPIN ranks; a decorated SALC is
+        # refused at its entry (and through `_reduce_orbit_salcs`), not merged
+        @test_throws ArgumentError SCEFitting._function_vector(mixed)
+        @test_throws ArgumentError SCEFitting._reduce_orbit_salcs(sall)
+        @test SCEFitting._function_vector(first(pure)) isa Tuple
         # duplicate labels are rejected (collinear-column guard)
         lab2 = [SiteDecor(; spin = 1, disp = (0, 1)),
                 SiteDecor(; spin = 1, disp = (0, 1))]

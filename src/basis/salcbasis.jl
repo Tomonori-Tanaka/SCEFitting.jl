@@ -656,6 +656,20 @@ const _AGG_DEP_RTOL = 1e-8
 # Aggregated (shift-blind) monomial coefficient vector of one SALC, plus the
 # unaggregated tensor norm used as the zero-test scale.
 function _function_vector(s::SALC)
+    # Pure spin only. The aggregate key below reads the SPIN-axis ranks and the
+    # member atoms, which names a function uniquely ONLY while every slot is a spin
+    # slot; on a decorated term two different terms can share a key and the
+    # reduction would merge or drop them silently. Refusing here is the gate that
+    # keeps the decor engine out of `_reduce_orbit_salcs` until it is wired in on
+    # purpose — and the message is the checklist for doing so.
+    all(is_pure_spin, s.decors) || throw(ArgumentError(
+        "function-space reduction of a displacement-decorated SALC is not wired: " *
+        "the aggregate key reads SPIN ranks only. Wiring checklist — (a) key on " *
+        "the full slot list (channel, site, k, l) with a content-based " *
+        "hash(::Slot) [M1(a)]; (b) the mixed-label 3-cycle invariance gate on the " *
+        "C3v triangle [C-1(2)]; (c) the L_S block-diagonality gate over all " *
+        "(L_S, Lf) blocks at once [C-2]; (d) an lsum cap for decorated labels and " *
+        "its anti-drift run [MIN-7]"))
     v = Dict{Tuple{Vector{Int},Vector{Int},Int},Float64}()
     raw2 = 0.0
     for m in s.members, t in m.terms

@@ -56,9 +56,13 @@ builder yet — the production pure-spin path is untouched.
   `(4π)^(n_spin/2)` over the spin slots. A pure-spin SALC evaluates `===` to the
   two-argument form; a decorated one is exactly `0` at `u = 0`.
 - **The spin-only kernels now refuse a decorated SALC** — `evaluate_salc(salc,
-  e)`, `accumulate_grad!`, and `group_costs` — rather than reading a `DISP` rank
-  as a spin harmonic under the wrong `(4π)` scale. Same refusing-beats-
-  mis-scaling rule as `multipole_terms`.
+  e)`, `accumulate_grad!`, `group_costs`, and the function-space reduction
+  (`_function_vector` / `_reduce_orbit_salcs`, whose aggregate key reads SPIN
+  ranks only and would merge or drop decorated terms silently; its message is
+  the checklist for wiring the decor engine in) — rather than reading a `DISP`
+  rank as a spin harmonic under the wrong `(4π)` scale. Same refusing-beats-
+  mis-scaling rule as `multipole_terms`. Allocation-neutral on the
+  `bench_salcbasis` gate (73,263,913, unchanged).
 - **The anti-drift gate** is the point of the slice: given the same label and
   the same admission rule, the decor engine must reproduce the production
   engine's SALCs **bitwise** — keys, `block` indices, slots and folded tensors.
