@@ -175,6 +175,31 @@ end
     csB = build_clusters(xtalB, build_neighbor_list(xtalB, 1.1), sgB; nbody = 2)
     O2 = csB.by_body[2][1]                      # the 1.0-long x bond orbit
 
+    # -- trivial-group (P1) views of the same two crystals: every coupling path
+    # is invariant, so a label's SALCs are a complete orthonormal set (the
+    # Parseval gate) and any label shape yields SALCs for the refusal gates.
+    I3 = SMatrix{3,3,Float64}(I)
+    z3 = SVector{3,Float64}(0, 0, 0)
+    sgP1 = _assemble_spacegroup(xtal, [I3], [z3], "P1", 1; tol = 1e-5)
+    wcP1 = _build_wig_cache(sgP1, 2)
+    O1P1 = build_clusters(xtal, build_neighbor_list(xtal, 2.1), sgP1;
+                          nbody = 1).by_body[1][1]
+    sgP1B = _assemble_spacegroup(xtalB, [I3], [z3], "P1", 1; tol = 1e-5)
+    wcP1B = _build_wig_cache(sgP1B, 2)
+    O2P1 = build_clusters(xtalB, build_neighbor_list(xtalB, 1.1), sgP1B;
+                          nbody = 2).by_body[2][1]
+    # -- fixture C: fixture B's bond plus a SPECTATOR atom 1 far from it, so the
+    # bond's member atoms are [2, 3]: a slot's site index is NOT its atom number
+    # here. Every other fixture has `atoms == 1:N`, where `atoms[sl.site]` and
+    # `sl.site` coincide and the canonical porting slip cannot be seen.
+    xtalC = Crystal(latB, [0.5 1/6 -1/6; 0.5 0.0 0.0; 0.5 0.0 0.0], [1, 1, 1], ["Fe"])
+    sgP1C = _assemble_spacegroup(xtalC, [I3], [z3], "P1", 1; tol = 1e-5)
+    wcP1C = _build_wig_cache(sgP1C, 2)
+    csC = build_clusters(xtalC, build_neighbor_list(xtalC, 1.1), sgP1C; nbody = 2)
+    @test length(csC.by_body[2]) == 1               # the spectator is out of reach
+    O2P1C = csC.by_body[2][1]
+    @test sort(O2P1C.representative.atoms) == [2, 3]
+
     # Per pure-spin label: the decor engine, handed that one label, must
     # reproduce the production engine's SALCs bitwise — same keys (block indices
     # included) and same members (slots and folded tensors, `==` on Float64).
@@ -240,10 +265,14 @@ end
         @test any(((R, σ),) -> σ[σ] != 1:3, acts)
         # the pointed shape (mark on one site, ranks on the other two) and an
         # asymmetric three-way label
+        # (the first two carry ONE disp slot, which every site map fixes; the
+        # third carries two, so the 3-cycle moves a DISP axis as well)
         labs = [sort([SiteDecor(; spin = 1), SiteDecor(; spin = 1),
                       SiteDecor(; disp = (1, 0))]),
                 sort([SiteDecor(; spin = 1), SiteDecor(; spin = 1, disp = (0, 1)),
-                      SiteDecor(; spin = 2)])]
+                      SiteDecor(; spin = 2)]),
+                sort([SiteDecor(; spin = 1, disp = (0, 1)), SiteDecor(; spin = 1),
+                      SiteDecor(; disp = (1, 0))])]
         rng3 = MersenneTwister(0xc3c3)
         for lab in labs
             ss = _orbit_salcs_decors(xt, st, 3, 1, O3, [lab], wc3; isotropy = false)
@@ -399,6 +428,20 @@ end
         @test_throws ArgumentError SCEFitting._function_vector(mixed)
         @test_throws ArgumentError SCEFitting._reduce_orbit_salcs(sall)
         @test SCEFitting._function_vector(first(pure)) isa Tuple
+        # The same refusals on the POINTED label shape, where one decor IS pure
+        # spin. The guard is `all(is_pure_spin, decors)`; an `any` would admit
+        # this label into the spin kernels (the mark's l = 0 read as Z₀₀ under
+        # the wrong 4π), and the impure-only label above cannot tell the two
+        # apart.
+        lab_p = sort([SiteDecor(; disp = (1, 0)), SiteDecor(; spin = 2)])
+        pointed = _orbit_salcs_decors(xtalB, sgP1B, 2, 1, O2P1, [lab_p], wcP1B;
+                                      isotropy = false)
+        @test !isempty(pointed)
+        @test any(SCEFitting.is_pure_spin, first(pointed).decors)
+        @test_throws ArgumentError evaluate_salc(first(pointed), e)
+        @test_throws ArgumentError SCEFitting.accumulate_grad!(zeros(3, 2),
+                                                               first(pointed), e, 1.0)
+        @test_throws ArgumentError SCEFitting._function_vector(first(pointed))
         # duplicate labels are rejected (collinear-column guard)
         lab2 = [SiteDecor(; spin = 1, disp = (0, 1)),
                 SiteDecor(; spin = 1, disp = (0, 1))]
@@ -474,6 +517,16 @@ end
         @test_throws ArgumentError SCEFitting.group_costs(sce)
         @test_throws ArgumentError SCEFitting.multipole_terms(
             SCEFitting.SCEPredictor(sce, 0.0, ones(length(sall)), sb.keys))
+        # and on the pointed shape, whose label contains a pure-spin decor (an
+        # `any`-shaped guard would let it through; see the refusals testset)
+        labp = sort([SiteDecor(; disp = (1, 0)), SiteDecor(; spin = 2)])
+        sp = _orbit_salcs_decors(xtalB, sgP1B, 2, 1, O2P1, [labp], wcP1B;
+                                 isotropy = false)
+        sbp = SCEFitting.SALCBasis(sp, [s.key for s in sp])
+        scep = SCEFitting.SCEBasis(xtalB, sgP1B, sbp, spec)
+        @test_throws ArgumentError SCEFitting.group_costs(scep)
+        @test_throws ArgumentError SCEFitting.multipole_terms(
+            SCEFitting.SCEPredictor(scep, 0.0, ones(length(sp)), sbp.keys))
         # The v5 document's DISP branch: `slots` carry the channel code 2, a
         # site appears twice (its spin and its displacement slot), and the
         # key's decors carry (k, l). None of this is reachable from a pure-spin
@@ -515,40 +568,42 @@ end
         # sight. One documented convention enters: the same physical cluster
         # arrives as N! ordered images which `_canonicalize_members` SUMS into one
         # member (`basis/salc.jl`), so the value carries N! and the sum (N!)².
-        # Under C₁ the two-site orbit is exactly those images (asserted below).
-        # Each distinct site assignment of a label is its own orthonormal block,
-        # so the closed form sums over the label's arrangements.
+        # That factor is exact ONLY under the trivial group: with g = identity
+        # every image transports to the same (slots, tensor) pair, so the N!
+        # copies are literally equal before they are summed; under a non-trivial
+        # stabilizer the images differ and no such closed factor exists. Under
+        # P1 the two-site orbit is exactly those images (asserted below). Each
+        # distinct site assignment of a label is its own orthonormal block, so
+        # the closed form sums over the label's arrangements.
         #
         # (2) A per-SALC contraction written from the public kernels `Zlm` / `Rlm`
         # and the slot list, which pins the channel dispatch, the `m ↔ axis`
         # offset, `|u|^{2k}` and the site lookup of `_fill_ztables_mixed!` term
-        # by term (it shares `folded` with the engine, so it is a check on the
-        # evaluation, not on the projection).
-        I3 = SMatrix{3,3,Float64}(I)
-        z3 = SVector{3,Float64}(0, 0, 0)
-        sgP1 = _assemble_spacegroup(xtal, [I3], [z3], "P1", 1; tol = 1e-5)
-        wcP1 = _build_wig_cache(sgP1, 2)
-        O1P1 = build_clusters(xtal, build_neighbor_list(xtal, 2.1), sgP1;
-                              nbody = 1).by_body[1][1]
-        sgP1B = _assemble_spacegroup(xtalB, [I3], [z3], "P1", 1; tol = 1e-5)
-        wcP1B = _build_wig_cache(sgP1B, 2)
-        O2P1 = build_clusters(xtalB, build_neighbor_list(xtalB, 1.1), sgP1B;
-                              nbody = 2).by_body[2][1]
-        # the orbit is the one bond as its 2! ordered images, nothing else
+        # by term. It shares `folded` with the engine (so it checks evaluation,
+        # not projection) and it spells the `(4π)^(n_spin/2)` rule the same way
+        # the kernel does — THAT rule is carried by the Parseval sum and the
+        # bare-mark literal at the end, not by this helper.
+        #
+        # The orbit is the one bond as its 2! ordered images, nothing else:
         @test length(O2P1.members) == 2
         @test sort([m.atoms for m in O2P1.members]) == [[1, 2], [2, 1]]
 
-        function closed_form(label, u)
+        # every permutation of 1:N — a label's arrangements are its images
+        _perms(n) = n == 1 ? [[1]] :
+                    [vcat(p[1:(k - 1)], n, p[k:end]) for p in _perms(n - 1) for k = 1:n]
+        @test length(_perms(3)) == 6 && allunique(_perms(3))
+        # `atoms[s]` is the column of `u` that label site `s` reads: the member's
+        # atoms, which are NOT the site indices on fixture C
+        function closed_form(label, atoms, u)
             N = length(label)
-            perms = N == 1 ? [[1]] : [[1, 2], [2, 1]]
-            arrangements = unique([label[p] for p in perms])
+            arrangements = unique([label[p] for p in _perms(N)])
             tot = 0.0
             for a in arrangements
                 f = 1.0
                 for s in eachindex(a)
                     SCEFitting.has_spin(a[s]) && (f *= 2 * a[s].spin_l + 1)
                     SCEFitting.has_disp(a[s]) &&
-                        (f *= norm(u[:, s])^(2 * a[s].disp_l + 4 * a[s].disp_k))
+                        (f *= norm(u[:, atoms[s]])^(2 * a[s].disp_l + 4 * a[s].disp_k))
                 end
                 tot += f
             end
@@ -581,37 +636,62 @@ end
 
         # Labels chosen so every escape changes the closed form: a k = 1 mark on
         # a ranked site, the bare pointed mark (n_spin = 0, Σ = |u|⁴), a k = 0
-        # rank-2 decor, and the two-site shapes — mark and rank on DIFFERENT
-        # sites (n_spin = 1 of 2 slots), and both sites decorated.
+        # rank-2 decor, the two-site shapes — mark and rank on DIFFERENT sites
+        # (n_spin = 1 of 2 slots), and both sites decorated — and the last two
+        # again on fixture C, where the bond atoms are [2, 3]. Each case also
+        # names the set of total spin ranks `L_S` its label admits: under P1 every
+        # coupling path survives, so that set is the full CG range (a single spin
+        # rank l couples to L_S = l only), and `isotropy = true` must be exactly
+        # the L_S = 0 part of the full build.
         cases = [
-            (xtal, sgP1, 1, O1P1, wcP1, [SiteDecor(; spin = 2, disp = (1, 1))]),
-            (xtal, sgP1, 1, O1P1, wcP1, [SiteDecor(; disp = (1, 0))]),
-            (xtal, sgP1, 1, O1P1, wcP1, [SiteDecor(; spin = 2, disp = (0, 2))]),
+            (xtal, sgP1, 1, O1P1, wcP1, [SiteDecor(; spin = 2, disp = (1, 1))],
+             Set([2])),
+            (xtal, sgP1, 1, O1P1, wcP1, [SiteDecor(; disp = (1, 0))], Set([0])),
+            (xtal, sgP1, 1, O1P1, wcP1, [SiteDecor(; spin = 2, disp = (0, 2))],
+             Set([2])),
             (xtalB, sgP1B, 2, O2P1, wcP1B,
-             sort([SiteDecor(; spin = 1), SiteDecor(; spin = 1, disp = (1, 1))])),
+             sort([SiteDecor(; spin = 1), SiteDecor(; spin = 1, disp = (1, 1))]),
+             Set([0, 1, 2])),
             (xtalB, sgP1B, 2, O2P1, wcP1B,
-             sort([SiteDecor(; disp = (1, 0)), SiteDecor(; spin = 2)])),
+             sort([SiteDecor(; disp = (1, 0)), SiteDecor(; spin = 2)]), Set([2])),
             (xtalB, sgP1B, 2, O2P1, wcP1B,
              [SiteDecor(; spin = 1, disp = (0, 1)),
-              SiteDecor(; spin = 1, disp = (0, 1))]),
+              SiteDecor(; spin = 1, disp = (0, 1))], Set([0, 1, 2])),
+            (xtalC, sgP1C, 2, O2P1C, wcP1C,
+             sort([SiteDecor(; disp = (1, 0)), SiteDecor(; spin = 2)]), Set([2])),
+            (xtalC, sgP1C, 2, O2P1C, wcP1C,
+             sort([SiteDecor(; spin = 1), SiteDecor(; spin = 1, disp = (1, 1))]),
+             Set([0, 1, 2])),
         ]
         rngP = MersenneTwister(0x9a25)
-        for (xt, sgx, N, O, wcx, label) in cases
+        radii = (1.3, 0.6, 1.7)          # per atom column; spectator gets 1.3
+        for (xt, sgx, N, O, wcx, label, LS) in cases
             ss = _orbit_salcs_decors(xt, sgx, N, 1, O, [label], wcx; isotropy = false)
+            atoms = sort(O.representative.atoms)
+            nat = size(xt.frac_positions, 2)
+            @test all(s.members[1].atoms == atoms for s in ss)
             # completeness: Π(2l+1) over every factor, per arrangement
             nfull = sum(prod((SCEFitting.has_spin(d) ? 2d.spin_l + 1 : 1) *
                              (SCEFitting.has_disp(d) ? 2d.disp_l + 1 : 1) for d in a)
-                        for a in unique([label[p] for p in
-                                         (N == 1 ? [[1]] : [[1, 2], [2, 1]])]))
+                        for a in unique([label[p] for p in _perms(N)]))
             @test length(ss) == nfull
+            # the total spin rank is a good quantum number of every SALC, and the
+            # isotropy screen is exactly its L_S = 0 part (bitwise)
+            @test Set(s.key.L_S for s in ss) == LS
+            iso = _orbit_salcs_decors(xt, sgx, N, 1, O, [label], wcx; isotropy = true)
+            sub = [s for s in ss if s.key.L_S == 0]
+            @test isempty(iso) == !(0 in LS)
+            @test [s.key for s in iso] == [s.key for s in sub]
+            @test all(same_members(a.members, b.members) for (a, b) in zip(iso, sub))
             for _ = 1:3
-                e = reduce(hcat, [normalize(randn(rngP, 3)) for _ = 1:N])
+                e = reduce(hcat, [normalize(randn(rngP, 3)) for _ = 1:nat])
                 # column norms kept away from 1 and from each other, so a dropped
-                # `|u|^{2k}` or a swapped site cannot hide behind |u| ≈ 1
+                # `|u|^{2k}`, a swapped site, or a site index used as an atom
+                # number cannot hide behind |u| ≈ 1
                 u = reduce(hcat, [normalize(randn(rngP, 3)) * r
-                                  for r in (N == 1 ? (0.6,) : (0.6, 1.7))])
+                                  for r in radii[(end - nat + 1):end]])
                 P = sum(evaluate_salc(s, e, u)^2 for s in ss)
-                @test P ≈ closed_form(label, u) rtol = 1e-12
+                @test P ≈ closed_form(label, atoms, u) rtol = 1e-12
                 for s in ss
                     v = evaluate_salc(s, e, u)
                     @test v ≈ hand_value(s, e, u) atol = 1e-12 * max(1.0, abs(v))
