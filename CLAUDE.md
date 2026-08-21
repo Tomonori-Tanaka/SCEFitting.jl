@@ -282,6 +282,13 @@ Easy to break silently — confirm before touching the algorithm.
   `multipole_terms`. `bilinear_terms` is a thin public wrapper of the general
   `_bilinear_terms` extraction (in `sce/bilinear.jl`), so its numerics move with the
   Sunny coupled-site above.
+  **`MultipoleTerm.ls` keeps its name and its meaning** (the per-site spin ranks, one
+  per atom, `length(ls) == body`, `size(folded) == Tuple(2l+1 …)`): SCEMonteCarlo.jl's
+  `TiledHamiltonian` ingest enforces exactly that contract with `throw`s, derives its
+  `(4π)^(body/2)` scale from `body`, and hashes the VALUES of `t.ls` into its
+  `model_fingerprint` (so a rename is invisible to it, a changed term list invalidates
+  every JLD2 checkpoint). The decor vocabulary stops at `multipole_terms`' refusal of
+  a decorated basis; it does not leak into this struct.
   Add or rename a `MultipoleTerm` field → update the gate and any downstream consumer
   (in the revived spin family that is SCEMonteCarlo.jl's `TiledHamiltonian` ingest; the
   joint family's SLCETools reads the SLCE equivalent through `mfa/bridge.jl` — the old

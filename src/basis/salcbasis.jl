@@ -677,7 +677,7 @@ function _function_vector(s::SALC)
         # The SPIN-axis ranks stand in for the old per-site `ls`: this engine only
         # ever builds pure-spin terms, whose slots are the identity map, so the
         # partition is the one it always was. Hoisted out of the entry loop —
-        # `_term_spin_ls` allocates where the old `t.ls` was a field read.
+        # `_term_spin_ls` allocates where the v4 per-term `ls` was a field read.
         # Keying on `t.slots` directly would save that allocation and cost 44%
         # wall time (measured): `hash(::Slot)` goes through `objectid`, and this
         # dict is looked up once per nonzero tensor entry.

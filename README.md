@@ -115,8 +115,10 @@ See [`examples/persist_and_input.jl`](examples/persist_and_input.jl) for the ful
 
 ### Inspecting fitted coefficients
 
-`coeftable(f)` returns a Tables.jl source (one row per SALC: `body`, `orbit_id`, `ls`,
-`Lf`, `block`, `J`), so the coefficients drop into any table / IO package:
+`coeftable(f)` returns a Tables.jl source (one row per SALC: `body`, `orbit_id`,
+`decors` — the sorted decoration label as a string, which for this package's pure-spin
+keys reads exactly like the old `ls` column, `"1,1,2"` —, `L_S`, `Lf`, `block`, `J`), so
+the coefficients drop into any table / IO package:
 
 ```julia
 using DataFrames

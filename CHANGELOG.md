@@ -243,6 +243,9 @@ this commit, which is the evidence that the relabel is value-preserving).
   `block`, `J`.** A pure-spin row still renders as `"1,1,2"`, so the string a
   reader sees is unchanged; displacement factors would render as `u(k:l)`
   (colon inside the token, so the comma-joined column stays splittable).
+  README and SPEC list the new columns (they still said `ls`); `CLAUDE.md`
+  records that `MultipoleTerm.ls` keeps its name and contract — SCEMonteCarlo's
+  ingest enforces it and fingerprints its values.
 - `salc_groups` groups on `(body, orbit_id, decors)` — identical groups on a
   pure-spin basis. Bilinear extraction classifies on `decors` and reports any
   displacement-decorated SALC as `:unsupported` rather than dropping it.

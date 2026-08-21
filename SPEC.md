@@ -221,8 +221,9 @@ capability consumed by both the introspection and the Sunny interop.
   keyword arguments override the file's backend/tol. Training data and the estimator
   stay in Julia (mirrors the basis/data separation).
 - **Tabular results** (`sce/coeftable.jl`): `coeftable(fit | model) -> SCECoefficients`
-  is a **Tables.jl** source — one row per SALC (`body`, `orbit_id`, `ls` as a comma
-  string, `Lf`, `block`, `J`) — so it drops into `DataFrame` / `CSV.write` /
+  is a **Tables.jl** source — one row per SALC (`body`, `orbit_id`, `decors` as a
+  comma string — `"1,1,2"` on a pure-spin key, exactly the old `ls` column —, `L_S`,
+  `Lf`, `block`, `J`) — so it drops into `DataFrame` / `CSV.write` /
   `Arrow.write`. The library owns the internal-storage → labeled-row mapping; the caller
   brings the table/IO package. `j0` is the intercept (`intercept(c)`), not a row.
   Tables.jl is a lightweight core dep.
