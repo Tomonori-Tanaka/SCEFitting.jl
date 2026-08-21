@@ -229,7 +229,10 @@ capability consumed by both the introspection and the Sunny interop.
   Tables.jl is a lightweight core dep.
 - **DFT data sources** (`io/dftsource.jl`): the **code-agnostic boundary only** —
   `SpinDatum` (energy + spin directions + magmoms + constraining field + the derived
-  torque target `τ_a = m_a × B_a`, the physical / Landau–Lifshitz torque) and
+  torque target `τ_a = m_a × B_a`, the physical / Landau–Lifshitz torque, plus the
+  optional adiabatic-moment trio `moments_bare` / `constraint_axes` /
+  `constraint_mode ∈ {1, 4}` — mode 1 requires the axes, axes require a mode, the
+  bare moment is validated for finiteness only; the E/T paths never read them) and
   `read_configs(src::AbstractDFTSource) -> Vector{SpinDatum}`, with `SCEDataset(basis, src)`
   going source → dataset. The **concrete per-code adapters live in the `SCETools.jl`
   package** (`SCETools.VASP`: `read_poscar`/`write_poscar`, `Oszicar` with SAXIS rotation,

@@ -33,9 +33,40 @@ One DFT spin configuration used for fitting:
   `τ_a = m_a × B_a = ‖m_a‖ (e_a × B_a)` (eV), the physical / Landau–Lifshitz
   torque, the observable that the SCE torque `τ_a = −e_a × ∂E/∂e_a` is fit to.
 
+The adiabatic site-moment channel's trio, each `nothing` when absent (the
+energy / torque paths never read them, and a datum without them is exactly what it
+was before the channel existed):
+
+- `moments_bare` — `3 × n_atoms` **bare** (non-smoothed) magnetic moment vectors
+  `M_a` (μ_B; VASP `M_int`), the projection target of the adiabatic site-moment
+  channel `y_a = ê_a · M_a`. Kept as a raw vector — components may be negative and
+  the magnitude may pass through zero (only finiteness is validated), because the
+  signed readout is exactly what makes the target analytic where `‖M‖ → 0`.
+  Distinct from the smoothed decomposition `magmoms · directions` (VASP `MW_int`):
+  the constraining penalty acts on `MW`, so `MW` supplies the configuration
+  coordinates `e` and the torque channel, while `M_int` supplies the moment
+  target — their ratio is configuration-dependent, so neither substitutes for the
+  other and both are stored.
+- `constraint_axes` — `3 × n_atoms` constraint axes `ê_a^c` (unit columns; an
+  exactly-zero column means "no axis for this atom"). For a transverse-penalty
+  constraint (`constraint_mode = 1`) this is the axis the constrained DFT run
+  evaluated the adiabatic map along (VASP `M_CONSTR`), and it is **required**;
+  for a direction-pinning constraint (`constraint_mode = 4`) it is optional but
+  recommended — it feeds the axis-consistency gates at the dataset boundary.
+- `constraint_mode` — which class of constrained-DFT scheme produced this datum:
+  `1` = transverse-penalty type (the axis is prescribed, the sign of the moment
+  along it is free) or `4` = direction-pinning type (the full direction is
+  pinned). The numbers follow VASP's `I_CONSTRAINED_M`, but the key is the
+  physical class — another code's scheme maps onto one of the two. `nothing`
+  means "no constraint information": the datum can never feed the moment
+  channel's evaluation-axis rule (mode 4 reads `ê` from `directions`, mode 1
+  from `constraint_axes` — keyed here, deliberately never by which fields happen
+  to be present).
+
 Build it from raw per-atom moment vectors and the constraining field with
 `SpinDatum(energy, moments, field)` (which derives directions, magnitudes, and
-torques), or construct the fields directly.
+torques; the trio passes through as keywords), or construct the fields directly
+— the five-argument form leaves the trio absent.
 """
 struct SpinDatum <: AbstractTrainingDatum
     energy::Float64
@@ -43,10 +74,79 @@ struct SpinDatum <: AbstractTrainingDatum
     magmoms::Vector{Float64}
     field::Matrix{Float64}
     torques::Matrix{Float64}
+    moments_bare::Union{Matrix{Float64},Nothing}
+    constraint_axes::Union{Matrix{Float64},Nothing}
+    constraint_mode::Union{Int,Nothing}
+
+    function SpinDatum(energy::Float64, directions::Matrix{Float64},
+                       magmoms::Vector{Float64}, field::Matrix{Float64},
+                       torques::Matrix{Float64},
+                       moments_bare::Union{Matrix{Float64},Nothing},
+                       constraint_axes::Union{Matrix{Float64},Nothing},
+                       constraint_mode::Union{Int,Nothing})
+        nat = size(directions, 2)
+        if moments_bare !== nothing
+            size(moments_bare) == (3, nat) || throw(ArgumentError(
+                "`moments_bare` must be 3 × $nat (got $(size(moments_bare)))"))
+            # finiteness is deliberately the ONLY value constraint: the bare moment
+            # is a signed vector whose magnitude legitimately passes through zero —
+            # that analyticity is the whole point of the projection target y = ê·M
+            all(isfinite, moments_bare) ||
+                throw(ArgumentError("`moments_bare` contains non-finite entries"))
+        end
+        if constraint_axes !== nothing
+            size(constraint_axes) == (3, nat) || throw(ArgumentError(
+                "`constraint_axes` must be 3 × $nat (got $(size(constraint_axes)))"))
+            @inbounds for a = 1:nat
+                u = SVector{3,Float64}(constraint_axes[1, a], constraint_axes[2, a],
+                                       constraint_axes[3, a])
+                # An exactly-zero column asserts "no axis for this atom" (the VASP
+                # M_CONSTR convention); anything else must be a unit axis. Near-zero
+                # noise is neither — it is refused rather than silently normalized.
+                u == SVector{3,Float64}(0, 0, 0) && continue
+                all(isfinite, u) || throw(ArgumentError(
+                    "`constraint_axes` column $a is not finite ($(Tuple(u)))"))
+                abs(norm(u) - 1) <= _CONSTRAINT_AXIS_ATOL || throw(ArgumentError(
+                    "`constraint_axes` column $a is not a unit vector or exactly " *
+                    "zero (‖u‖ = $(norm(u)))"))
+            end
+        end
+        if constraint_mode !== nothing
+            constraint_mode in (1, 4) ||
+                throw(ArgumentError("`constraint_mode` must be 1 (transverse-penalty " *
+                                    "type) or 4 (direction-pinning type); got " *
+                                    "$constraint_mode"))
+            constraint_mode == 1 && constraint_axes === nothing &&
+                throw(ArgumentError("`constraint_mode = 1` (transverse-penalty type) " *
+                                    "requires `constraint_axes`: the moment readout " *
+                                    "axis cannot be reconstructed from the converged " *
+                                    "moment direction where ‖M‖ → 0, so the " *
+                                    "constraint axis must be carried explicitly"))
+        elseif constraint_axes !== nothing
+            throw(ArgumentError("`constraint_axes` without `constraint_mode`: the " *
+                                "evaluation-axis rule is keyed by the constraint " *
+                                "class (1 or 4), deliberately never by which fields " *
+                                "happen to be present — declare the mode"))
+        end
+        return new(energy, directions, magmoms, field, torques, moments_bare,
+                   constraint_axes, constraint_mode)
+    end
 end
 
+# Unit-norm band for a constraint axis (the same band upstream SLCE.jl applies to
+# every stored direction): finite, and off unit by at most this much.
+const _CONSTRAINT_AXIS_ATOL = 1.0e-6
+
+# The five-field form: the adiabatic-moment trio absent. Kept so every existing
+# direct construction (and the v4-era docs) reads unchanged.
+SpinDatum(energy::Float64, directions::Matrix{Float64}, magmoms::Vector{Float64},
+          field::Matrix{Float64}, torques::Matrix{Float64}) =
+    SpinDatum(energy, directions, magmoms, field, torques, nothing, nothing, nothing)
+
 """
-    SpinDatum(energy, moments, field; zero_moment_atol = 1e-10) -> SpinDatum
+    SpinDatum(energy, moments, field; zero_moment_atol = 1e-10,
+              moments_bare = nothing, constraint_axes = nothing,
+              constraint_mode = nothing) -> SpinDatum
 
 Build a [`SpinDatum`](@ref) from the per-atom magnetic moment vectors `moments`
 (`3 × n_atoms`, μ_B) and the per-atom constraining field `field` (`3 × n_atoms`,
@@ -54,6 +154,11 @@ eV/μ_B). The spin direction is `e_a = m_a / ‖m_a‖` (a near-zero moment, bel
 `zero_moment_atol`, gets the placeholder `ẑ` and a zero torque), the magnitude is
 `‖m_a‖`, and the torque target is `τ_a = m_a × B_a` (eV) — the physical /
 Landau–Lifshitz torque, matching the SCE model torque `−e_a × ∂E/∂e_a`.
+
+`moments_bare` / `constraint_axes` / `constraint_mode` pass through to
+[`SpinDatum`](@ref) unchanged (see there): `moments` here is the smoothed
+decomposition source (VASP `MW_int` — the quantity the constraint acts on), while
+`moments_bare` is the bare `M_int` the adiabatic moment channel targets.
 
 The target carries the per-config moment magnitude `‖m_a‖`, while the SCE model torque
 depends on directions only — so a co-fit assumes the moment magnitudes
@@ -65,7 +170,10 @@ direction and a zero torque (a small bias) — prefer dropping such configuratio
 tolerance, pass the same value to its `zero_moment_atol` so the guard stays aligned.)
 """
 function SpinDatum(energy::Real, moments::AbstractMatrix{<:Real},
-                   field::AbstractMatrix{<:Real}; zero_moment_atol::Real = 1e-10)::SpinDatum
+                   field::AbstractMatrix{<:Real}; zero_moment_atol::Real = 1e-10,
+                   moments_bare::Union{AbstractMatrix{<:Real},Nothing} = nothing,
+                   constraint_axes::Union{AbstractMatrix{<:Real},Nothing} = nothing,
+                   constraint_mode::Union{Integer,Nothing} = nothing)::SpinDatum
     size(moments, 1) == 3 || throw(ArgumentError("`moments` must be 3 × n_atoms"))
     size(field) == size(moments) ||
         throw(ArgumentError("`field` $(size(field)) must match `moments` $(size(moments))"))
@@ -85,7 +193,10 @@ function SpinDatum(energy::Real, moments::AbstractMatrix{<:Real},
             torq[k, i] = ti[k]
         end
     end
-    return SpinDatum(Float64(energy), dirs, mags, Matrix{Float64}(field), torq)
+    _m(x) = x === nothing ? nothing : Matrix{Float64}(x)
+    return SpinDatum(Float64(energy), dirs, mags, Matrix{Float64}(field), torq,
+                     _m(moments_bare), _m(constraint_axes),
+                     constraint_mode === nothing ? nothing : Int(constraint_mode))
 end
 
 """

@@ -135,4 +135,87 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
         # flattened config-major / atom-major / xyz torque layout
         @test ds.y_T == reduce(vcat, [vec(d.torques) for d in data])
     end
+
+    @testset "adiabatic-moment trio: moments_bare / constraint_axes / constraint_mode" begin
+        n = 3
+        moments = [1.2 0.0 0.0; 0.0 1.2 0.0; 0.0 0.0 1.2]
+        B = zeros(3, n); B[1, 1] = 0.05
+        M = [0.1 -0.2 0.0; 0.0 0.3 -0.1; 1.1 -1.0 0.02]     # signed, one near-zero: legal
+        ax = repeat([0.0, 0.0, 1.0], 1, n)
+        mk(; kw...) = SpinDatum(-1.0, moments, B; kw...)
+
+        # defaults: absent, and the datum is what it was before the extension
+        d0 = mk()
+        @test d0.moments_bare === nothing
+        @test d0.constraint_axes === nothing
+        @test d0.constraint_mode === nothing
+        # the five-field direct form is the same datum
+        d5 = SpinDatum(d0.energy, d0.directions, d0.magmoms, d0.field, d0.torques)
+        @test d5.moments_bare === nothing && d5.constraint_mode === nothing
+
+        # moments_bare: finiteness is the ONLY value constraint (signed, zero-crossing
+        # magnitudes are the point of the vector storage)
+        d = mk(; moments_bare = M)
+        @test d.moments_bare == M
+        Mbad = copy(M); Mbad[2, 2] = Inf
+        @test_throws ArgumentError mk(; moments_bare = Mbad)
+        @test_throws ArgumentError mk(; moments_bare = zeros(3, n + 1))
+
+        # constraint_mode: only the two physical classes exist
+        for bad in (0, 2, 3, 5, -1)
+            @test_throws ArgumentError mk(; constraint_mode = bad)
+        end
+        d4 = mk(; moments_bare = M, constraint_mode = 4)
+        @test d4.constraint_mode == 4 && d4.constraint_axes === nothing
+
+        # mode 1 (transverse-penalty type) requires the axes; axes without a declared
+        # mode are refused (the axis rule is keyed by mode, never by field presence)
+        @test_throws ArgumentError mk(; moments_bare = M, constraint_mode = 1)
+        @test_throws ArgumentError mk(; constraint_axes = ax)
+        d1 = mk(; moments_bare = M, constraint_axes = ax, constraint_mode = 1)
+        @test d1.constraint_mode == 1 && d1.constraint_axes == ax
+
+        # axes columns: unit vectors, or exactly zero (= "no axis for this atom");
+        # near-zero noise and off-unit columns are refused, not normalized
+        axz = copy(ax); axz[:, 2] .= 0.0
+        dz = mk(; constraint_axes = axz, constraint_mode = 1)
+        @test dz.constraint_axes[:, 2] == zeros(3)
+        axbad = copy(ax); axbad[:, 2] .= 0.5
+        @test_throws ArgumentError mk(; constraint_axes = axbad, constraint_mode = 1)
+        axeps = copy(ax); axeps[:, 2] .= 1e-9
+        @test_throws ArgumentError mk(; constraint_axes = axeps, constraint_mode = 1)
+        axnan = copy(ax); axnan[1, 1] = NaN
+        @test_throws ArgumentError mk(; constraint_axes = axnan, constraint_mode = 1)
+        axoff = copy(ax); axoff[3, 1] = 1.0 + 2e-6       # outside the 1e-6 band
+        @test_throws ArgumentError mk(; constraint_axes = axoff, constraint_mode = 1)
+        axin = copy(ax); axin[3, 1] = 1.0 + 5e-7         # inside it
+        @test mk(; constraint_axes = axin, constraint_mode = 4).constraint_axes == axin
+
+        # the two construction paths of one type carry the fields identically, and
+        # the derived E/T fields are bit-identical with and without the trio
+        dd = SpinDatum(d1.energy, d1.directions, d1.magmoms, d1.field, d1.torques,
+                       M, ax, 1)
+        for f in fieldnames(SpinDatum)
+            @test getfield(dd, f) == getfield(d1, f)
+        end
+        for f in (:energy, :directions, :magmoms, :field, :torques)
+            @test getfield(d1, f) == getfield(d0, f)
+        end
+
+        # the E and T paths are inert to the new fields: identical design matrices
+        # and targets through SCEDataset
+        lat = Lattice(Matrix(3.0 * I(3)))
+        cr = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+        basis = SCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
+                                       isotropy = true))
+        rng = MersenneTwister(17)
+        raw = [(0.1 * k, randn(rng, 3, 2), 0.1 .* randn(rng, 3, 2)) for k = 1:4]
+        plain = [SpinDatum(e, m, b) for (e, m, b) in raw]
+        withm = [SpinDatum(e, m, b; moments_bare = 0.9 .* m, constraint_mode = 4)
+                 for (e, m, b) in raw]
+        dsp = SCEDataset(basis, plain)
+        dsm = SCEDataset(basis, withm)
+        @test dsp.X_E == dsm.X_E && dsp.y_E == dsm.y_E
+        @test dsp.X_T == dsm.X_T && dsp.y_T == dsm.y_T
+    end
 end

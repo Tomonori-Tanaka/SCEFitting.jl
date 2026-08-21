@@ -6,6 +6,31 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — `SpinDatum` carries the adiabatic-moment channel trio (2026-08-21)
+
+Step M1 of the pointed site-moment backport (upstream SLCE.jl `4b611f9`, adapted:
+this package's datum is the five-field `SpinDatum`, not upstream's
+`TrainingDatum`). Three optional fields, `nothing` when absent:
+
+- **`moments_bare`** — the bare `M_int` vectors, the projection target
+  `y_a = ê_a · M_a` of the moment channel. Validated for **finiteness only**: the
+  signed readout is what keeps the target analytic where `‖M‖ → 0`, so no
+  magnitude or sign rule is imposed. Distinct from `magmoms · directions`
+  (the smoothed `MW_int` the constraint acts on); both are stored.
+- **`constraint_axes`** — unit columns or exactly-zero columns ("no axis");
+  anything in between (near-zero noise, an off-unit axis outside the `1e-6`
+  band upstream uses for every direction) is refused, never normalized.
+- **`constraint_mode`** — `1` (transverse-penalty type) or `4`
+  (direction-pinning type). **The evaluation-axis rule is keyed by the mode,
+  never by field presence**: mode 1 requires the axes, axes without a mode are
+  refused.
+
+The moments constructor passes the trio through as keywords; the five-argument
+direct form leaves it absent, so every existing construction reads unchanged.
+Gates: both construction paths carry the fields identically, the derived E/T
+fields are bit-identical with and without the trio, and `SCEDataset`'s design
+matrices and targets are `==` with and without it.
+
 ### Fixed — the persist reader validates a term against its slots (2026-08-21)
 
 `_term_from` accepted any slot list alongside any tensor: a term with more
