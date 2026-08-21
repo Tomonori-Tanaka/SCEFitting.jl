@@ -6,6 +6,26 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — `test/parity/`: real-data parity tier vs SLCE.jl (2026-08-21)
+
+S6 of the pointed-moment backport. A separate environment (`SCEFitting` and the
+sibling `SLCE.jl` as path sources, Manifest gitignored, **no CI job** — it needs
+`~/Packages/SLCE.jl` and data outside the repository, resolved from
+`SCE_PARITY_FEGE_DIR` / `SCE_PARITY_FEGE_POSCAR` / `SCE_PARITY_FERH_DIR` with
+loud skips). Three kinds of statement, labeled in the file: acceptance numbers at
+relative 1 % against the upstream protocol (FeGe `lsum2` 39 columns σ/CV/held-out
+0.0398/0.0403/0.0308, `full` 181 columns 0.0334/0.0358/0.0295, FeRh gated σ
+0.0086 μB), census integers as change detectors (FeGe kept 12757/12800 and
+3838/3840; FeRh mode-1 `n_anti` 3833/7744 on the Rh orbit, 0/7744 on Fe, with a
+hand recount `ê·e_MW < 0` from the raw data), and absolute column parity (design
+columns matched by `SALCKey`, `‖a − b‖ ≤ 1e-10 ‖b‖` per column and elementwise
+`1e-12·max|b|`; dataset targets/gates/masks bitwise; held-out predictions at
+1e-10; both extxyz readers bitwise on one file). The FeRh constraint axes come
+from an independent `M_CONSTR` parser written in the test. First run
+(SCEFitting `9b95523` vs SLCE `e5a05c4`): every acceptance number within
+±0.15 %, every census integer exact, and the column parity **bitwise**
+(worst relative column deviation 0.0 on all three bases).
+
 ### Added — moment-channel diagnostics + mark-class shrinkage (2026-08-21)
 
 Step M5 of the pointed site-moment backport: upstream SLCE.jl `bd03517`
