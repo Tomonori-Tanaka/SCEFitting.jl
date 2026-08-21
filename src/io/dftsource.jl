@@ -251,7 +251,13 @@ noise by construction and carries no sign information (measured on FeRh: the lar
    percentile over all decomposable rows below `axis_angle_p99_max` degrees
    (measured: FeRh 3.6°, FeGe p99 0.14° with collapse-row outliers to 5.6° — which is
    why the gate is a percentile, not a max). This catches small-angle staleness the
-   sign gate cannot.
+   sign gate cannot. The tolerance is exact: over `n` decomposable rows the gate
+   ignores the `⌊n/100⌋` largest angles (rows are atoms × configurations, so a
+   wholly stale configuration costs `n_atoms` rows — about 1 % of configurations).
+
+Neither threshold is bounded above: a `sign_gate_min` larger than every `|y|`
+gates no row and passes silently, and `axis_angle_p99_max = 180` disables the
+angle gate. Those are the caller's knobs, deliberately not second-guessed here.
 
 [Ported from SLCE.jl `d2f9d2f` unchanged: `SpinDatum` carries the same fields.]
 """

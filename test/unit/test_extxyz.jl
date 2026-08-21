@@ -289,4 +289,155 @@ using Random
         @test ds.y_E == ds2.y_E
         @test maximum(abs, ds.y_T .- ds2.y_T) < 1e-15        # mw re-derivation, ulps
     end
+
+    @testset "saboteur closures: gate boundaries, frame checks, writer round-trips" begin
+        zhat = [0.0, 0.0, 1.0]
+        one(dirs; kw...) = SpinDatum(-1.0, reshape(dirs, 3, 1), zeros(3, 1); kw...)
+        # mode 4 with an ANTIPARALLEL axis: the angle is 180° and must fire — there
+        # is no gauge freedom in the direction-pinning mode (a sign(y) leak into
+        # mode 4 would turn this into 0°)
+        d_anti = one(zhat; moments_bare = reshape(0.9 .* zhat, 3, 1),
+                     constraint_axes = reshape(-zhat, 3, 1), constraint_mode = 4)
+        err = try; SCEFitting.check_moment_gates([d_anti]); nothing; catch e; e; end
+        @test err isa ArgumentError && occursin("axis-angle", err.msg) &&
+              occursin("180", err.msg)
+        # ... whereas in mode 1 the same geometry is the gauge: y = ê_c·M < 0 and
+        # ê_MW·ê_c < 0 agree, the signed axis is +ê_MW, angle 0
+        d_g = one(zhat; moments_bare = reshape(0.9 .* zhat, 3, 1),
+                  constraint_axes = reshape(-zhat, 3, 1), constraint_mode = 1)
+        @test SCEFitting.check_moment_gates([d_g]) === nothing
+        # the percentile is ⌊n/100⌋ tolerated rows, with ceil: 100 rows tolerate 1
+        # stale row and refuse 2; 101 rows tolerate 1 and refuse 2 (floor/round would
+        # tolerate 2 of 101)
+        th = deg2rad(10.0)
+        rot = [cos(th) 0.0 sin(th); 0.0 1.0 0.0; -sin(th) 0.0 cos(th)]
+        clean = one(zhat; constraint_axes = reshape(zhat, 3, 1), constraint_mode = 4)
+        stale = one(rot * zhat; constraint_axes = reshape(zhat, 3, 1),
+                    constraint_mode = 4)
+        rows(nc, ns) = vcat([clean for _ = 1:nc], [stale for _ = 1:ns])
+        @test SCEFitting.check_moment_gates(rows(99, 1)) === nothing       # n = 100
+        @test_throws ArgumentError SCEFitting.check_moment_gates(rows(98, 2))
+        @test SCEFitting.check_moment_gates(rows(100, 1)) === nothing      # n = 101
+        @test_throws ArgumentError SCEFitting.check_moment_gates(rows(99, 2))
+        @test_throws ArgumentError SCEFitting.check_moment_gates(rows(98, 1))  # n = 99
+        # a zero axis column is "no axis" at the gate too: mode 4 without bare
+        # moments would otherwise read |y| = magmoms and a 90° angle on that atom
+        d_z = SpinDatum(-1.0, hcat(zhat, zhat), zeros(3, 2);
+                        constraint_axes = hcat(zhat, zeros(3)), constraint_mode = 4)
+        @test SCEFitting.check_moment_gates([d_z]) === nothing
+        # the knobs forward through every wrapper
+        f_stale = joinpath(tmp, "stale.extxyz")
+        xt1 = Crystal(Lattice(3.0 .* [1.0 0 0; 0 1 0; 0 0 1]), zeros(3, 1), [1], ["Fe"])
+        @test_throws ArgumentError write_extxyz(f_stale, [stale, clean], xt1)
+        write_extxyz(f_stale, [stale], xt1; axis_angle_p99_max = 15.0)
+        @test_throws ArgumentError read_extxyz(f_stale)
+        @test length(read_extxyz(f_stale; axis_angle_p99_max = 15.0)) == 1
+        @test_throws ArgumentError read_configs(ExtxyzFile(f_stale))
+        @test length(read_configs(ExtxyzFile(f_stale; axis_angle_p99_max = 15.0))) == 1
+        other1 = Crystal(Lattice(3.0 .* [1.0 0 0; 0 1 0; 0 0 1]), fill(0.1, 3, 1), [1],
+                         ["Fe"])
+        @test_throws ArgumentError read_configs(ExtxyzFile(f_stale; reference = other1,
+                                                           axis_angle_p99_max = 15.0))
+        @test length(read_configs(ExtxyzFile(f_stale; reference = xt1,
+                                             axis_angle_p99_max = 15.0))) == 1
+
+        # frame-2 violations, each refused by name (one file = one structure family,
+        # one observation set, one constraint scheme, one claim)
+        data = [mkdat(i) for i = 1:2]
+        f = joinpath(tmp, "frames.extxyz")
+        write_extxyz(f, data, xt)
+        lines = split(read(f, String), "\n")
+        # frame 2 = lines 5..8 (count, info, Fe, Ge)
+        function frame2(edit)
+            L = copy(lines); edit(L)
+            q = joinpath(tmp, "frame2.extxyz"); write(q, join(L, "\n")); q
+        end
+        @test_throws ArgumentError read_extxyz(frame2(L -> (L[7], L[8]) =
+            (replace(L[7], r"^Fe" => "Ge"), replace(L[8], r"^Ge" => "Fe"))))  # species
+        @test_throws ArgumentError read_extxyz(frame2(L -> L[6] =
+            replace(L[6], "Lattice=\"3.0" => "Lattice=\"3.1")))                # lattice
+        @test_throws ArgumentError read_extxyz(frame2(L -> L[6] =
+            replace(L[6], "constraint_mode=4" => "constraint_mode=1")))         # mode
+        @test_throws ArgumentError read_extxyz(frame2(L -> L[6] =
+            replace(L[6], "config_type=spin-only" => "config_type=joint")))     # claim
+        @test_throws ArgumentError read_extxyz(frame2(L -> begin                # mint gone
+            L[6] = replace(L[6], ":mint:R:3" => "")
+            rx = r"^((?:Fe|Ge)(?: \S+){9})(?: \S+){3}((?: \S+){3})$"
+            L[7] = replace(L[7], rx => s"\1\2"); L[8] = replace(L[8], rx => s"\1\2")
+        end))
+        # info-line and Properties duplicates are refused, not arbitrated
+        @test_throws ArgumentError read_extxyz(frame2(L -> L[2] = L[2] * " energy=0.0"))
+        @test_throws ArgumentError read_extxyz(frame2(L -> begin
+            L[2] = replace(L[2], ":mconstr:R:3" => ":mconstr:R:3:mw:R:3")
+            L[3] = L[3] * " 0.0 0.0 0.0"; L[4] = L[4] * " 0.0 0.0 0.0"
+        end))
+        @test_throws ArgumentError read_extxyz(frame2(L -> begin
+            L[2] = replace(L[2], ":mconstr:R:3" => ":mconstr:R:3:tag:S:1")
+            L[3] = L[3] * " x"; L[4] = L[4] * " y"
+        end))
+
+        # a triclinic cell with asymmetric positions: the lattice string is
+        # column-major (columns = lattice vectors, the ASE / SLCE convention) and
+        # the reference check holds bit for bit — a transposed writer or reader
+        # would fail here where the cubic fixtures cannot tell
+        Atri = [3.0 0.3 0.2; 0.0 3.4 0.5; 0.0 0.0 3.9]
+        xtri = Crystal(Lattice(Atri), [0.1 0.6; 0.2 0.7; 0.3 0.9], [1, 2], ["Fe", "Ge"])
+        ftri = joinpath(tmp, "tri.extxyz")
+        write_extxyz(ftri, data, xtri)
+        ttxt = read(ftri, String)
+        @test occursin("Lattice=\"3.0 0.0 0.0 0.3 3.4 0.0 0.2 0.5 3.9\"", ttxt)
+        @test length(read_extxyz(ftri; reference = xtri)) == 2
+        @test_throws ArgumentError read_extxyz(ftri; reference = xt)
+        posline = split(split(ttxt, "\n")[3])
+        @test parse.(Float64, posline[2:4]) == vec(Matrix(cartesian_positions(xtri))[:, 1])
+
+        # a datum without the trio writes a shorter header and reads back
+        plain = [SpinDatum(-1.0 - 0.1i, 1.2 .* mkdirs(), 0.01 .* randn(rng, 3, nat))
+                 for i = 1:2]
+        fp = joinpath(tmp, "plain.extxyz")
+        write_extxyz(fp, plain, xt)
+        @test occursin("Properties=species:S:1:pos:R:3:mw:R:3:bcon:R:3 ", read(fp, String))
+        bp = read_extxyz(fp)
+        @test all(d.moments_bare === nothing && d.constraint_mode === nothing for d in bp)
+        @test bp[2].field == plain[2].field
+
+        # free-text values: whitespace is quoted so the file reloads; a quote or
+        # a line break inside a value is refused up front
+        fq = joinpath(tmp, "quoted.extxyz")
+        write_extxyz(fq, data, xt; source = "C:\\Program Files\\x", field_sign = "vasp +B",
+                     comment = "two words")
+        @test length(read_extxyz(fq)) == 2
+        @test occursin("source=\"C:\\Program Files\\x\"", read(fq, String))
+        @test_throws ArgumentError write_extxyz(fq, data, xt; comment = "say \"hi\"")
+        @test_throws ArgumentError write_extxyz(fq, data, xt; source = "a\nb")
+
+        # EMBSET pair: per-config axes are per config (a stale config 2 is named),
+        # and the same moments in both files are not a pair
+        e1 = joinpath(tmp, "EMBSET_b"); e2 = joinpath(tmp, "EMBSET_mint_b")
+        wemb2(p, mz) = open(p, "w") do io
+            for c = 1:3
+                println(io, -1.0 - c)
+                for a = 1:2
+                    println(io, "$a 0.0 0.0 $mz 0.01 0.02 0.0")
+                end
+            end
+        end
+        wemb2(e1, 1.2); wemb2(e2, 1.1)
+        axs = [hcat(zhat, zhat) for _ = 1:3]
+        axs[2] = hcat(-zhat, zhat)               # antiparallel on config 2 (mode 4)
+        err = try
+            read_embset_pair(e1, e2; constraint_mode = 4, constraint_axes = axs)
+            nothing
+        catch e
+            e
+        end
+        @test err isa ArgumentError && occursin("axis-angle", err.msg)
+        pdv = read_embset_pair(e1, e2; constraint_mode = 4,
+                               constraint_axes = axs, axis_angle_p99_max = 180.0)
+        @test pdv[2].constraint_axes == axs[2] && pdv[1].constraint_axes == axs[1]
+        @test_throws ArgumentError read_embset_pair(e1, e1; constraint_mode = 4)
+        cp(e1, joinpath(tmp, "EMBSET_copy"); force = true)
+        @test_throws ArgumentError read_embset_pair(e1, joinpath(tmp, "EMBSET_copy");
+                                                    constraint_mode = 4)
+    end
 end

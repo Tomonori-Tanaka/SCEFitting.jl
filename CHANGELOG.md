@@ -85,7 +85,20 @@ the pure-spin `SpinDatum`).
   count, block shape, field blocks bitwise); energy lines deliberately uncompared
   (upstream measured ΔE = 0.148 eV between the two writers on the FeRh archive).
   `read_embset` now shares the parsing core (`_read_embset_blocks`) and is
-  otherwise unchanged.
+  otherwise unchanged. A pair whose moment blocks are all bitwise equal (the same
+  file twice, a byte copy) is refused — it is not an MW / M_int pair.
+- **Hardened after the saboteur review** (stricter than upstream's reader, which
+  the same review notes shares the misreads): a repeated key in the info line,
+  a repeated property name, and a second string column are refused instead of
+  letting the last value win; the writer quotes free-text values that contain
+  whitespace and refuses a double quote or a line break inside one (the lexer
+  has no escape), so the file it writes always reloads; the gate docstring
+  states the exact tolerance (`⌊n/100⌋` rows) and that the thresholds are
+  unbounded knobs. Tests now pin the mode-4 antiparallel axis (180°, no gauge
+  there), the `ceil` percentile at 99/100/101 rows, the zero-axis skip at the
+  gate, every cross-frame check with a violating frame, a triclinic cell under
+  the reference check, the trio-less writer header, keyword forwarding through
+  `ExtxyzFile`, and per-config axes in the pair reader.
 
 ### Fixed — `constraint_axes` carries the component bound (2026-08-21)
 
