@@ -42,17 +42,24 @@ was before the channel existed):
   channel `y_a = ê_a · M_a`. Kept as a raw vector — components may be negative and
   the magnitude may pass through zero (only finiteness is validated), because the
   signed readout is exactly what makes the target analytic where `‖M‖ → 0`.
-  Distinct from the smoothed decomposition `magmoms · directions` (VASP `MW_int`):
+  Distinct from the smoothed decomposition `magmoms[a] * directions[:, a]` (VASP
+  `MW_int`):
   the constraining penalty acts on `MW`, so `MW` supplies the configuration
   coordinates `e` and the torque channel, while `M_int` supplies the moment
   target — their ratio is configuration-dependent, so neither substitutes for the
   other and both are stored.
 - `constraint_axes` — `3 × n_atoms` constraint axes `ê_a^c` (unit columns; an
-  exactly-zero column means "no axis for this atom"). For a transverse-penalty
+  exactly-zero column is this package's convention for "no axis for this atom" —
+  the generator emits zeros for unconstrained atoms). For a transverse-penalty
   constraint (`constraint_mode = 1`) this is the axis the constrained DFT run
-  evaluated the adiabatic map along (VASP `M_CONSTR`), and it is **required**;
-  for a direction-pinning constraint (`constraint_mode = 4`) it is optional but
-  recommended — it feeds the axis-consistency gates at the dataset boundary.
+  evaluated the adiabatic map along (VASP `M_CONSTR`), and it is **required** —
+  the matrix must be present and carry at least one axis; an atom whose column is
+  zero under mode 1 contributes **no** moment row and must never fall back to
+  `directions` (the gates skip it, a consumer must too). For a direction-pinning
+  constraint (`constraint_mode = 4`) it is optional but recommended — it feeds
+  the axis-consistency gates at the dataset boundary. A mode-1 datum without
+  `moments_bare` is legal (it carries the axis without the target) and is
+  skipped by the gates.
 - `constraint_mode` — which class of constrained-DFT scheme produced this datum:
   `1` = transverse-penalty type (the axis is prescribed, the sign of the moment
   along it is free) or `4` = direction-pinning type (the full direction is
@@ -106,9 +113,19 @@ struct SpinDatum <: AbstractTrainingDatum
                 u == SVector{3,Float64}(0, 0, 0) && continue
                 all(isfinite, u) || throw(ArgumentError(
                     "`constraint_axes` column $a is not finite ($(Tuple(u)))"))
-                abs(norm(u) - 1) <= _CONSTRAINT_AXIS_ATOL || throw(ArgumentError(
+                abs(norm(u) - 1) <= _DIRECTION_ATOL || throw(ArgumentError(
                     "`constraint_axes` column $a is not a unit vector or exactly " *
                     "zero (‖u‖ = $(norm(u)))"))
+                # The same component bound every direction door of this package
+                # carries (`_validate_config`, `Harmonics._validate_unit`): an axis
+                # is a direction the moment channel will hand to the harmonic
+                # kernels, whose `dnPl` domain is |z| ≤ 1 — a near-pole column 5e-9
+                # off unit clears any norm band and would throw a bare DomainError
+                # from inside an accumulation. Not redundant with the band.
+                maximum(abs, u) <= 1 || throw(ArgumentError(
+                    "`constraint_axes` column $a has a component of magnitude " *
+                    "$(maximum(abs, u)) > 1 (a unit axis cannot; the harmonic " *
+                    "kernels' domain is |z| ≤ 1)"))
             end
         end
         if constraint_mode !== nothing
@@ -122,6 +139,12 @@ struct SpinDatum <: AbstractTrainingDatum
                                     "axis cannot be reconstructed from the converged " *
                                     "moment direction where ‖M‖ → 0, so the " *
                                     "constraint axis must be carried explicitly"))
+            constraint_mode == 1 && all(iszero, constraint_axes) &&
+                throw(ArgumentError("`constraint_mode = 1` with an all-zero " *
+                                    "`constraint_axes`: every column says \"no " *
+                                    "axis\", so the matrix carries none — a " *
+                                    "transverse-penalty run constrains at least " *
+                                    "one atom"))
         elseif constraint_axes !== nothing
             throw(ArgumentError("`constraint_axes` without `constraint_mode`: the " *
                                 "evaluation-axis rule is keyed by the constraint " *
@@ -133,15 +156,15 @@ struct SpinDatum <: AbstractTrainingDatum
     end
 end
 
-# Unit-norm band for a constraint axis (the same band upstream SLCE.jl applies to
-# every stored direction): finite, and off unit by at most this much.
-const _CONSTRAINT_AXIS_ATOL = 1.0e-6
-
 # The five-field form: the adiabatic-moment trio absent. Kept so every existing
-# direct construction (and the v4-era docs) reads unchanged.
-SpinDatum(energy::Float64, directions::Matrix{Float64}, magmoms::Vector{Float64},
-          field::Matrix{Float64}, torques::Matrix{Float64}) =
-    SpinDatum(energy, directions, magmoms, field, torques, nothing, nothing, nothing)
+# direct construction (and the v4-era docs) reads unchanged — converting, as the
+# default constructor it replaces was.
+SpinDatum(energy::Real, directions::AbstractMatrix{<:Real},
+          magmoms::AbstractVector{<:Real}, field::AbstractMatrix{<:Real},
+          torques::AbstractMatrix{<:Real}) =
+    SpinDatum(Float64(energy), Matrix{Float64}(directions), Vector{Float64}(magmoms),
+              Matrix{Float64}(field), Matrix{Float64}(torques), nothing, nothing,
+              nothing)
 
 """
     SpinDatum(energy, moments, field; zero_moment_atol = 1e-10,
@@ -194,6 +217,8 @@ function SpinDatum(energy::Real, moments::AbstractMatrix{<:Real},
         end
     end
     _m(x) = x === nothing ? nothing : Matrix{Float64}(x)
+    constraint_mode isa Bool &&
+        throw(ArgumentError("`constraint_mode` is a class (1 or 4), not a flag"))
     return SpinDatum(Float64(energy), dirs, mags, Matrix{Float64}(field), torq,
                      _m(moments_bare), _m(constraint_axes),
                      constraint_mode === nothing ? nothing : Int(constraint_mode))

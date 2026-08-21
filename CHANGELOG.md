@@ -6,6 +6,25 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — `constraint_axes` carries the component bound (2026-08-21)
+
+Review of M1: the axis validation had the `1e-6` norm band but not the
+`maximum(abs, u) ≤ 1` component bound every other direction door of this
+package applies (`_validate_config`, `Harmonics._validate_unit`) — and its test
+pinned a column with `u_z = 1.0000005` as legal. An axis is a direction the
+moment channel will hand to the harmonic kernels, whose `dnPl` domain is
+`|z| ≤ 1`; a near-pole column inside the norm band would throw a bare
+`DomainError` from inside an accumulation. The bound is added, the band reuses
+the package's `_DIRECTION_ATOL` instead of a second constant, and the test
+refuses the near-pole column and accepts an in-band, in-bound one. Same review,
+smaller: under mode 1 an all-zero axes matrix is refused (it satisfies "axes
+present" in letter only) and the per-atom zero-column convention is written
+where the invariant lives (no moment row for that atom, never a fallback to
+`directions`); `constraint_mode = true` is refused (a `Bool` is not a class);
+the five-argument direct form converts its arguments again, as the default
+constructor it replaced did; the exactly-zero column is stated as this
+package's convention rather than as a VASP fact.
+
 ### Added — `SpinDatum` carries the adiabatic-moment channel trio (2026-08-21)
 
 Step M1 of the pointed site-moment backport (upstream SLCE.jl `4b611f9`, adapted:

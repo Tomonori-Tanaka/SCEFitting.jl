@@ -152,6 +152,9 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
         # the five-field direct form is the same datum
         d5 = SpinDatum(d0.energy, d0.directions, d0.magmoms, d0.field, d0.torques)
         @test d5.moments_bare === nothing && d5.constraint_mode === nothing
+        # ... and it converts, as the default constructor it replaced did
+        d5i = SpinDatum(0, d0.directions, [1, 1, 1], d0.field, d0.torques)
+        @test d5i.energy === 0.0 && d5i.magmoms == [1.0, 1.0, 1.0]
 
         # moments_bare: finiteness is the ONLY value constraint (signed, zero-crossing
         # magnitudes are the point of the vector storage)
@@ -174,6 +177,13 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
         @test_throws ArgumentError mk(; constraint_axes = ax)
         d1 = mk(; moments_bare = M, constraint_axes = ax, constraint_mode = 1)
         @test d1.constraint_mode == 1 && d1.constraint_axes == ax
+        # an all-zero axes matrix satisfies "axes present" in letter only: refused
+        @test_throws ArgumentError mk(; moments_bare = M, constraint_axes = zeros(3, n),
+                                      constraint_mode = 1)
+        # a Bool is not a class
+        @test_throws ArgumentError mk(; constraint_mode = true)
+        # mode 1 without the bare moments is legal (axis without target)
+        @test mk(; constraint_axes = ax, constraint_mode = 1).moments_bare === nothing
 
         # axes columns: unit vectors, or exactly zero (= "no axis for this atom");
         # near-zero noise and off-unit columns are refused, not normalized
@@ -188,14 +198,20 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
         @test_throws ArgumentError mk(; constraint_axes = axnan, constraint_mode = 1)
         axoff = copy(ax); axoff[3, 1] = 1.0 + 2e-6       # outside the 1e-6 band
         @test_throws ArgumentError mk(; constraint_axes = axoff, constraint_mode = 1)
-        axin = copy(ax); axin[3, 1] = 1.0 + 5e-7         # inside it
+        # inside the norm band but with a component > 1: refused — the component
+        # bound is the load-bearing half (the harmonic kernels' |z| ≤ 1 domain),
+        # exactly as `_validate_config` / `Harmonics._validate_unit` refuse it
+        axpole = copy(ax); axpole[3, 1] = 1.0 + 5e-7
+        @test_throws ArgumentError mk(; constraint_axes = axpole, constraint_mode = 4)
+        # inside the band AND inside the component bound: accepted
+        axin = copy(ax); axin[:, 1] = [1.0, 1.0, 0.0] ./ sqrt(2) .* (1 + 5e-7)
         @test mk(; constraint_axes = axin, constraint_mode = 4).constraint_axes == axin
 
         # the two construction paths of one type carry the fields identically, and
         # the derived E/T fields are bit-identical with and without the trio
         dd = SpinDatum(d1.energy, d1.directions, d1.magmoms, d1.field, d1.torques,
                        M, ax, 1)
-        for f in fieldnames(SpinDatum)
+        for f in (:moments_bare, :constraint_axes, :constraint_mode)
             @test getfield(dd, f) == getfield(d1, f)
         end
         for f in (:energy, :directions, :magmoms, :field, :torques)
@@ -211,7 +227,7 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
         rng = MersenneTwister(17)
         raw = [(0.1 * k, randn(rng, 3, 2), 0.1 .* randn(rng, 3, 2)) for k = 1:4]
         plain = [SpinDatum(e, m, b) for (e, m, b) in raw]
-        withm = [SpinDatum(e, m, b; moments_bare = 0.9 .* m, constraint_mode = 4)
+        withm = [SpinDatum(e, m, b; moments_bare = 1.5 .* m, constraint_mode = 4)
                  for (e, m, b) in raw]
         dsp = SCEDataset(basis, plain)
         dsm = SCEDataset(basis, withm)
