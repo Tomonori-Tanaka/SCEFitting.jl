@@ -135,6 +135,25 @@ capability consumed by both the introspection and the Sunny interop.
   independence; projector eigenvalues exactly 0/1. Improper-op parity is handled
   automatically (site-axis rotation by full `R` + even `Σl`). Cross-validated against
   Magesty: per-`(body, ls, Lf)` invariant-subspace dimensions agree through 3-body.
+- A **second projection engine**, `_orbit_salcs_decors`, generalizes the same
+  construction to explicit decoration labels (sorted `SiteDecor` multisets). It is
+  what the pointed site-moment channel needs — that channel's mark is the
+  displacement decor `SiteDecor(disp = (1, 0))`, whose factor `|u|² R₀₀` evaluates
+  to 1 on the marked atom and 0 elsewhere, so it is not expressible as an `ls`
+  tuple. Coupling runs over the slots spin-first, so the total spin rank `L_S` is a
+  good quantum number of each coupling path, and projection is per `(L_S, Lf)`
+  block; `isotropy` screens `L_S` here where the pure-spin engine screens `Lf`
+  (identical on a pure-spin label, where `L_S ≡ Lf`). A label is a sorted multiset
+  and cannot express a per-site rule, so the per-species cap arrives through an
+  `admit` predicate applied to an orbit of assignments. Nothing calls the engine
+  from a public builder yet; the pure-spin production path is unchanged, and the
+  gate is that given the same label and admission rule the two engines agree
+  **bitwise** (`test/unit/test_mixedsalc.jl`).
+- The joint form `evaluate_salc(salc, e, u)` evaluates spin axes as `Z_{lm}(ê)` and
+  displacement axes as `|u|^{2k} R_{lm}(u)` through the 4π-free `SolidHarmonics`
+  kernel, scaled by `(4π)^(n_spin/2)`. The spin-only `evaluate_salc(salc, e)`,
+  `accumulate_grad!`, and `group_costs` **refuse** a decorated SALC rather than read
+  a `DISP` rank as a spin harmonic under the wrong scale.
 
 ### fitting + SCE API (M8, M9)
 - `BasisSpec` (validated: `nbody ≥ 1`, symmetric per-body `cutoff` matrices with
