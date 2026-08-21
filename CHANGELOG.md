@@ -6,6 +6,28 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — `SALCKey`'s hash is content-based again (2026-08-21)
+
+Adding `SiteDecor` to the key silently made `SALCBasis.fingerprint` a function
+of the **build** rather than of the basis: `hash` on a bare struct or enum falls
+back to `objectid`, which mixes in the type's identity, and that identity
+differs between precompiled images of the same package. Measured: three
+environments of this package produced three different hashes for the same
+`SiteDecor(; spin = 1)`, stable across processes within each image.
+
+- `hash(::SiteFactor)` and `hash(::SiteDecor)` now hash the content tuples,
+  projected to plain `Int`s (`Channel` is an enum, so it hashes by `objectid`
+  too and has to go through `Int`).
+- Nothing was functionally broken — `_basis_from_doc` already recomputes the
+  fingerprint locally and treats the stored one as provenance, and every
+  fingerprint comparison is between two in-session objects. What was lost was
+  the property the docstring claims (a *structural* fingerprint) and the ability
+  to compare a basis across builds, which is how this was found: a cross-commit
+  bit-identity probe reported identical keys, coefficients, energies, torques,
+  and multipole terms — and a different fingerprint.
+- The fingerprint remains Julia-version dependent (`hash` of `Int`s and tuples
+  is), exactly as `_basis_from_doc`'s docstring says.
+
 ### Changed — `SALCKey` carries decorations, persistence schema v5 (2026-08-21)
 
 **Breaking** for anything that read `key.ls` or constructed a `SALCKey`

@@ -92,6 +92,25 @@ using SCEFitting: Channel, SPIN, DISP, OCC, SiteFactor, SiteDecor,
         @test hash(ka) == hash(SALCKey(2, 3, spin_decors([1, 1]), 0, 0, 1))
     end
 
+    @testset "hash is a function of content, not of the type's identity" begin
+        # `hash` on a bare struct or enum falls back to `objectid`, which mixes in
+        # the TYPE's identity — and that differs between precompiled images of the
+        # same package (measured: three environments, three values for the same
+        # content). Since a `SALCKey` carries `SiteDecor`s, the fallback would make
+        # `SALCBasis.fingerprint` a function of the build rather than of the basis.
+        # The right-hand sides below are hashes of plain `Int` tuples and vectors,
+        # which Julia hashes by value — so these equalities hold only while the
+        # content-tuple methods exist, and break the moment they are removed.
+        @test hash(SiteFactor(SPIN, 0, 2)) == hash((1, 0, 2))
+        @test hash(SiteFactor(DISP, 1, 3)) == hash((2, 1, 3))
+        @test hash(SiteDecor(; spin = 2)) == hash((2, 0, 0))
+        @test hash(SiteDecor(; spin = 1, disp = (0, 2))) == hash((1, 0, 2))
+        @test hash(SiteDecor(; disp = (1, 0))) == hash((0, 1, 0))
+        # and the composite a basis fingerprint is built from
+        k = SALCKey(2, 3, spin_decors([1, 1]), 0, 0, 1)
+        @test hash(k) == hash((2, 3, [(1, 0, 0), (1, 0, 0)], 0, 0, 1))
+    end
+
     @testset "rep_scale channel trait" begin
         # SPIN is axial: det(R)^l — the inversion representation is +I for every l
         @test rep_scale(SPIN, -1.0, 1) == -1.0     # axial l=1 under a mirror-free det
