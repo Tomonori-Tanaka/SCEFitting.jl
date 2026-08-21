@@ -36,6 +36,7 @@ end
                                          # canonical-member gates)
         include("unit/test_geometry.jl")
         include("unit/test_harmonics.jl")
+        include("unit/test_solidharmonics.jl")
         include("unit/test_angmom.jl")
         include("unit/test_coupledbasis.jl")
         include("unit/test_symmetry.jl")

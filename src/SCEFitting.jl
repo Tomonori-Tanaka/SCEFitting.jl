@@ -33,6 +33,7 @@ include("symmetry/backend.jl")
 
 # --- basis: numeric kernels (self-contained submodules) ---
 include("basis/Harmonics.jl")
+include("basis/SolidHarmonics.jl")
 include("basis/AngularMomentum.jl")
 include("basis/coupledbasis.jl")
 include("basis/decor.jl")
@@ -121,7 +122,7 @@ export EmbsetFile, read_embset
 # namespace: the `SCEBasis` constructor already drives them for you. Power users and the
 # test suite reach them by qualification. Declared with the `public` keyword so the
 # tier is machine-checkable (`Base.ispublic`, Aqua) instead of a comment-only promise.
-public Harmonics, AngularMomentum                                    # numeric kernels
+public Harmonics, SolidHarmonics, AngularMomentum                     # numeric kernels
 public build_neighbor_list, NeighborPair, NeighborList, interplanar_spacing
 public analyze_symmetry, n_ops, SymOp, SpaceGroup, AbstractTrainingDatum
 public build_clusters, ClusterMember, ClusterOrbit, ClusterSet

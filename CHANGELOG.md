@@ -6,6 +6,29 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — the `SolidHarmonics` displacement kernel (2026-08-21)
+
+A pure addition: no existing code path calls it yet. `SolidHarmonics` is the
+counterpart of `Harmonics` for polar factors — real solid harmonics `Rₗₘ(u)`
+evaluated as homogeneous polynomials in the Cartesian components of `u`, so
+they are regular and exactly `0` (for `l ≥ 1`) at `u = 0`, together with their
+**Euclidean** gradients. Its normalization is 4π-free (Racah-type):
+`Rₗₘ(û) = √(4π/(2l+1)) · Harmonics.Zlm(l, m, û)` on the unit sphere, and the
+rank-1 factors are literally `R₁₋₁, R₁₀, R₁₁ = y, z, x`.
+
+Why a pure-spin package carries a displacement kernel: the **mark** of the
+pointed site-moment channel is the displacement decor `SiteDecor(disp = (1, 0))`
+evaluated on a synthetic indicator field, i.e. the factor `|u|² R₀₀` — 1 on the
+marked atom, 0 on every other. That makes the mark arithmetic rather than
+procedural (a member not marked at the row's atom is killed by an exact zero
+before it can contribute), which is what keeps the selection independently
+checkable. No physical displacement field enters this package's models.
+
+The kernel is ported from SLCE.jl `0ba2dc5` unchanged; its tests are
+independent of it (the Racah relation against `Harmonics.Zlm` up to `l = 16`,
+homogeneity `R(λu) = λˡ R(u)`, the closed-form rank-1 and `u = 0` values, and
+central differences for the gradient).
+
 ### Changed — SALC terms carry slots, not a per-site `ls` (2026-08-21)
 
 **Breaking** for anything that read `SALCTerm.ls` or built a `SALCTerm`

@@ -261,6 +261,40 @@ Harmonics.lm_index
 Harmonics.num_lm
 ```
 
+## SolidHarmonics kernel
+
+The `SolidHarmonics` submodule (public, unexported — call as
+`SCEFitting.SolidHarmonics.Rlm` etc.) is the displacement-channel kernel: real solid
+harmonics `Rₗₘ(u)` evaluated as homogeneous polynomials in the Cartesian
+components of `u` (regular and exact at `u = 0`) together with their
+**Euclidean** gradients — no tangent projection, in contrast to the spin-side
+`Harmonics.grad_Zlm`; the two kernels are distinct objects and neither
+substitutes for the other.
+
+The normalization is **4π-free (Racah-type)**: on the unit sphere
+`Rₗₘ(û) = √(4π/(2l+1)) · Harmonics.Zlm(l, m, û)`, and the rank-1 factors are
+literally the Cartesian components `R₁₋₁, R₁₀, R₁₁ = y, z, x`. Only spin sites
+carry the per-factor `(4π)^(−1/2)`, so the per-term design-matrix scale stays
+`(4π)^(n_spin/2)` with displacement factors scale-free.
+
+In this pure-spin package the kernel is reached through exactly one production
+route: the **mark** of the pointed site-moment channel is the displacement decor
+`SiteDecor(disp = (1, 0))`, evaluated on a synthetic indicator field, so the mark
+factor is `|u|² R₀₀` — 1 on the marked atom and 0 everywhere else. No physical
+displacement field enters this package's models.
+
+```@docs
+SolidHarmonics
+SolidHarmonics.solid_harmonics
+SolidHarmonics.solid_harmonics!
+SolidHarmonics.solid_harmonics_grad
+SolidHarmonics.solid_harmonics_grad!
+SolidHarmonics.Rlm
+SolidHarmonics.grad_Rlm
+SolidHarmonics.solid_harmonic_index
+SolidHarmonics.num_solid_harmonics
+```
+
 ## AngularMomentum kernel
 
 The `AngularMomentum` submodule (public, unexported) carries the angular-momentum
