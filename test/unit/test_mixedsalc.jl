@@ -397,4 +397,134 @@ end
         @test_throws ArgumentError SCEFitting.group_costs(
             SCEFitting.SCEBasis(xtalB, sgB, sb, spec))
     end
+
+    @testset "joint evaluation values: Parseval closed form + hand contraction" begin
+        # The gates above never pin a VALUE of the mixed kernel: the twist
+        # `(ê₁×ê₂)·(u₁×u₂)` is symmetric under e ↔ u and under the site swap, the
+        # u = 0 test is exact for any homogeneous kernel, and invariance holds
+        # for any scale. So a kernel that dropped `|u|^{2k}` (the pointed mark is
+        # k = 1), scaled by `(4π)^(n_slots/2)` instead of `(4π)^(n_spin/2)` (the
+        # mark-only site has n_spin = 0), or read the displacement of the wrong
+        # site would pass them all. This testset fixes the value two ways.
+        #
+        # (1) Parseval. Under the trivial group every coupling path is invariant,
+        # so a label's SALCs form an orthonormal basis of the full product space
+        # and, for one ordered instance, Σ_s Φ_s² = ‖⊗ factor tables‖² · (4π)^n_spin
+        # — by the addition theorems Σ_m Z_{lm}(ê)² = (2l+1)/4π and
+        # Σ_m R_{lm}(u)² = |u|^{2l} (Racah-normalised solid harmonics), that is
+        #     Π_spin (2l+1) · Π_disp |u_a|^{2l + 4k},
+        # with no folded tensor, Clebsch–Gordan coefficient, or Wigner matrix in
+        # sight. One documented convention enters: the same physical cluster
+        # arrives as N! ordered images which `_canonicalize_members` SUMS into one
+        # member (`basis/salc.jl`), so the value carries N! and the sum (N!)².
+        # Under C₁ the two-site orbit is exactly those images (asserted below).
+        # Each distinct site assignment of a label is its own orthonormal block,
+        # so the closed form sums over the label's arrangements.
+        #
+        # (2) A per-SALC contraction written from the public kernels `Zlm` / `Rlm`
+        # and the slot list, which pins the channel dispatch, the `m ↔ axis`
+        # offset, `|u|^{2k}` and the site lookup of `_fill_ztables_mixed!` term
+        # by term (it shares `folded` with the engine, so it is a check on the
+        # evaluation, not on the projection).
+        I3 = SMatrix{3,3,Float64}(I)
+        z3 = SVector{3,Float64}(0, 0, 0)
+        sgP1 = _assemble_spacegroup(xtal, [I3], [z3], "P1", 1; tol = 1e-5)
+        wcP1 = _build_wig_cache(sgP1, 2)
+        O1P1 = build_clusters(xtal, build_neighbor_list(xtal, 2.1), sgP1;
+                              nbody = 1).by_body[1][1]
+        sgP1B = _assemble_spacegroup(xtalB, [I3], [z3], "P1", 1; tol = 1e-5)
+        wcP1B = _build_wig_cache(sgP1B, 2)
+        O2P1 = build_clusters(xtalB, build_neighbor_list(xtalB, 1.1), sgP1B;
+                              nbody = 2).by_body[2][1]
+        # the orbit is the one bond as its 2! ordered images, nothing else
+        @test length(O2P1.members) == 2
+        @test sort([m.atoms for m in O2P1.members]) == [[1, 2], [2, 1]]
+
+        function closed_form(label, u)
+            N = length(label)
+            perms = N == 1 ? [[1]] : [[1, 2], [2, 1]]
+            arrangements = unique([label[p] for p in perms])
+            tot = 0.0
+            for a in arrangements
+                f = 1.0
+                for s in eachindex(a)
+                    SCEFitting.has_spin(a[s]) && (f *= 2 * a[s].spin_l + 1)
+                    SCEFitting.has_disp(a[s]) &&
+                        (f *= norm(u[:, s])^(2 * a[s].disp_l + 4 * a[s].disp_k))
+                end
+                tot += f
+            end
+            return factorial(N)^2 * tot
+        end
+
+        function hand_value(s, e, u)
+            n_spin = count(SCEFitting.has_spin, s.decors)
+            tot = 0.0
+            for m in s.members, t in m.terms
+                for idx in CartesianIndices(t.folded)
+                    w = t.folded[idx]
+                    w == 0.0 && continue
+                    for (i, sl) in enumerate(t.slots)
+                        a = m.atoms[sl.site]
+                        l = sl.factor.l
+                        μ = idx[i] - l - 1
+                        if sl.factor.channel == SPIN
+                            w *= SCEFitting.Harmonics.Zlm(l, μ, e[:, a])
+                        else
+                            w *= norm(u[:, a])^(2 * sl.factor.k) *
+                                 SCEFitting.SolidHarmonics.Rlm(l, μ, u[:, a])
+                        end
+                    end
+                    tot += w
+                end
+            end
+            return (4π)^(n_spin / 2) * tot
+        end
+
+        # Labels chosen so every escape changes the closed form: a k = 1 mark on
+        # a ranked site, the bare pointed mark (n_spin = 0, Σ = |u|⁴), a k = 0
+        # rank-2 decor, and the two-site shapes — mark and rank on DIFFERENT
+        # sites (n_spin = 1 of 2 slots), and both sites decorated.
+        cases = [
+            (xtal, sgP1, 1, O1P1, wcP1, [SiteDecor(; spin = 2, disp = (1, 1))]),
+            (xtal, sgP1, 1, O1P1, wcP1, [SiteDecor(; disp = (1, 0))]),
+            (xtal, sgP1, 1, O1P1, wcP1, [SiteDecor(; spin = 2, disp = (0, 2))]),
+            (xtalB, sgP1B, 2, O2P1, wcP1B,
+             sort([SiteDecor(; spin = 1), SiteDecor(; spin = 1, disp = (1, 1))])),
+            (xtalB, sgP1B, 2, O2P1, wcP1B,
+             sort([SiteDecor(; disp = (1, 0)), SiteDecor(; spin = 2)])),
+            (xtalB, sgP1B, 2, O2P1, wcP1B,
+             [SiteDecor(; spin = 1, disp = (0, 1)),
+              SiteDecor(; spin = 1, disp = (0, 1))]),
+        ]
+        rngP = MersenneTwister(0x9a25)
+        for (xt, sgx, N, O, wcx, label) in cases
+            ss = _orbit_salcs_decors(xt, sgx, N, 1, O, [label], false, wcx)
+            # completeness: Π(2l+1) over every factor, per arrangement
+            nfull = sum(prod((SCEFitting.has_spin(d) ? 2d.spin_l + 1 : 1) *
+                             (SCEFitting.has_disp(d) ? 2d.disp_l + 1 : 1) for d in a)
+                        for a in unique([label[p] for p in
+                                         (N == 1 ? [[1]] : [[1, 2], [2, 1]])]))
+            @test length(ss) == nfull
+            for _ = 1:3
+                e = reduce(hcat, [normalize(randn(rngP, 3)) for _ = 1:N])
+                # column norms kept away from 1 and from each other, so a dropped
+                # `|u|^{2k}` or a swapped site cannot hide behind |u| ≈ 1
+                u = reduce(hcat, [normalize(randn(rngP, 3)) * r
+                                  for r in (N == 1 ? (0.6,) : (0.6, 1.7))])
+                P = sum(evaluate_salc(s, e, u)^2 for s in ss)
+                @test P ≈ closed_form(label, u) rtol = 1e-12
+                for s in ss
+                    v = evaluate_salc(s, e, u)
+                    @test v ≈ hand_value(s, e, u) atol = 1e-12 * max(1.0, abs(v))
+                end
+            end
+        end
+        # the (4π) exponent counts SPIN slots, not slots: the spin-free mark
+        # evaluates to |u|² R₀₀ = |u|² exactly (here 0.09 + 0.16 + 1.44), no 4π
+        sm = only(_orbit_salcs_decors(xtal, sgP1, 1, 1, O1P1,
+                                      [[SiteDecor(; disp = (1, 0))]], false, wcP1))
+        um = reshape([0.3, -0.4, 1.2], 3, 1)
+        @test evaluate_salc(sm, reshape([0.0, 0.0, 1.0], 3, 1), um) ≈ 1.69 rtol = 1e-13
+    end
 end

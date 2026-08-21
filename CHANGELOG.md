@@ -52,6 +52,20 @@ builder yet — the production pure-spin path is untouched.
   no code with the SALC machinery — no Clebsch–Gordan, no Wigner-D, no spherical
   harmonics — built by averaging the group action over the multilinear forms in
   the components of `ê` and `u` and reading the rank.
+- **The joint kernel's value is pinned by a closed form** (added after the
+  review panel found that none of the gates above fixed one: the twist
+  `(ê₁×ê₂)·(u₁×u₂)` is symmetric under `e ↔ u` and the site swap, `u = 0` is
+  exact for any homogeneous kernel, and invariance holds at any scale — a kernel
+  that dropped `|u|^{2k}` or scaled by the slot count instead of the spin count
+  passed everything). Under the trivial group a label's SALCs are an orthonormal
+  basis of the full product space, so by the addition theorems
+  `Σ_s Φ_s² = (N!)² · Π_spin (2l+1) · Π_disp |u_a|^{2l+4k}` — no folded tensor,
+  Clebsch–Gordan coefficient or Wigner matrix enters; the `(N!)²` is the
+  documented `_canonicalize_members` convention (the `N!` ordered images of one
+  instance are summed). Six labels, including the bare pointed mark
+  (`n_spin = 0`, value `|u|²` exactly) and mark-and-rank on different sites; a
+  per-SALC contraction written from the public `Zlm`/`Rlm` sits beside it.
+  Mutation-checked: each of the three escapes is killed by this testset alone.
 - **Performance**: the basis build is allocation-neutral to the byte; the design
   matrices cost exactly +92 allocations each, fully attributed to the one new
   `SALCScratch` field over the bench's 46 columns. See `bench/BENCH_LOG.md`.
