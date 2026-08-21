@@ -305,7 +305,10 @@ Easy to break silently — confirm before touching the algorithm.
   `directions` (the 8-field direct form is public), so the dataset ctor runs
   `_validate_config` on every datum's `directions` and refuses a referenced atom
   (marked or environment, `_referenced_atoms(::MomentBasis)`) with `‖MW‖ ≤
-  zero_moment_atol` — its direction is the ẑ placeholder. Remove either check and
+  zero_moment_atol` — its direction is the ẑ placeholder. The placeholder was
+  fabricated by the READER at its own `zero_moment_atol`, so a dataset built from
+  `read_extxyz(...; zero_moment_atol = x)` must pass the same `x` here (the
+  energy side's `SCEDataset` states the same obligation). Remove either check and
   a non-unit or fabricated column reaches the harmonic kernels silently (the gate
   `g` stops being `|M| sin²θ` first). The resolvability gate runs FIRST in that
   ctor (basis-only) so its refusal is never masked by a data door.
@@ -489,6 +492,7 @@ comma-free `u(k:l)` decors token (`e828524`), and the validating persist reader
 | `julia --project=test/oracle test/oracle/runtests.jl` | from-scratch numerics vs pinned Magesty |
 | `julia --project=test/sunny test/sunny/runtests.jl` | real `Sunny.System` energy vs SCE (extension) |
 | `julia --project=test/glmnet test/glmnet/runtests.jl` | GLMNet Lasso / elastic-net solve (extension) |
+| `julia --project=test/parity -t 4 test/parity/runtests.jl` | real-data parity of the moment channel vs the sibling SLCE.jl checkout (FeGe / FeRh; needs external data; **no CI job**) |
 
 The core suite (`runtests.jl`) dispatches on the `TEST_MODE` env var
 (`default`/`all`/`unit`/`aqua`/`jet`) and never depends on Magesty. The oracle,

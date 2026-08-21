@@ -56,7 +56,12 @@ quenched moment's `directions` column is the ẑ placeholder the moments
 constructor fabricates, which would enter every neighbouring row as a fake
 environment coordinate (and, in mode 4, become that row's own axis while the
 `|M| = 0 → g = 0` convention waves the row through). The constructor refuses such
-a datum by name — the same door as `SCEDataset`'s `zero_moment_atol`.
+a datum by name — the same door as `SCEDataset`'s `zero_moment_atol`, with the
+same obligation: the placeholder was fabricated by the READER at ITS
+`zero_moment_atol` (`read_extxyz`, `read_embset_pair`, the moments constructor),
+so if the `SpinDatum`s were built with a custom value, **pass the same value
+here** — a reader atol of 1e-3 against this door's default 1e-10 lets a 5e-4 μB
+placeholder through untouched.
 
 The **decomposability gate** keeps rows whose transverse remainder is small:
 `g = ‖M⊥‖²/|M| = |M| sin²θ ≤ gate_eps` (μB, computed in the cancellation-free form
@@ -540,7 +545,9 @@ mean residuals of the moment channel, organized along the marked-sublattice orde
 parameter `|⟨e⟩|` (`ds.order`). Returns
 
 - `bands` — `nbins` equal-count bins in order of increasing `|⟨e⟩|`, each
-  `(; lo, hi, mean_residual, n)`;
+  `(; lo, hi, mean_residual, n)` (equal COUNT, not equal width: with tied
+  `|⟨e⟩|` values adjacent bins can share an edge value, so `[lo, hi]` ranges
+  need not partition the axis);
 - `slope`, `intercept` — the least-squares line of per-config mean residual vs
   `|⟨e⟩|` (the bin-free statement of the same trend);
 - `r` — the Pearson correlation of the two;
@@ -645,8 +652,12 @@ function salc_groups(mb::MomentBasis)::Vector{Int}
         marks = Int[]
         sites = Int[]
         for t in mem.terms
+            # the one-mark invariant (the same one `_mark_term_index` asserts):
+            # a second DISP slot would make "the mark class" ill-defined
+            nmk = count(sl -> sl.factor.channel == DISP, t.slots)
+            nmk == 1 || error("pointed SALC $j carries $nmk mark slots in one " *
+                              "term; the mark-class key assumes exactly one")
             ms = findfirst(sl -> sl.factor.channel == DISP, t.slots)
-            ms === nothing && error("pointed SALC without a mark slot")
             push!(sites, t.slots[ms].site)
             push!(marks, mem.atoms[t.slots[ms].site])
         end
@@ -718,9 +729,14 @@ end
 function _pair_neighbors(mb::MomentBasis)
     spec = mb.spec
     sp = mb.crystal.species
+    nbrs = Dict(a => Int[] for a in mb.marked_atoms)
+    # a 1-body basis reads no environment at all: `cutoff_pair` is a required
+    # spec field regardless of `nbody`, so the shell it names is not one the
+    # model ever sees — report an empty field (h₁ = 0, alignment undefined)
+    # rather than a coordinate with no bearing on the fit
+    spec.nbody >= 2 || return nbrs
     nl = build_neighbor_list(mb.crystal, spec.cutoff_pair, MinimumImage();
                              tol = mb.tie_tol)
-    nbrs = Dict(a => Int[] for a in mb.marked_atoms)
     for p in nl.pairs
         haskey(nbrs, p.i) || continue
         spec.lmax_env[sp[p.j]] > 0 || continue
@@ -885,9 +901,17 @@ sum over the same `cutoff_pair` neighbors as [`moment_local_field`](@ref). Retur
   never assumed);
 - `coef`, `n_features`, `feature_labels` — the simple model itself.
 
-`data` must be the very vector the fit's dataset was built from — checked loudly
-(row count and a bitwise target recomputation on the defined rows), because a
-silently re-paired `data` would fit the floor to the wrong targets.
+Both sigmas are Bessel-corrected `std` (`n − 1`), NOT [`rmse_moment`](@ref)'s
+`√(Σr²/n)` — compare like with like; with a single kept row both are `NaN`.
+
+`data` must be the very vector the fit's dataset was built from — checked loudly:
+the row count, a bitwise target recomputation on every defined row, and a
+replay of ONE configuration's design rows (the first whose marked axes are all
+nonzero) through the production build. The replay covers the environment
+columns the target check cannot see, but for that one configuration only — a
+co-rotated `(e, M)` substitution confined to another configuration passes the
+door. A dataset in which every configuration carries a zero-axis marked atom
+falls back to the target-only door.
 """
 function moment_simple_floor(f::MomentFit, data::AbstractVector{SpinDatum};
                              lmax::Integer = 2)

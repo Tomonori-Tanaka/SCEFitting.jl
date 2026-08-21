@@ -29,7 +29,7 @@ using SCEFitting
 using SCEFitting: _design_moment, n_salcs
 using LinearAlgebra
 using Random
-using Statistics: quantile
+using Statistics: quantile, std
 using StaticArrays
 using SCEFitting: _assemble_spacegroup
 
@@ -62,6 +62,8 @@ end
 # only), so a datum-door refusal on this fixture is preceded by its legitimate
 # tie-dependency warning; silence it where only the throw is under test.
 _quiet(f) = Base.CoreLogging.with_logger(f, Base.CoreLogging.NullLogger())
+_mf_refused(mbx, data; kw...) =
+    @test_throws ArgumentError _quiet(() -> MomentDataset(mbx, data; kw...))
 
 # The FeGe primitive pointed design at the fixture spec carries one structural
 # tie dependency (columns 2–3, named by moment_resolvability and warned by the
@@ -125,6 +127,9 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         d1 = _mf_datum(e; M, mode = 1, axes = copy(ax))
         ds = _mf_ds(mb, [d4, d1]; gate_eps = 1e6, coverage_floor = 0.0)
         @test size(ds.X) == (2nm, p)
+        # `order` reads the DIRECTIONS, never the axes: both data share `e`
+        @test ds.order[1] == ds.order[2]
+        @test ds.order[1] ≈ norm(sum(e[:, a] for a in marked)) / nm rtol = 1e-12
         for (ai, a) in enumerate(marked)
             # mode 4: ê = the datum's direction; mode 1: ê = the constraint axis —
             # both targets and gates recomputed here by hand arithmetic
@@ -175,9 +180,8 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
                             ("zero", [0.0, 0.0, 0.0]),
                             ("nan", [NaN, 0.0, 0.0]))
             ebad = copy(e); ebad[:, marked[1]] .= col
-            @test_throws ArgumentError _quiet(() -> MomentDataset(mb, [_mf_datum(ebad; M, mode = 4)];
-                                                     gate_eps = 1e6,
-                                                     coverage_floor = 0.0))
+            _mf_refused(mb, [_mf_datum(ebad; M, mode = 4)]; gate_eps = 1e6,
+                        coverage_floor = 0.0)
             @test_throws ArgumentError _quiet(() -> MomentDataset(
                 mb, [_mf_datum(ebad; M, mode = 1, axes = copy(e))]; gate_eps = 1e6,
                 coverage_floor = 0.0))
@@ -185,9 +189,8 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
             # it feeds every neighbouring row's harmonics
             ge = first(setdiff(1:nat, marked))
             ebad2 = copy(e); ebad2[:, ge] .= col
-            @test_throws ArgumentError _quiet(() -> MomentDataset(mb, [_mf_datum(ebad2; M, mode = 4)];
-                                                     gate_eps = 1e6,
-                                                     coverage_floor = 0.0))
+            _mf_refused(mb, [_mf_datum(ebad2; M, mode = 4)]; gate_eps = 1e6,
+                        coverage_floor = 0.0)
         end
         # the zero-moment door reads ‖MW‖ (magmoms), never M_int: a referenced atom
         # (marked Fe, or sampled-environment Ge) at ‖MW‖ ≤ atol is refused by name,
@@ -196,8 +199,8 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         for a in (marked[2], ge)
             mag = ones(nat); mag[a] = 1e-11
             err = try
-                _quiet(() -> MomentDataset(mb, [_mf_datum(e; M, mode = 4, mag)]; gate_eps = 1e6,
-                              coverage_floor = 0.0))
+                _quiet(() -> MomentDataset(mb, [_mf_datum(e; M, mode = 4, mag)];
+                                           gate_eps = 1e6, coverage_floor = 0.0))
                 nothing
             catch ex
                 ex
@@ -220,8 +223,13 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         ds = _mf_ds(mb_fe, [_mf_datum(e; M, mode = 4, mag)]; gate_eps = 1e6,
                     coverage_floor = 0.0)
         @test all(ds.keep)
-        @test_throws ArgumentError _quiet(() -> MomentDataset(mb, [_mf_datum(e; M, mode = 4)];
-                                                 gate_eps = 1e6, zero_moment_atol = -1.0))
+        _mf_refused(mb, [_mf_datum(e; M, mode = 4)]; gate_eps = 1e6,
+                    zero_moment_atol = -1.0)
+        # an EXACT placeholder (‖MW‖ = 0) is refused even at zero_moment_atol = 0:
+        # the rule is ‖MW‖ > atol, so the boundary is a refusal
+        mag0 = ones(nat); mag0[ge] = 0.0
+        _mf_refused(mb, [_mf_datum(e; M, mode = 4, mag = mag0)]; gate_eps = 1e6,
+                    coverage_floor = 0.0, zero_moment_atol = 0.0)
         # M_int = 0 on a marked atom is NOT the placeholder case (‖MW‖ = 1 here):
         # the quenched-passes convention stands
         Mq = copy(M); Mq[:, marked[1]] .= 0.0
@@ -266,7 +274,8 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         # structural and annihilates the held-out rows too)
         eh = _mb_unit(rng, nat)
         model = MomentModel(f)
-        @test predict_moment(model, eh) ≈ _design_moment(mb, [eh], [eh]) * beta atol = 1e-7
+        @test predict_moment(model, eh) ≈ _design_moment(mb, [eh], [eh]) * beta atol =
+            1e-7
         @test predict_moment(f, eh) == predict_moment(model, eh)
         @test coef(f) === f.coeffs
         @test occursin("MomentFit(", sprint(show, f))
@@ -330,6 +339,30 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         @test count(ds.keep) == 20nm - 4
         t = only(ds.orbit_report)
         @test t.n_defined == 20nm - 4 && t.n_kept == 20nm - 4
+        # the rms transverse remainder runs over the DEFINED rows only (a NaN
+        # from an undefined row would poison it); planted decomposable ⇒ ≈ 0
+        @test t.mperp_rms ≈ 0 atol = 1e-12
+        # band profile on a PARTIALLY kept configuration: configs 1–4 keep 3 of
+        # 4 rows; shift every marked M by c0·ê and profile with the unshifted
+        # model — every per-config mean residual must be c0 (a fixed divisor nm
+        # would give 0.75·c0 on configs 1–4)
+        c0 = 0.41
+        shifted = SpinDatum[]
+        for d in data
+            M = copy(d.moments_bare)
+            for a in marked
+                M[:, a] .+= c0 .* d.constraint_axes[:, a]
+            end
+            push!(shifted, _mf_datum(d.directions; M, mode = 1,
+                                     axes = copy(d.constraint_axes)))
+        end
+        f0 = _mf_fit(ds)
+        dss = @test_logs (:warn, r"structurally dependent") (:info,
+            r"undefined-axis") match_mode = :any MomentDataset(mb, shifted;
+                                                               gate_eps = 1e-8)
+        profs = moment_band_profile(MomentModel(f0), dss)
+        @test length(profs.mean_residual) == 20
+        @test all(isapprox.(profs.mean_residual, c0; atol = 1e-7))
         # survival counts the undefined rows in its denominator …
         @test t.survival == (20nm - 4) / (20nm)
         # … so a floor just above it refuses, naming the undefined-axis count
@@ -364,19 +397,17 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         # requirement checks
         e = _mb_unit(rng, nat)
         M = randn(rng, 3, nat)
-        @test_throws ArgumentError _quiet(() -> MomentDataset(mb, SpinDatum[]; gate_eps = 1e-6))
+        _mf_refused(mb, SpinDatum[]; gate_eps = 1e-6)
         @test_throws UndefKeywordError MomentDataset(mb, [_mf_datum(e; M, mode = 4)])
-        @test_throws ArgumentError _quiet(() -> MomentDataset(mb, [_mf_datum(e; M, mode = 4)];
-                                                 gate_eps = -1.0))
-        @test_throws ArgumentError _quiet(() -> MomentDataset(mb, [_mf_datum(e; M, mode = 4)];
-                                                 gate_eps = 1e-6,
-                                                 coverage_floor = 1.5))
+        _mf_refused(mb, [_mf_datum(e; M, mode = 4)]; gate_eps = -1.0)
+        _mf_refused(mb, [_mf_datum(e; M, mode = 4)]; gate_eps = 1e-6,
+                    coverage_floor = 1.5)
         no_m = SpinDatum(0.0, e, ones(nat), zeros(3, nat), zeros(3, nat),
                          nothing, nothing, 4)
         @test_throws ArgumentError _quiet(() -> MomentDataset(mb, [no_m]; gate_eps = 1e-6))
         no_mode = SpinDatum(0.0, e, ones(nat), zeros(3, nat), zeros(3, nat),
                             M, nothing, nothing)
-        @test_throws ArgumentError _quiet(() -> MomentDataset(mb, [no_mode]; gate_eps = 1e-6))
+        _mf_refused(mb, [no_mode]; gate_eps = 1e-6)
         # atom-count mismatch dies at the door
         e4 = _mb_unit(rng, 4)
         small = _mf_datum(e4; M = randn(rng, 3, 4), mode = 4)
@@ -570,10 +601,16 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         for c = 1:3
             data[c].constraint_axes[:, marked[1]] .*= -1.0   # re-gauged axis
         end
-        ds = _mf_ds(mb, data; gate_eps = 1e-8)
+        ds = @test_logs (:warn, r"structurally dependent") (:info,
+            r"antiparallel") match_mode = :any MomentDataset(mb, data; gate_eps = 1e-8)
         t = only(ds.orbit_report)
         @test t.n_anti == 3
         @test all(ds.keep)          # the gate is even in y: gauge rows still pass
+        # `order` is mode-independent: the same directions as mode 4 give the
+        # same coordinate (the re-gauged axes do not enter)
+        ds4 = _mf_ds(mb, [_mf_datum(d.directions; M = d.moments_bare, mode = 4)
+                          for d in data]; gate_eps = 1e-8)
+        @test ds4.order == ds.order
     end
 
     @testset "multi-orbit bookkeeping (Fe + Ge marked)" begin
@@ -637,7 +674,9 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
             @test ds.order[c] ≈ norm(m) / nm rtol = 1e-12
         end
         prof = moment_band_profile(f)
-        # hand re-computation of the whole profile from public fields
+        # re-computation of the profile from public fields (row → config
+        # mapping; valid here because every row is kept — the residual
+        # DEFINITION is gated by the planted-slope recovery below)
         pred = ds.X * coef(f)
         mres = [sum((ds.y .- pred)[(c-1)*nm+1:c*nm]) / nm for c = 1:24]
         @test prof.mean_residual ≈ mres atol = 1e-12
@@ -670,6 +709,68 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
                                                          coverage_floor = 0.5)
         prof3 = moment_band_profile(MomentModel(f), ds3)
         @test length(prof3.mean_residual) == 5
+        # equal-count binning on n = 5 < … not divisible by 4: every config in a
+        # band, counts differ by ≤ 1, bands ordered and covering the order range
+        @test sum(b.n for b in prof3.bands) == 5
+        @test maximum(b.n for b in prof3.bands) - minimum(b.n for b in prof3.bands) <= 1
+        @test all(b.lo <= b.hi for b in prof3.bands)
+        @test all(prof3.bands[i].hi <= prof3.bands[i + 1].lo
+                  for i = 1:length(prof3.bands) - 1)
+        @test prof3.bands[1].lo == minimum(prof3.order)
+        @test prof3.bands[end].hi == maximum(prof3.order)
+        # Pearson r carries the slope's sign: a perfect linear plant has r → ±1
+        @test prof2.r > 0.99
+        data2m = SpinDatum[]
+        for (c, d) in enumerate(data)
+            M = copy(d.moments_bare)
+            for a in marked
+                M[:, a] .-= (0.5 * ds.order[c]) .* d.directions[:, a]
+            end
+            push!(data2m, _mf_datum(d.directions; M, mode = 4))
+        end
+        prof2m = moment_band_profile(MomentModel(f), _mf_ds(mb, data2m; gate_eps = 1e-8))
+        @test prof2m.r < -0.99
+        @test prof2m.slope ≈ prof.slope - 0.5 atol = 1e-6
+        # the MomentFit method profiles the GATED coefficients: on a dirty
+        # dataset the gated model reproduces the clean configs exactly while
+        # the ungated one is polluted (test "decomposability gate")
+        datad = _mf_data(40; ndirty = 10)
+        dsd = @test_logs (:warn, r"structurally dependent") (:info,
+            r"excluded") match_mode = :any MomentDataset(mb, datad; gate_eps = 1e-6)
+        fd = _mf_fit(dsd)
+        profd = moment_band_profile(fd)
+        @test length(profd.mean_residual) == 30         # the 10 dirty configs are gone
+        @test all(abs.(profd.mean_residual) .< 1e-7)
+        @test maximum(abs, fd.coeffs_ungated - fd.coeffs) > 1e-3   # the two differ
+        # planted slope recovered through a gated-out configuration too
+        datads = SpinDatum[]
+        for (c, d) in enumerate(datad)
+            M = copy(d.moments_bare)
+            for a in marked
+                M[:, a] .+= (0.5 * dsd.order[c]) .* d.directions[:, a]
+            end
+            push!(datads, _mf_datum(d.directions; M, mode = 4))
+        end
+        dsds = @test_logs (:warn, r"structurally dependent") (:info,
+            r"excluded") match_mode = :any MomentDataset(mb, datads; gate_eps = 1e-6)
+        @test moment_band_profile(MomentModel(fd), dsds).slope ≈ 0.5 atol = 1e-6
+        # degenerate order spread (the same directions twice, bitwise): slope and
+        # r are NaN, the intercept is the plain mean residual — by hand
+        # mres = [0, 0.2] (the second datum's targets shifted by 0.2)
+        ed = data[1].directions
+        M0 = data[1].moments_bare
+        M2 = copy(M0)
+        for a in marked
+            M2[:, a] .+= 0.2 .* ed[:, a]
+        end
+        dsdeg = _mf_ds(mb, [_mf_datum(ed; M = M0, mode = 4),
+                            _mf_datum(ed; M = M2, mode = 4)]; gate_eps = 1e-8)
+        pdeg = moment_band_profile(MomentModel(f), dsdeg)
+        @test isnan(pdeg.slope) && isnan(pdeg.r)
+        @test pdeg.intercept ≈ 0.1 atol = 1e-7
+        # equal-COUNT bins: two configs give two singleton bands at one value
+        @test sum(b.n for b in pdeg.bands) == 2
+        @test all(b.lo == b.hi == pdeg.order[1] for b in pdeg.bands)
         @test_throws ArgumentError moment_band_profile(f; nbins = 0)
         # fewer configs than bins: every config still lands in a band (the naive
         # div-by-nbins binning dropped the high-|⟨e⟩| end — upstream review)
@@ -894,6 +995,11 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         mbm = MomentBasis(crm, spm; backend = _MBFixedSG(sgm))
         salm = SCEFitting.salcs(mbm)
         glm = SCEFitting.salc_groups(mbm)
+        # NOTE: `_marksets` re-derives the key the same way `salc_groups` does,
+        # so this is a SELF-CONSISTENCY check of the split (the key must see the
+        # site set), not an independent oracle — on this cell the two columns
+        # alias on periodic data (|cos| = 1), so no design-side row-support
+        # oracle exists; the independent oracle is the FeGe testset above
         function _marksets(s)
             mem = s.members[1]
             at = Int[]; st = Int[]
@@ -956,8 +1062,8 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
                          nbody = 2, cutoff_pair = 1.6)
         mbf = MomentBasis(crf, spf; backend = _MBFixedSG(sgf))
 
-        # hand oracle: ê₁ = ẑ, ê₂ = (sinθ, 0, cosθ) ⇒ h₁(1) = 2ê₂, h₁(2) = 2ê₁,
-        # both norms 2 (tie multiplicity), both alignments cosθ
+        # hand oracle: ê₁ = ẑ, ê₂ = (sinθ, 0, cosθ) ⇒ h₁(1) = 2ê₂ and
+        # h₁(2) = 2ê₁; both norms 2 (tie multiplicity), both alignments cosθ
         th = 0.7
         ef = zeros(3, 2)
         ef[:, 1] = [0.0, 0.0, 1.0]
@@ -1010,6 +1116,56 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         @test lfg.h1[1] == 0.0 && isnan(lfg.edoth[1])       # Fe: Ge env is off
         @test lfg.h1[2] ≈ 2.0 && lfg.edoth[2] ≈ cos(th)     # Ge: reads Fe
 
+        # atoms ≠ slots: the Ge-only FeGe basis (marked 5:8) must report ATOM
+        # numbers and read the ATOM's neighbors — a slot-indexed implementation
+        # would read atoms 1:4's environment
+        specg8 = MomentSpec(; lmax_env = [1, 1], sampled = [true, true],
+                            lmax_mark = 1, nbody = 2, cutoff_pair = 3.0,
+                            marked = [false, true])
+        mbg8 = MomentBasis(xt, specg8; backend = bk)
+        specall = MomentSpec(; lmax_env = [1, 1], sampled = [true, true],
+                             lmax_mark = 1, nbody = 2, cutoff_pair = 3.0,
+                             marked = [true, true])
+        mball = MomentBasis(xt, specall; backend = bk)
+        e8 = _mb_unit(rng, nat)
+        lf8 = moment_local_field(mbg8, [e8])
+        lfall = moment_local_field(mball, [e8])
+        @test lf8.row_atom == [5, 6, 7, 8]
+        # a row's field depends on the atom, not on which atoms are marked
+        @test lf8.h1 == lfall.h1[5:8] && lf8.edoth == lfall.edoth[5:8]
+        # perturbing Fe atom 1 (an environment atom of every Ge within 3.0 Å)
+        # moves every Ge row's field; re-axing atom 7 moves only edoth[3]
+        e8b = copy(e8); e8b[:, 1] .= _mb_unit(rng, 1)[:, 1]
+        lf8b = moment_local_field(mbg8, [e8b])
+        @test all(lf8b.h1 .!= lf8.h1)
+        ax8 = copy(e8); ax8[:, 7] .= _mb_unit(rng, 1)[:, 1]
+        lf8c = moment_local_field(mbg8, [e8]; axes = [ax8])
+        @test lf8c.h1 == lf8.h1
+        @test lf8c.edoth[[1, 2, 4]] == lf8.edoth[[1, 2, 4]] && lf8c.edoth[3] != lf8.edoth[3]
+
+        # a 1-body basis reads no environment: the field is empty by construction
+        # (cutoff_pair is a required spec field the model never uses there)
+        sp1 = MomentSpec(; lmax_env = [1], sampled = [true], lmax_mark = 1,
+                         nbody = 1, cutoff_pair = 1.6)
+        mb1 = MomentBasis(crf, sp1; backend = _MBFixedSG(sgf))
+        @test SCEFitting._pair_neighbors(mb1) == Dict(1 => Int[], 2 => Int[])
+        lf1b = moment_local_field(mb1, [ef])
+        @test lf1b.h1 == [0.0, 0.0] && all(isnan, lf1b.edoth)
+
+        # the neighbor tie band is the BASIS's: a near tie (Δd/d ≈ 4e-5) is one
+        # image at the default band and two at tie_tol = 1e-4, and h₁ follows
+        crn = Crystal(Lattice(Matrix(Diagonal([3.0, 4.0, 5.0]))),
+                      [0.0 0.5 + 1e-5; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+        sgn = _assemble_spacegroup(crn, [SMatrix{3,3,Float64}(Matrix(1.0 * I(3)))],
+                                   [SVector{3,Float64}(0, 0, 0)], "P1-near", 1;
+                                   tol = 1e-5)
+        mbn_default = MomentBasis(crn, spf; backend = _MBFixedSG(sgn))
+        mbn_wide = MomentBasis(crn, spf; backend = _MBFixedSG(sgn), tie_tol = 1e-4)
+        @test SCEFitting._pair_neighbors(mbn_default)[1] == [2]
+        @test SCEFitting._pair_neighbors(mbn_wide)[1] == [2, 2]
+        @test moment_local_field(mbn_default, [ef]).h1 ≈ [1.0, 1.0]
+        @test moment_local_field(mbn_wide, [ef]).h1 ≈ [2.0, 2.0]
+
         # coverage: hand-checkable quantile + fractions
         tr = (; h1 = collect(0.1:0.1:10.0), edoth = fill(0.9, 100))
         nw = (; h1 = [0.5, 9.98, 11.0, 12.0], edoth = [0.8, -0.2, NaN, -0.3])
@@ -1061,7 +1217,10 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         fl2 = moment_simple_floor(ff, dataf; lmax = 2)
         p2cols = [k for (k, lb) in enumerate(fl2.feature_labels)
                   if occursin("P2", lb)]
-        @test all(>(0.5), fl2.inclusion[p2cols])
+        # (3x² − 1 against span{1, x} with x = ê₁·ê₂ uniform on [−1, 1]: the
+        # relative residual is ≈ 1 in expectation; 0.1 leaves room for a 12-sample
+        # draw while staying 9 decades above the representable columns)
+        @test all(>(0.1), fl2.inclusion[p2cols])
         @test all(<(1e-10), fl2.inclusion[setdiff(1:fl2.n_features, p2cols)])
         # the bound flag and the disclosure counts
         @test fl.nested_bound === true          # OLS fit: the bound applies
@@ -1069,6 +1228,89 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         fgar = fit(MomentFit, dsf, GroupAdaptiveRidge(mbf; lambda = 1e-3))
         flg = moment_simple_floor(fgar, dataf; lmax = 1)
         @test flg.nested_bound === false        # shrinkage: no nested bound
+        # MODE 1: the floor's feature is P_l(ê_i·e_j) with ê the ROW AXIS, not
+        # the direction — plant it with random axes (M ∥ ê ⇒ gate 0) and recover
+        a1, b1 = -0.4, 0.13
+        data1 = SpinDatum[]
+        for c = 1:12
+            ec = _mb_unit(rng, 2)
+            axc = _mb_unit(rng, 2)
+            M = zeros(3, 2)
+            for a = 1:2
+                f1 = sum(axc[:, a]' * ec[:, j] for j in nbf[a])
+                M[:, a] = (a1 + b1 * f1) .* axc[:, a]
+            end
+            push!(data1, _mf_datum(ec; M = M, mode = 1, axes = axc))
+        end
+        ds1 = @test_logs (:warn, r"structurally dependent") match_mode = :any MomentDataset(
+            mbf, data1; gate_eps = 1e-8)
+        @test all(ds1.keep)
+        ff1 = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") fit(
+            MomentFit, ds1)
+        fl1 = moment_simple_floor(ff1, data1; lmax = 1)
+        @test fl1.sigma_floor < 1e-12
+        @test all(isapprox.(fl1.coef[1:2:end], a1; atol = 1e-10))
+        @test all(isapprox.(fl1.coef[2:2:end], b1; atol = 1e-10))
+        # the replay config is the first one whose MARKED AXES are all nonzero:
+        # zero atom 2's axis in configs 1–4 → config 5 replays, no refusal, and
+        # the floor runs on the kept rows only
+        data1z = copy(data1)
+        for c = 1:4
+            axz = copy(data1[c].constraint_axes); axz[:, 2] .= 0.0
+            data1z[c] = _mf_datum(data1[c].directions; M = data1[c].moments_bare,
+                                  mode = 1, axes = axz)
+        end
+        ds1z = @test_logs (:warn, r"structurally dependent") (:info,
+            r"undefined-axis") match_mode = :any MomentDataset(mbf, data1z;
+                                                               gate_eps = 1e-8)
+        @test count(ds1z.keep) == 24 - 4
+        ff1z = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") fit(
+            MomentFit, ds1z)
+        fl1z = moment_simple_floor(ff1z, data1z; lmax = 1)
+        @test fl1z.n_rows == 20 && fl1z.sigma_floor < 1e-12
+        # every config carries a zero axis → the replay door falls back to the
+        # target-only door (disclosed in the docstring) and still returns
+        data1a = [_mf_datum(d.directions; M = d.moments_bare, mode = 1,
+                            axes = (ax = copy(d.constraint_axes); ax[:, 2] .= 0.0; ax))
+                  for d in data1]
+        ds1a = @test_logs (:warn, r"structurally dependent") (:info,
+            r"undefined-axis") match_mode = :any MomentDataset(mbf, data1a;
+                                                               gate_eps = 1e-8,
+                                                               coverage_floor = 0.0)
+        ff1a = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") fit(
+            MomentFit, ds1a)
+        fl1a = moment_simple_floor(ff1a, data1a; lmax = 1)
+        @test fl1a.n_rows == 12 && fl1a.n_features == 2     # atom-1 orbit only
+        # the floor reads the GATED rows and the GATED residuals: on a dataset
+        # with gate-rejected rows, n_rows = kept count and sigma_model is the
+        # gated (exact) fit, not the polluted ungated one
+        datag = SpinDatum[]
+        for c = 1:12
+            ec = _mb_unit(rng, 2)
+            M = zeros(3, 2)
+            for a = 1:2
+                f1 = sum(ec[:, a]' * ec[:, j] for j in nbf[a])
+                M[:, a] = (a0 + b0 * f1) .* ec[:, a]
+            end
+            if c <= 3                          # dirty: transverse + corrupted
+                t = [0.0, 1.0, 0.0]; t .-= dot(t, ec[:, 1]) .* ec[:, 1]
+                M[:, 1] .+= 0.3 .* t ./ norm(t) .+ 0.5 .* ec[:, 1]
+            end
+            push!(datag, _mf_datum(ec; M = M, mode = 4))
+        end
+        dsg = @test_logs (:warn, r"structurally dependent") (:info,
+            r"excluded") match_mode = :any MomentDataset(mbf, datag; gate_eps = 1e-6)
+        @test count(dsg.keep) == 24 - 3
+        ffg = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") fit(
+            MomentFit, dsg)
+        flgd = moment_simple_floor(ffg, datag; lmax = 1)
+        @test flgd.n_rows == 21
+        @test flgd.sigma_model < 1e-8 && flgd.sigma_floor < 1e-12
+        @test std(residuals(ffg; gated = false)) > 1e-2
+        # _design_moment's shape door is a plain ArgumentError (not a
+        # TaskFailedException from inside the threaded loop)
+        @test_throws ArgumentError _design_moment(mbf, [randn(3, 4)], [randn(3, 4)])
+        @test_throws ArgumentError _design_moment(mbf, [ef], [randn(3, 3)])
         # the basis records its tie band; diagnostics read it back
         @test mbf.tie_tol == SCEFitting._SAME_DIST_RTOL
         @test_throws ArgumentError moment_local_field(mbf, Matrix{Float64}[])
