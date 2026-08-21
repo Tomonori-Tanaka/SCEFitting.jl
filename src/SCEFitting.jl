@@ -83,6 +83,7 @@ include("io/extxyz.jl")
 # Pointed (site-marked) SALC basis for the adiabatic site-moment channel — rides the
 # decor engine; the data boundary above supplies its trio.
 include("basis/momentbasis.jl")
+include("fitting/momentfit.jl")
 
 # --- Public API (exported) --------------------------------------------------------
 # The fitting workflow a user reaches for. Construction internals (cluster / neighbor /
@@ -96,6 +97,7 @@ export AbstractSymmetryBackend, NoSymmetry, SpglibBackend
 # the SCE pipeline
 export BasisSpec, SCEBasis, SCEDataset, SCEPredictor, SCEFit, fit, refit, n_salcs, read_setup
 export MomentSpec, MomentBasis, moment_resolvability
+export MomentDataset, MomentFit, MomentModel, predict_moment, rmse_moment
 export predict_energy, predict_torque, has_torque
 # estimators
 export AbstractEstimator, OLS, Ridge, ElasticNet, Lasso, AdaptiveLasso, AdaptiveRidge,

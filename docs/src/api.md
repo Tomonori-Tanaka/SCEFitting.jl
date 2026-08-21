@@ -337,6 +337,23 @@ moment_resolvability
 UnclassifiableBasis
 ```
 
+The regression layer: rows `(config, marked atom)` with `y = ê·M` under the mode
+rule (4 → `directions`, 1 → `constraint_axes`), a decomposability gate
+`|M| sin²θ ≤ gate_eps` (required keyword) with per-orbit survival and a coverage
+floor, the resolvability gate at the dataset door, a fit that solves the gated and
+(for disclosure) the ungated rows with no centering — the `l = 0` `[MARK]` columns
+are the per-orbit intercepts — and a validating prediction door whose default
+`axes = e` is the mode-4 identity. Not persisted in this step: `save` refuses a
+moment basis / fit / model by name (design record §4.2).
+
+```@docs
+MomentDataset
+MomentFit
+rmse_moment
+MomentModel
+predict_moment
+```
+
 ## DFT data sources
 
 The **code-agnostic boundary** of the training-data input: the SCE pipeline only ever sees
