@@ -6,7 +6,7 @@ using Test
 using SCEFitting: build_neighbor_list, build_clusters, build_salc_basis, evaluate_salc,
     salcs, SALC, SALCKey, SALCBasis, NeighborPair, NeighborList, ClusterMember,
     ClusterOrbit, ClusterSet, analyze_symmetry, n_ops, SymOp, SpaceGroup,
-    interplanar_spacing, solve_coefficients
+    interplanar_spacing, solve_coefficients, spin_ls, spin_decors, SiteDecor
 
 const TEST_MODE = get(ENV, "TEST_MODE", "default")
 

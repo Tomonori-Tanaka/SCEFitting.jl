@@ -463,8 +463,10 @@ function _orbit_salcs(crystal::Crystal, spacegroup::SpaceGroup, N::Int, orbit_id
                 isempty(members) && continue
                 block = get(blockcount, (lab, Lf), 0) + 1
                 blockcount[(lab, Lf)] = block
-                key = SALCKey(N, orbit_id, lab, Lf, block)
-                push!(out, SALC(key, N, lab, Lf, members))
+                # Pure-spin construction: decors = spin_decors(lab), L_S = Lf
+                # (the p = 0 edge of the joint key layout).
+                key = SALCKey(N, orbit_id, spin_decors(lab), Lf, Lf, block)
+                push!(out, SALC(key, N, key.decors, Lf, Lf, members))
             end
         end
     end
@@ -549,7 +551,7 @@ function build_salc_basis(crystal::Crystal, spacegroup::SpaceGroup, clusters::Cl
         sort!(dropped; by = first)
         nz = count(d -> d[2] === :zero, dropped)
         nd = length(dropped) - nz
-        detail = join(("  $(k.body)-body orbit $(k.orbit_id), ls = $(k.ls), " *
+        detail = join(("  $(k.body)-body orbit $(k.orbit_id), ls = $(spin_ls(k)), " *
                        "Lf = $(k.Lf), block $(k.block): $why" for (k, why) in dropped),
                       "\n")
         @warn "SALC reduction: dropped $(length(dropped)) redundant basis " *

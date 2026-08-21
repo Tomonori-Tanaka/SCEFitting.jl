@@ -129,7 +129,7 @@ public build_salc_basis, evaluate_salc, salcs, SALC, SALCKey, SALCBasis
 public Channel, SPIN, DISP, OCC, SiteFactor, SiteDecor                # decoration labels
 public Slot                                       # a decorated term's axis label
 public has_spin, has_disp, spin_rank, disp_degree, factors, is_pure_spin
-public spin_decors, rep_scale
+public spin_decors, spin_ls, rep_scale
 public islinear, solve_coefficients
 public salc_groups, group_costs, cost_weights                        # MC-cost grouping
 public save, load                                                    # TOML persistence

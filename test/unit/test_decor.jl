@@ -1,15 +1,12 @@
 # Decoration labels: SiteFactor / SiteDecor validation, the canonical ordering,
-# the per-channel representation trait, and the Slot axis label.
-#
-# The `SALCKey` half of the upstream suite (the v4 -> v5 relabel, `spin_ls`) is
-# absent here on purpose: this commit is a pure addition and `SALCKey` still
-# carries the v4 `ls` field. Those assertions arrive with the key change.
+# the per-channel representation trait, the Slot axis label, and the v5 SALCKey
+# layout with its value-preserving v4 relabel.
 
 using Test
 using SCEFitting
 using SCEFitting: Channel, SPIN, DISP, OCC, SiteFactor, SiteDecor,
                   has_spin, has_disp, spin_rank, disp_degree, factors, is_pure_spin,
-                  spin_decors, rep_scale, Slot, spin_slots
+                  spin_decors, spin_ls, rep_scale, Slot, spin_slots, SALCKey
 
 @testset "decoration labels" begin
     @testset "Channel order is SPIN < DISP < OCC" begin
@@ -76,6 +73,23 @@ using SCEFitting: Channel, SPIN, DISP, OCC, SiteFactor, SiteDecor,
         pair = [Slot(1, SiteFactor(SPIN, 0, 1)), Slot(1, SiteFactor(DISP, 0, 1))]
         @test pair[1].site == pair[2].site
         @test pair[1].factor != pair[2].factor
+    end
+
+    @testset "SALCKey v5 layout and the pure-spin relabel" begin
+        k = SALCKey(2, 3, spin_decors([1, 1]), 0, 0, 1)
+        @test spin_ls(k) == [1, 1]
+        @test is_pure_spin(k)
+        @test k.L_S == 0
+        # a mixed key reports only its spin ranks through spin_ls
+        km = SALCKey(2, 3, [SiteDecor(; spin = 2), SiteDecor(; disp = (0, 1))], 2, 1, 1)
+        @test spin_ls(km) == [2]
+        @test !is_pure_spin(km)
+        # key ordering: L_S sorts before Lf within one decoration label
+        ka = SALCKey(2, 3, spin_decors([1, 1]), 0, 0, 1)
+        kb = SALCKey(2, 3, spin_decors([1, 1]), 1, 1, 1)
+        @test ka < kb
+        @test SALCKey(2, 3, spin_decors([1, 1]), 0, 0, 1) == ka
+        @test hash(ka) == hash(SALCKey(2, 3, spin_decors([1, 1]), 0, 0, 1))
     end
 
     @testset "rep_scale channel trait" begin

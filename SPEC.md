@@ -175,7 +175,11 @@ capability consumed by both the introspection and the Sunny interop.
   stores the resolved truncation — per-body `cutoff` matrices, `lsum`, labels — and
   still reads v2's scalar `pair_cutoff`; version 4 stores SALC members in the
   canonical duplicate-free form — one member per physical cluster instance, up to
-  `N!`× smaller — and folds v2/v3 members on load),
+  `N!`× smaller — and folds v2/v3 members on load; version 5 stores each SALC key's
+  decoration multiset `"decors"` and total spin rank `"L_S"` instead of `"ls"`, and
+  maps v2–v4 keys on read through the total, value-preserving relabel
+  (per-site `l` → a pure-spin decor, `L_S := Lf`) — so older documents load with
+  bit-identical predictions and no migration tool),
   and the *full* SALC basis (every member / term / folded tensor); a model adds `j0`
   and per-`SALCKey` coefficients. Reload reconstructs the basis verbatim (no
   re-projection) and re-pairs coefficients to the basis **by key**, not by position.
@@ -292,7 +296,7 @@ capability consumed by both the introspection and the Sunny interop.
   constructor) — unrelated to the per-row `groups` kwarg of `solve_coefficients`. The
   weight map `_gar_weights!` is the single definition shared with the GCV diagnostics.
 - **Basis helpers** (`fitting/selection.jl`; public, unexported): `salc_groups(basis)`
-  — column → group labels by `(body, orbit_id, ls)`, the granularity at which MC
+  — column → group labels by `(body, orbit_id, decors)`, the granularity at which MC
   contraction entries vanish; `group_costs(basis, labels)` — per-group distinct-entry
   union count over canonical members (additive across the `salc_groups` partition);
   `cost_weights(basis; theta)` — `v_g = √p_g·(c_g/c̄)^θ`, `θ ∈ [0, 1]` tilting the

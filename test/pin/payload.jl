@@ -6,7 +6,7 @@
 # only in the constructor names and in how a key's per-site spin ranks are read.
 
 using SCEFitting
-using SCEFitting: build_neighbor_list, build_clusters, evaluate_salc, solve_coefficients, n_ops
+using SCEFitting: spin_ls, build_neighbor_list, build_clusters, evaluate_salc, solve_coefficients, n_ops
 # Loaded, not imported: the package only needs the extension to trigger, and
 # Spglib exports `Crystal` / `Lattice`, which would shadow the ones under test.
 import Spglib
@@ -18,7 +18,7 @@ const PIN_EPS = 5.0e-6      # see PIN.md "the L0' threshold" -- measured, not ch
 hexf(v::Float64)::String = string(reinterpret(UInt64, v); base = 16, pad = 16)
 unhexf(s::AbstractString)::Float64 = reinterpret(Float64, parse(UInt64, s; base = 16))
 
-_pin_ls(k) = k.ls
+_pin_ls(k) = spin_ls(k)
 
 function pin_basis(fx)
     cr = Crystal(Lattice(fx.L), fx.frac, fx.species, fx.labels)

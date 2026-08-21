@@ -6,6 +6,39 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — `SALCKey` carries decorations, persistence schema v5 (2026-08-21)
+
+**Breaking** for anything that read `key.ls` or constructed a `SALCKey`
+positionally; the numerics are untouched (the pin tier is byte-identical across
+this commit, which is the evidence that the relabel is value-preserving).
+
+- **`SALCKey` is now `(body, orbit_id, decors, L_S, Lf, block)`.** `decors` is
+  the sorted `SiteDecor` multiset — the generalization of the sorted `ls` label —
+  and `L_S` the total coupled **spin** rank. The pure-spin construction emits
+  `decors = spin_decors(ls)` with `L_S = Lf`, which is the total,
+  value-preserving v4 → v5 map. `SALC` mirrors `decors` / `L_S`.
+  - `spin_ls(key)` reads the old `ls` back; `is_pure_spin(key)` says whether
+    every decor is a bare spin factor. Both are `public`.
+- **Persistence schema version 5**: keys store `"decors"` (per-site
+  `[spin_l, disp_k, disp_l]` triples, `0` = channel absent) and `"L_S"` instead
+  of `"ls"`. **The writer moved too** — `_key_doc` could not stay on `"ls"` — so
+  v5 is what `save` now produces. v2–v4 documents back-read through the relabel
+  with **no migration tool**: `test/unit/test_persist.jl` fabricates a v4
+  document and asserts identical keys, identical fingerprint, `jphi` equality,
+  bit-identical `predict_energy` / `predict_torque`, and term-by-term identical
+  `multipole_terms` (the downstream Monte-Carlo program-array proxy).
+- **`coeftable` columns are now `body`, `orbit_id`, `decors`, `L_S`, `Lf`,
+  `block`, `J`.** A pure-spin row still renders as `"1,1,2"`, so the string a
+  reader sees is unchanged; displacement factors would render as `u(k,l)`.
+- `salc_groups` groups on `(body, orbit_id, decors)` — identical groups on a
+  pure-spin basis. Bilinear extraction classifies on `decors` and reports any
+  displacement-decorated SALC as `:unsupported` rather than dropping it.
+- `MultipoleTerm` and `SALCTerm` are **unchanged** — they still carry `ls`, so
+  the downstream contract (SCEMonteCarlo's program arrays) is untouched.
+- Docs: the `docs/make.jl` HTML `size_threshold` is raised to 512 KiB. `api.md`
+  is one page listing the whole public surface and had reached 193 KiB against
+  Documenter's 200 KiB default; raised rather than split, matching upstream.
+
 ### Added — decoration labels: the shared key vocabulary (2026-08-21)
 
 - **`src/basis/decor.jl`** — the `isbits` value labels that name what decorates a

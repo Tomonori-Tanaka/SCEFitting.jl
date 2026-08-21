@@ -162,7 +162,10 @@ Easy to break silently — confirm before touching the algorithm.
   keep it task-local. Gate: `test/unit/test_salc.jl` "build is deterministic / thread-safe"
   plus the oracle, run under `julia -t N>1`.
 - **Design-matrix columns are identified by `SALCKey`** (`SALCBasis.keys`, sorted),
-  not by construction order. The key must stay **injective**: `block` runs across all
+  not by construction order. The key layout is `(body, orbit_id, decors, L_S, Lf,
+  block)`: `decors` is the sorted `SiteDecor` multiset (this package builds pure-spin
+  decors only, so `spin_ls(key)` reads back the v4 `ls` label and `L_S == Lf`), and
+  the key must stay **injective**: `block` runs across all
   canonical `l`-orderings that share one sorted `ls` label (a proper-subgroup site
   stabilizer splits a degenerate multiset into several ordering orbits — see
   `test/unit/test_nbody.jl`). `SCEPredictor` re-pairs `jphi` to a basis **by key** on any
@@ -195,8 +198,8 @@ Easy to break silently — confirm before touching the algorithm.
   specificity rule → update the TOML reader (`_cutoff_from_input` etc.), the BasisSpec
   docstring, and `test/unit/test_truncation.jl` together.
 - **`coeftable` columns ↔ `SALCKey` fields** (`sce/coeftable.jl`): each result row is
-  read straight off a `SALCKey` (`body` / `orbit_id` / `ls`→comma string / `Lf` /
-  `block`) plus `jphi`; the `J` column pairs with `basis.salc_basis.keys` **positionally**
+  read straight off a `SALCKey` (`body` / `orbit_id` / `decors`→comma string / `L_S` /
+  `Lf` / `block`) plus `jphi`; the `J` column pairs with `basis.salc_basis.keys` **positionally**
   (same order as the design matrix). Add or rename a `SALCKey` field → update the row
   builder, the `Tables.Schema`, and `test/unit/test_coeftable.jl`.
 - **DFT training-torque target ↔ the model torque convention** (`io/dftsource.jl`): the

@@ -98,9 +98,10 @@ design-matrix-column identity), plus the fitted coefficient:
 |---|---|
 | `body` | body order ``N`` of the cluster (2 = pair, 3 = triplet, …) |
 | `orbit_id` | index of the cluster symmetry orbit at that body order |
-| `ls` | per-site angular momenta ``(l_1,\dots,l_N)``, as a comma-joined string |
+| `decors` | the per-site decoration multiset, as a comma-joined string. A pure-spin site renders as its bare ``l``, so this package's keys read `"1,1,2"` exactly as the old `ls` column did |
+| `L_S` | total coupled **spin** rank of the label. Every key this package builds is pure spin, so `L_S == Lf` throughout; the column exists because the key layout is shared with the spin–lattice expansion, where the two differ |
 | `Lf` | final coupled angular momentum ``L_f`` of the invariant |
-| `block` | disambiguates independent ``l``-orderings / coupling paths sharing the same `(body, orbit_id, ls, Lf)` |
+| `block` | disambiguates independent ``l``-orderings / coupling paths sharing the same `(body, orbit_id, decors, L_S, Lf)` |
 | `J` | the fitted coefficient ``j_\varphi`` for this SALC (DFT energy unit, e.g. eV) |
 
 The rows are in design-matrix column order, the same order as [`coef`](@ref) and

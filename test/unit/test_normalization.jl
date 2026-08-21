@@ -1,6 +1,6 @@
 using Test
 using SCEFitting
-using SCEFitting: _assemble_spacegroup, evaluate_salc
+using SCEFitting: _assemble_spacegroup, evaluate_salc, spin_ls
 using StaticArrays
 using LinearAlgebra
 using Random
@@ -60,7 +60,7 @@ using Random
 # the Reynolds projector is the identity.  That is what makes the closed forms
 # below exhaustive rather than a subspace of themselves.
 # The per-site spin ranks of a SALC, in decor order.
-_ls(s) = s.ls
+_ls(s) = spin_ls(s.key)
 
 _p1(cr) = _assemble_spacegroup(cr, [SMatrix{3,3,Float64}(I)],
                                [SVector{3,Float64}(0, 0, 0)], "P1(manual)", 1;

@@ -16,6 +16,12 @@ makedocs(;
         canonical = "https://tomonori-tanaka.github.io/SCEFitting.jl/dev",
         edit_link = "main",
         footer = "Built with [Documenter.jl](https://documenter.juliadocs.org).",
+        # api.md is one page listing the whole public surface, so it grows with the
+        # API and periodically crosses Documenter's 200 KiB HTML threshold. Raised
+        # rather than split: the index at the top is what makes a single page
+        # navigable, and splitting it would scatter the cross-references every
+        # docstring uses. [SLCE 2ba9140]
+        size_threshold = 512 * 2^10,
     ),
     pages = [
         "Home" => "index.md",
