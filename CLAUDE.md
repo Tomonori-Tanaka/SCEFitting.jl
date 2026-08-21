@@ -81,6 +81,33 @@ Easy to break silently — confirm before touching the algorithm.
   The gate is the finite-difference self-consistency `predict_torque ≈ −e × ∇E_FD`
   (`test/unit/test_torque.jl`, `test_nbody.jl`): the torque must be the exact (negative
   rotation-) derivative of the energy surface. Change one kernel, re-check the other.
+  Both spin-only forms **refuse** displacement-decorated SALCs (the joint energy form
+  is `evaluate_salc(salc, e, u)`; a joint gradient does not exist in this pure-spin
+  package, and the refusal is the guard against silently reading a `DISP` rank as a
+  spin harmonic under the wrong `(4π)` scale). `group_costs` refuses for the same
+  reason.
+- **Pure-spin ↔ decor SALC engines** (`basis/salcbasis.jl`):
+  `_project_and_fold`/`_transport_term`/`_enumerate_ls` (production, oracle- and
+  pin-checked bitwise) and `_project_and_fold_decors`/`_transport_term_decors`/
+  `_orbit_salcs_decors` (mixed channels — the pointed site-moment channel's engine,
+  since its mark is a displacement decor) are two implementations of ONE
+  construction. The decor engine must reproduce the pure-spin engine's enumeration
+  order exactly — orbit representatives discovered in colex (`Iterators.product`)
+  order, lex-min representative, assignments `unique(rep[p])` — or `block` indices
+  and the canonical gauge silently change and key-addressed coefficient re-pairing
+  breaks. A label is a sorted multiset, so a per-site rule (the pure-spin engine's
+  per-species `lmax`) has to be handed in through `admit`, whose verdict must be a
+  permutation-orbit invariant. `isotropy` screens `Lf` in the pure-spin engine and
+  `L_S` in the decor one; those coincide only on pure-spin labels. Gate: "engines
+  agree on pure spin" in `test/unit/test_mixedsalc.jl`, incl. the Cs-triangle
+  (2 ordering orbits) and C3v-triangle (3 assignments) shapes. Change either engine
+  → re-run that gate + the oracle suite.
+- **`SALCKey`/`SALC` field surface ↔ ALL test environments**: the unit suite is not
+  the only consumer — `test/sunny/runtests.jl`, `test/glmnet/runtests.jl`,
+  `test/oracle/runtests.jl`, and `examples/*.jl` read key/SALC fields and are NOT
+  exercised by the core suite (`TEST_MODE=all`). Rename a field → grep all of
+  `test/` and `examples/`. [Backported from SLCE.jl 199d4eb, where the decor-label
+  rename missed sunny/glmnet/examples until review.]
 - **Image selection ↔ neighbor list ↔ cluster edges** (`geometry/neighborlist.jl`,
   `clusters/enumerate.jl`, `sce/model.jl`): `SCEBasis` threads one `images` value to
   **both** `build_neighbor_list` and `candidate_clusters`/`build_clusters`; they must

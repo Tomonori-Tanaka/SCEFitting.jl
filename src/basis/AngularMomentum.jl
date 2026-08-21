@@ -295,16 +295,26 @@ function complex_to_real_tensor(Ccx::AbstractArray, ls::AbstractVector{<:Integer
 end
 
 """
-    build_real_bases(ls; isotropy = false) -> Vector{Tuple{Vector{Int},Int,Array{Float64}}}
+    build_real_bases(ls; isotropy = false, keep = (Lseq, Lf) -> true)
+        -> Vector{Tuple{Vector{Int},Int,Array{Float64}}}
 
 All real coupled tensors for `ls`, as `(Lseq, Lf, tensor)`. With `isotropy = true`
 only the scalar `Lf == 0` sector is kept.
+
+`keep` is an arbitrary screen on the coupling path, evaluated **before** the
+chained-CG tensor is built, so a rejected path costs nothing. It exists because
+a screen on the total SPIN rank of a mixed-decoration path is not a screen on
+`Lf`: for `ls = (1, 1, 1)` with two spin slots, `L_S = 0` forces `Lf = 1` while
+`Lf = 0` forces `L_S = 1`, so the two accepted sets are disjoint and `isotropy`
+cannot stand in for it.
 """
 function build_real_bases(ls::AbstractVector{<:Integer};
-                          isotropy::Bool = false)::Vector{Tuple{Vector{Int},Int,Array{Float64}}}
+                          isotropy::Bool = false,
+                          keep = (Lseq, Lf) -> true)::Vector{Tuple{Vector{Int},Int,Array{Float64}}}
     out = Tuple{Vector{Int},Int,Array{Float64}}[]
     for (Lseq, Lf) in coupling_paths(ls)
         (isotropy && Lf != 0) && continue
+        keep(Lseq, Lf) || continue
         Ccx = coeff_tensor_complex(ls, Lseq, Lf)
         push!(out, (Lseq, Lf, complex_to_real_tensor(Ccx, ls, Lf)))
     end

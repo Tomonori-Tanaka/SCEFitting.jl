@@ -94,6 +94,9 @@ partition of the columns.
 function group_costs(basis::SCEBasis,
                      labels::AbstractVector{<:Integer} = salc_groups(basis))::Vector{Int}
     sl = basis.salc_basis.salcs
+    all(is_pure_spin(k) for k in basis.salc_basis.keys) || throw(ArgumentError(
+        "group_costs: the basis carries displacement-decorated sectors; the " *
+        "Monte-Carlo entry-key model is pure-spin"))
     G = _validate_labels(labels, length(sl), "group_costs")
     sets = [Set{_EntryKey}() for _ = 1:G]
     for j in eachindex(sl)

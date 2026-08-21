@@ -242,14 +242,16 @@ Base.length(b::SALCBasis) = length(b.salcs)
 # tables merely change owner). Contents are scratch: never read across calls.
 struct SALCScratch
     dnpl::Vector{Float64}                  # Zlm_unsafe recursion workspace
-    z::Vector{Vector{Float64}}             # z[i][μ+lᵢ+1] = Z_{lᵢμ}(u_i), per term site
+    z::Vector{Vector{Float64}}             # z[i][μ+lᵢ+1] = per-axis factor table
     g::Vector{Vector{SVector{3,Float64}}}  # g[i][μ+lᵢ+1] = ∇Z_{lᵢμ}(u_i)
+    rl::Vector{Float64}                    # SolidHarmonics batch buffer (disp axes)
 end
 SALCScratch() = SALCScratch(Vector{Float64}(undef, 4), Vector{Float64}[],
-                            Vector{SVector{3,Float64}}[])
+                            Vector{SVector{3,Float64}}[], Vector{Float64}(undef, 4))
 # wrap a caller-supplied dnPl vector (the pre-scratch `cache` compatibility surface)
 _wrap_scratch(cache::Vector{Float64}) =
-    SALCScratch(cache, Vector{Float64}[], Vector{SVector{3,Float64}}[])
+    SALCScratch(cache, Vector{Float64}[], Vector{SVector{3,Float64}}[],
+                Vector{Float64}(undef, 4))
 
 """
     evaluate_salc(salc, e[, cache]) -> Float64
@@ -268,6 +270,11 @@ evaluate_salc(salc::SALC, e::AbstractMatrix{<:Real}, cache::Vector{Float64})::Fl
     evaluate_salc(salc, e, _wrap_scratch(cache))
 function evaluate_salc(salc::SALC, e::AbstractMatrix{<:Real},
                        scratch::SALCScratch)::Float64
+    # Refuse a displacement-decorated SALC: this form would silently read a
+    # DISP rank as a spin harmonic and use the wrong (4π) scale (the same
+    # refusing-beats-mis-scaling rule as `multipole_terms`). O(body) per call.
+    all(is_pure_spin, salc.decors) || throw(ArgumentError(
+        "displacement-decorated SALC: use evaluate_salc(salc, e, u)"))
     scale = (4π)^(salc.body / 2)
     total = 0.0
     @inbounds for m in salc.members
@@ -354,6 +361,9 @@ accumulate_grad!(G::AbstractMatrix{Float64}, salc::SALC, e::AbstractMatrix{<:Rea
 function accumulate_grad!(G::AbstractMatrix{Float64}, salc::SALC,
                           e::AbstractMatrix{<:Real}, weight::Real,
                           scratch::SALCScratch)
+    all(is_pure_spin, salc.decors) || throw(ArgumentError(
+        "displacement-decorated SALC: the joint gradient (forces + torque) " *
+        "is not implemented here — this package's models are pure spin"))
     weight == 0.0 && return G
     scale = weight * (4π)^(salc.body / 2)
     @inbounds for m in salc.members
@@ -415,6 +425,101 @@ end
         length(t) < 2 * li + 1 && resize!(t, 2 * li + 1)
         for μ = -li:li
             t[μ + li + 1] = Harmonics.grad_Zlm_unsafe(li, μ, u, s.dnpl)
+        end
+    end
+    return nothing
+end
+
+# ---------------------------------------------------------------------------
+# Mixed-channel evaluation — the pointed site-moment channel's mark
+# ---------------------------------------------------------------------------
+#
+# This package's MODELS are pure spin; the joint form below exists because the
+# mark of the pointed moment expansion is realized as a displacement decor
+# (`SiteDecor(disp = (1, 0))`) evaluated on a synthetic indicator field, so the
+# mark factor `|u|²R₀₀` is 1 on the marked atom and 0 on every other. Keeping
+# the mark arithmetic rather than procedural is what makes an unmarked member
+# die on an exact zero instead of on an index lookup.
+
+"""
+    evaluate_salc(salc, e, u[, scratch]) -> Float64
+
+Joint evaluation of a (possibly displacement-decorated) SALC: `e` is the
+`3 × n_atoms` unit spin configuration, `u` the `3 × n_atoms` Cartesian
+displacement field (same column convention; arbitrary norm — the displacement
+factors are polynomials, exact at `u = 0`). Spin axes contribute
+`Z_{lm}(ê_a)`, displacement axes `|u_a|^{2k} R_{lm}(u_a)` (the 4π-free
+`SolidHarmonics` kernel), and the scale is `(4π)^(n_spin/2)` over the SALC's
+spin slots — a pure-spin SALC evaluates identically to the two-argument form,
+and a displacement-decorated SALC evaluates to exactly `0` at `u = 0` (every
+disp factor is homogeneous of degree ≥ 1).
+"""
+evaluate_salc(salc::SALC, e::AbstractMatrix{<:Real}, u::AbstractMatrix{<:Real}) =
+    evaluate_salc(salc, e, u, SALCScratch())
+function evaluate_salc(salc::SALC, e::AbstractMatrix{<:Real},
+                       u::AbstractMatrix{<:Real}, scratch::SALCScratch)::Float64
+    size(u) == size(e) || throw(ArgumentError(
+        "displacement field u has size $(size(u)); expected $(size(e)) " *
+        "(same 3 × n_atoms column convention as the spin configuration)"))
+    n_spin = count(has_spin, salc.decors)
+    scale = (4π)^(n_spin / 2)
+    total = 0.0
+    @inbounds for m in salc.members
+        atoms = m.atoms
+        for t in m.terms
+            total += _eval_term_mixed(t.folded, t.slots, atoms, e, u, scratch)
+        end
+    end
+    return scale * total
+end
+
+# Mixed sibling of `_eval_term`: per-axis factor tables channel-dispatched.
+@inline function _eval_term_mixed(folded::Array{Float64,D}, slots::Vector{Slot},
+                                  atoms, e::AbstractMatrix{<:Real},
+                                  u::AbstractMatrix{<:Real},
+                                  s::SALCScratch) where {D}
+    _fill_ztables_mixed!(s, Val(D), slots, atoms, e, u)
+    z = s.z
+    acc = 0.0
+    @inbounds for idx in CartesianIndices(folded)
+        w = folded[idx]
+        w == 0.0 && continue
+        for i = 1:D
+            w *= z[i][idx[i]]
+        end
+        acc += w
+    end
+    return acc
+end
+
+@inline function _fill_ztables_mixed!(s::SALCScratch, ::Val{D},
+                                      slots::Vector{Slot}, atoms,
+                                      e::AbstractMatrix{<:Real},
+                                      u::AbstractMatrix{<:Real}) where {D}
+    while length(s.z) < D
+        push!(s.z, Float64[])
+    end
+    @inbounds for i = 1:D
+        sl = slots[i]
+        a = atoms[sl.site]
+        li = sl.factor.l
+        t = s.z[i]
+        length(t) < 2 * li + 1 && resize!(t, 2 * li + 1)
+        if sl.factor.channel == SPIN
+            ev = SVector{3,Float64}(e[1, a], e[2, a], e[3, a])
+            length(s.dnpl) < li + 1 && resize!(s.dnpl, li + 1)
+            for μ = -li:li
+                t[μ + li + 1] = Harmonics.Zlm_unsafe(li, μ, ev, s.dnpl)
+            end
+        else
+            uv = SVector{3,Float64}(u[1, a], u[2, a], u[3, a])
+            nsh = SolidHarmonics.num_solid_harmonics(li)
+            length(s.rl) < nsh && resize!(s.rl, nsh)
+            SolidHarmonics.solid_harmonics!(s.rl, li, uv)
+            r2k = (uv[1] * uv[1] + uv[2] * uv[2] + uv[3] * uv[3])^sl.factor.k
+            for μ = -li:li
+                t[μ + li + 1] = r2k * s.rl[SolidHarmonics.solid_harmonic_index(li, μ)]
+            end
         end
     end
     return nothing

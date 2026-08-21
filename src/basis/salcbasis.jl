@@ -296,6 +296,305 @@ function _transport_term(o::Vector{Int}, F::Array{Float64}, g::Int,
 end
 
 # ---------------------------------------------------------------------------
+# Mixed-channel (decor) projection engine.
+#
+# The pure-spin `_project_and_fold`/`_transport_term` above stay the production
+# path for spin-only bases (pin- and oracle-checked bitwise); the `_decors`
+# engine below generalizes the same construction to per-site `SiteDecor`
+# assignments, which is what the pointed site-moment channel needs (its mark is
+# a displacement decor). The "engines agree on pure spin" testset in
+# `test/unit/test_mixedsalc.jl` is the anti-drift gate coupling the two — change
+# one and re-check the other.
+#
+# Slot conventions (see `basis/salc.jl`): an assignment `a::Vector{SiteDecor}`
+# (per site) realizes the canonical slot list SPIN axes before DISP axes, each
+# by site order. Coupling runs over the slot `l`s in slot order (spin first),
+# so the total spin rank `L_S` is the running coupled momentum after the last
+# spin slot — a good quantum number (site permutations act within channels and
+# commute with the diagonal rotation), read off each `coupling_paths` entry by
+# `_path_LS`. Both channels rotate through the SAME polar Wigner cache: the
+# Σl_spin-even screen makes det(R)^{Σl_spin} ≡ +1, so the axial spin action
+# equals the polar one; displacement radial factors |u|^{2k} are
+# rotation-invariant passive labels.
+# ---------------------------------------------------------------------------
+
+# Canonical slot list of a per-site decor assignment.
+function _assignment_slots(a::Vector{SiteDecor})::Vector{Slot}
+    slots = Slot[]
+    for s in eachindex(a)
+        has_spin(a[s]) && push!(slots, Slot(s, SiteFactor(SPIN, 0, a[s].spin_l)))
+    end
+    for s in eachindex(a)
+        has_disp(a[s]) &&
+            push!(slots, Slot(s, SiteFactor(DISP, a[s].disp_k, a[s].disp_l)))
+    end
+    return slots
+end
+
+_slot_ls(slots::Vector{Slot})::Vector{Int} = Int[sl.factor.l for sl in slots]
+_n_spin_slots(slots::Vector{Slot})::Int = count(sl -> sl.factor.channel == SPIN, slots)
+
+# Total spin rank of a left-coupling path over a spin-first slot list: the
+# running coupled momentum after the last spin slot (0 / l₁ / Lseq / Lf edges).
+function _path_LS(ls::Vector{Int}, Lseq::Vector{Int}, Lf::Int, n_spin::Int)::Int
+    n_spin == 0 && return 0
+    n_spin == 1 && return ls[1]
+    n_spin == length(ls) && return Lf
+    return Lseq[n_spin - 1]
+end
+
+# All distinct arrangements of a decor multiset over the cluster sites (swap
+# recursion + dedup; orbit body orders are tiny). Sorted for determinism.
+function _multiset_arrangements(label::Vector{SiteDecor})::Vector{Vector{SiteDecor}}
+    n = length(label)
+    out = Set{Vector{SiteDecor}}()
+    perm = collect(1:n)
+    function rec(k::Int)
+        if k >= n
+            push!(out, label[perm])
+            return
+        end
+        for i = k:n
+            perm[k], perm[i] = perm[i], perm[k]
+            rec(k + 1)
+            perm[k], perm[i] = perm[i], perm[k]
+        end
+    end
+    n == 0 && return [SiteDecor[]]
+    rec(1)
+    return sort!(collect(out))
+end
+
+# Image of an assignment under a stabilizer site permutation (site s → perm[s]).
+function _assignment_image(a::Vector{SiteDecor}, perm::Vector{Int})::Vector{SiteDecor}
+    a2 = Vector{SiteDecor}(undef, length(a))
+    for s in eachindex(a)
+        a2[perm[s]] = a[s]
+    end
+    return a2
+end
+
+# Axis permutation induced on the canonical slot lists by a site permutation:
+# σ[j] = position of the image of slot j (site perm[s], same factor) in the
+# image assignment's canonical slot list. Unique by the (site, channel) slot
+# invariant.
+function _slot_sigma(slots::Vector{Slot}, slots2::Vector{Slot},
+                     perm::Vector{Int})::Vector{Int}
+    σ = Vector{Int}(undef, length(slots))
+    for j in eachindex(slots)
+        target = Slot(perm[slots[j].site], slots[j].factor)
+        jp = findfirst(==(target), slots2)
+        jp === nothing && error("slot lists not closed under the site permutation")
+        σ[j] = jp
+    end
+    return σ
+end
+
+# Coupled bases of one assignment, tagged with L_S: (L_S, Lf, tensor) triples
+# over the slot-order `l`s (spin first ⇒ L_S well-defined per path).
+#
+# `isotropy` is the decor engine's spelling of the pure-spin engine's screen:
+# there it keeps `Lf == 0`, here `L_S == 0`. On a pure-spin label the two agree
+# identically (every slot is a spin slot, so `_path_LS` returns `Lf`), which is
+# what the cross-engine gate checks. On a mixed label they do NOT agree and
+# neither implies the other (see `build_real_bases`' `keep`), so the screen is
+# handed down as a path predicate and rejected paths never build a tensor.
+function _decor_coupled_bases(slots::Vector{Slot}, isotropy::Bool)
+    ls = _slot_ls(slots)
+    n_spin = _n_spin_slots(slots)
+    out = Tuple{Int,Int,Array{Float64}}[]
+    keep = (Lseq, Lf) -> !isotropy || _path_LS(ls, Lseq, Lf, n_spin) == 0
+    for (Lseq, Lf, tensor) in AngularMomentum.build_real_bases(ls; keep = keep)
+        push!(out, (_path_LS(ls, Lseq, Lf, n_spin), Lf, tensor))
+    end
+    return out
+end
+
+# Decor-general `_project_and_fold`: project the combined (assignment, path, Mf)
+# space onto stabilizer invariants for a fixed (L_S, Lf) block. Returns a list
+# of invariant blocks; each is `Vector{(assignment index, folded)}`.
+function _project_and_fold_decors(stab::Vector{Tuple{Int,Vector{Int}}},
+                                  assignments::Vector{Vector{SiteDecor}},
+                                  slotlists::Vector{Vector{Slot}},
+                                  cbs::Vector, L_S::Int, Lf::Int,
+                                  wcache::_WigCache)
+    tens = [Array{Float64}[] for _ in assignments]
+    for ai in eachindex(assignments)
+        for (ls_path, lf_path, tensor) in cbs[ai]
+            (ls_path == L_S && lf_path == Lf) && push!(tens[ai], tensor)
+        end
+    end
+    cols = Tuple{Int,Int,Int}[]            # (assignment index, path index, Mf)
+    for ai in eachindex(assignments), p in eachindex(tens[ai]), Mf = 1:(2Lf + 1)
+        push!(cols, (ai, p, Mf))
+    end
+    D = length(cols)
+    D == 0 && return Vector{Tuple{Int,Array{Float64}}}[]
+    colidx = Dict(cols[k] => k for k = 1:D)
+
+    P = zeros(Float64, D, D)
+    for (g, perm) in stab
+        for k = 1:D
+            (ai, p, Mf) = cols[k]
+            slots = slotlists[ai]
+            v = _mfslice(tens[ai][p], Mf)
+            for j in eachindex(slots)
+                slots[j].factor.l == 0 && continue          # D⁰ = 1 (trace axes)
+                v = AngularMomentum.nmode_mul(v, _wig(wcache, slots[j].factor.l, g), j)
+            end
+            a2 = _assignment_image(assignments[ai], perm)
+            ai2 = findfirst(==(a2), assignments)
+            ai2 === nothing && error("assignment set not closed under the stabilizer")
+            σ = _slot_sigma(slots, slotlists[ai2], perm)
+            v = permutedims(v, invperm(σ))
+            for p2 in eachindex(tens[ai2]), Mf2 = 1:(2Lf + 1)
+                c = _frob(_mfslice(tens[ai2][p2], Mf2), v)
+                abs(c) < 1e-12 && continue
+                P[colidx[(ai2, p2, Mf2)], k] += c
+            end
+        end
+    end
+    P ./= length(stab)
+    P .= (P .+ P') ./ 2
+    F = eigen(Symmetric(P))
+    all(λ -> abs(λ) < 1e-6 || abs(λ - 1) < 1e-6, F.values) ||
+        error("decor SALC projector is not idempotent (eigenvalues $(F.values))")
+    V1 = F.vectors[:, findall(>(0.5), F.values)]
+    W = _canonical_basis(V1)
+
+    blocks = Vector{Tuple{Int,Array{Float64}}}[]
+    for b = 1:size(W, 2)
+        c = view(W, :, b)
+        terms = Tuple{Int,Array{Float64}}[]
+        for ai in eachindex(assignments)
+            isempty(tens[ai]) && continue
+            Fo = zeros(Float64, size(tens[ai][1])[1:(end - 1)]...)
+            for p in eachindex(tens[ai]), Mf = 1:(2Lf + 1)
+                coef = c[colidx[(ai, p, Mf)]]
+                coef == 0.0 && continue
+                Fo .+= coef .* _mfslice(tens[ai][p], Mf)
+            end
+            @inbounds for idx in eachindex(Fo)
+                abs(Fo[idx]) < 1e-10 && (Fo[idx] = 0.0)
+            end
+            norm(Fo) > 1e-10 && push!(terms, (ai, Fo))
+        end
+        push!(blocks, terms)
+    end
+    return blocks
+end
+
+# Decor-general `_transport_term`: rotate every slot axis, relabel sites through
+# the connecting permutation, and return the member term in its canonical slot
+# order.
+function _transport_term_decors(a::Vector{SiteDecor}, slots::Vector{Slot},
+                                F::Array{Float64}, g::Int, perm::Vector{Int},
+                                wcache::_WigCache)::SALCTerm
+    T = F
+    for j in eachindex(slots)
+        slots[j].factor.l == 0 && continue                  # D⁰ = 1 (trace axes)
+        T = AngularMomentum.nmode_mul(T, _wig(wcache, slots[j].factor.l, g), j)
+    end
+    a2 = _assignment_image(a, perm)
+    slots2 = _assignment_slots(a2)
+    σ = _slot_sigma(slots, slots2, perm)
+    G = Array{Float64}(permutedims(T, invperm(σ)))
+    @inbounds for idx in eachindex(G)
+        abs(G[idx]) < 1e-10 && (G[idx] = 0.0)
+    end
+    return SALCTerm(slots2, G)
+end
+
+# All SALCs of one cluster orbit for explicitly-given decoration labels (sorted
+# `SiteDecor` multisets). Callers hand the labels in; nothing enumerates them
+# yet. `isotropy = true` keeps only L_S = 0.
+function _orbit_salcs_decors(crystal::Crystal, spacegroup::SpaceGroup, N::Int,
+                             orbit_id::Int, O::ClusterOrbit,
+                             labels::Vector{Vector{SiteDecor}}, isotropy::Bool,
+                             wcache::_WigCache;
+                             admit::Union{Nothing,Function} = nothing)::Vector{SALC}
+    # `admit(t::Vector{SiteDecor})::Bool` screens a whole site-permutation orbit of
+    # assignments, at the canonical representative and before any block index is
+    # consumed. A label is a sorted multiset, so it cannot say WHICH site may carry
+    # which rank; the pure-spin engine expresses that through its per-species `lmax`
+    # (`_enumerate_ls`), and a caller that needs the same (or the pointed basis'
+    # mark-aware variant) hands it in here. Correctness requirement: the verdict must
+    # be a permutation-orbit invariant — stabilizer permutations preserve species and
+    # edge geometry, so any rule built from (decor, species, edges-from-site) data is,
+    # while one keyed on a bare site index is not.
+    out = SALC[]
+    rep = O.representative
+    stab = _stabilizer(crystal, spacegroup, rep)
+    perms = unique([perm for (_, perm) in stab])
+    conns = _connect_all(crystal, spacegroup, rep, O.members)
+    allunique(labels) || throw(ArgumentError(
+        "duplicate decoration labels: each label projects to the same SALCs " *
+        "twice (exactly collinear design columns)"))
+    blockcount = Dict{Tuple{Vector{SiteDecor},Int,Int},Int}()
+    for label in labels
+        length(label) == N ||
+            throw(ArgumentError("decor label has $(length(label)) sites for an " *
+                                "$N-body orbit"))
+        issorted(label) ||
+            throw(ArgumentError("decor label must be sorted (canonical multiset)"))
+        iseven(sum(d.spin_l for d in label)) ||
+            throw(ArgumentError("Σl_spin must be even (time-reversal screen); " *
+                                "got label $label"))
+        # Distinct site assignments of the multiset, one canonical representative
+        # per orbit of the site-permutation group — in EXACTLY `_enumerate_ls`'s
+        # order (upstream review blocker): orbits are discovered in colex
+        # (site-1-fastest, i.e. `Iterators.product`) order, the emitted
+        # representative is the lex-min of the orbit, and the assignment list is
+        # `unique(rep[p])`. Any other order relabels `block` indices / permutes
+        # the gauge columns on pure-spin labels, silently breaking key-addressed
+        # coefficient re-pairing the moment this engine backs a public builder.
+        arrangements = sort(_multiset_arrangements(label);
+                            by = a -> reverse!([_decortuple(d) for d in a]))
+        seen = Set{Vector{SiteDecor}}()
+        for tarr in arrangements
+            tarr in seen && continue
+            orbit = unique([tarr[p] for p in perms])
+            for o in orbit
+                push!(seen, o)
+            end
+            t = minimum(orbit)                   # lex-min canonical representative
+            admit === nothing || admit(t)::Bool || continue
+            assignments = unique([t[p] for p in perms])
+            slotlists = [_assignment_slots(a) for a in assignments]
+            cbs = [_decor_coupled_bases(sl, isotropy) for sl in slotlists]
+            # `isotropy` already screened the paths inside `_decor_coupled_bases`,
+            # before any tensor was built, so `blockset` carries only live blocks.
+            blockset = sort(unique((ls, lf) for cbo in cbs for (ls, lf, _) in cbo))
+            for (L_S, Lf) in blockset
+                blocks = _project_and_fold_decors(stab, assignments, slotlists,
+                                                  cbs, L_S, Lf, wcache)
+                for terms_rep in blocks
+                    isempty(terms_rep) && continue
+                    members = SALCMember[]
+                    for (m, (g, perm)) in zip(O.members, conns)
+                        mterms = SALCTerm[]
+                        for (ai, F) in terms_rep
+                            push!(mterms,
+                                  _transport_term_decors(assignments[ai],
+                                                         slotlists[ai], F, g,
+                                                         perm, wcache))
+                        end
+                        push!(members, SALCMember(m.atoms, m.shifts, mterms))
+                    end
+                    members = _canonicalize_members(members)
+                    isempty(members) && continue
+                    block = get(blockcount, (label, L_S, Lf), 0) + 1
+                    blockcount[(label, L_S, Lf)] = block
+                    key = SALCKey(N, orbit_id, copy(label), L_S, Lf, block)
+                    push!(out, SALC(key, N, key.decors, L_S, Lf, members))
+                end
+            end
+        end
+    end
+    return out
+end
+
+# ---------------------------------------------------------------------------
 # Function-space reduction of one orbit's SALCs.
 #
 # `evaluate_salc` reads a member's `atoms` but never its `shifts`: under plain

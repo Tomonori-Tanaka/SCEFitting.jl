@@ -156,3 +156,48 @@ but costs **+44 % wall time** (2914 -> 4206 ms), because `hash(::Slot)` goes
 through `objectid` and that dictionary is probed once per nonzero tensor entry.
 Reverted; the comment in `_function_vector` records the measurement so nobody
 re-tries it.
+
+---
+
+## Mixed-channel (decor) SALC engine (D3) — 2026-08-21
+
+**Context**: branch `feat/pointed-moment` · baseline = the D2 entry above,
+measured on the same machine · local macOS (darwin 24.6, aarch64) · julia 1.12.6 ·
+threads = 1 · stress defaults.
+
+The production pure-spin path is untouched by the new engine. Two shared pieces
+did move: `SALCScratch` gained an `rl` buffer (the `SolidHarmonics` batch
+workspace the displacement axes need) and `AngularMomentum.build_real_bases`
+gained a `keep` path predicate, called once per coupling path with a default
+that always accepts.
+
+### GATE — `bench_salcbasis` (bcc Fe 4x4x4, 128 atoms, lmax 3, cutoff 6.0)
+
+| | D2 | D3 | delta |
+|---|---|---|---|
+| median | 2914 ms | 2941 ms | +0.9 % |
+| allocs | 73,263,913 | **73,263,913** | **0** |
+| `n_salcs` | 129 | 129 | — |
+
+**Allocation-neutral to the byte.** The `keep` predicate costs nothing: with the
+default closure the call inlines away, and the basis build never constructs a
+`SALCScratch`.
+
+### GATE — `bench_design_matrix` (bcc Fe 4x4x4, 100 cfg, lmax 2)
+
+| | D2 | D3 | delta |
+|---|---|---|---|
+| `_design_energy` median | 469 ms | 478 ms | +1.9 % |
+| `_design_energy` allocs | 11,299,224 | **11,299,316** | **+92** |
+| `_design_torque` median | 1030 ms | 1025 ms | −0.5 % |
+| `_design_torque` allocs | 7,527,192 | **7,527,284** | **+92** |
+
+**The allocation gate trips (zero tolerance) by exactly 92 on each, and the 92
+is fully attributed**: `_design_energy` / `_design_torque` construct one
+task-local `SALCScratch` per column and the bench has 46 SALCs, so the new `rl`
+field is built 46 times. Adding one `Vector{Float64}(undef, 4)` field to a
+struct constructed 46 times costs exactly 92 allocations (measured directly on a
+two-field vs three-field toy struct: 140 -> 232). It is per *scratch*, not per
+term or per entry — 8e-6 of the total — and it is what buys a single evaluation
+workspace shared by both channels instead of a second one allocated per term.
+Wall time stays inside the 5 % secondary gate on both.

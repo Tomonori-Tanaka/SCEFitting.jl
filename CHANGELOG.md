@@ -6,6 +6,56 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — the mixed-channel (decor) SALC engine (2026-08-21)
+
+A second projection engine, `_orbit_salcs_decors`, alongside the pure-spin
+production one. It takes **explicit decoration labels** (sorted `SiteDecor`
+multisets) on a cluster orbit instead of enumerating `l`-tuples, which is what
+the pointed site-moment channel needs: its mark is a displacement decor, so its
+labels are not expressible as an `ls` tuple. Nothing calls it from a public
+builder yet — the production pure-spin path is untouched.
+
+- **Construction**: multiset arrangements grouped into site-permutation orbits;
+  spin-first slot coupling with the total spin rank `L_S` read off each coupling
+  path (`_path_LS` — a good quantum number, since site permutations act within
+  channels and commute with the diagonal rotation); projection per `(L_S, Lf)`
+  block; transport in canonical slot order; the `Σl_spin`-even time-reversal
+  screen. Both channels rotate through the one polar Wigner cache, which is
+  exact **because** of that screen (`det(R)^{Σl_spin} ≡ +1`, so the axial spin
+  action equals the polar one).
+- **`isotropy` is the decor engine's spelling of the pure-spin screen**: there
+  it keeps `Lf == 0`, here `L_S == 0`. On a pure-spin label the two are the same
+  statement (`L_S ≡ Lf`); on a mixed label neither implies the other, so
+  `AngularMomentum.build_real_bases` gained a `keep` path predicate and the
+  screen is applied **before** a rejected path builds its tensor.
+- **`admit`**: an optional per-orbit-of-assignments predicate. A label is a
+  sorted multiset and cannot say which site may carry which rank; the pure-spin
+  engine expresses that through its per-species `lmax`, and a caller that needs
+  the same rule (or the pointed basis' mark-aware variant) hands it in. It is
+  applied at the canonical representative, before any `block` index is consumed.
+- **Joint evaluation** `evaluate_salc(salc, e, u)`: spin axes contribute
+  `Z_{lm}(ê)`, displacement axes `|u|^{2k} R_{lm}(u)`, and the scale is
+  `(4π)^(n_spin/2)` over the spin slots. A pure-spin SALC evaluates `===` to the
+  two-argument form; a decorated one is exactly `0` at `u = 0`.
+- **The spin-only kernels now refuse a decorated SALC** — `evaluate_salc(salc,
+  e)`, `accumulate_grad!`, and `group_costs` — rather than reading a `DISP` rank
+  as a spin harmonic under the wrong `(4π)` scale. Same refusing-beats-
+  mis-scaling rule as `multipole_terms`.
+- **The anti-drift gate** is the point of the slice: given the same label and
+  the same admission rule, the decor engine must reproduce the production
+  engine's SALCs **bitwise** — keys, `block` indices, slots and folded tensors.
+  It runs over the O_h single site, the D4h bond, and the two shapes an upstream
+  review found broken: the Cs isosceles triangle (`ls = [1,1,2]` splits into two
+  ordering orbits sharing one sorted label) and the C3v triangle (one orbit of
+  three assignments, where the gauge is column-order dependent).
+- **The invariant counts are checked against a Cartesian projector** that shares
+  no code with the SALC machinery — no Clebsch–Gordan, no Wigner-D, no spherical
+  harmonics — built by averaging the group action over the multilinear forms in
+  the components of `ê` and `u` and reading the rank.
+- **Performance**: the basis build is allocation-neutral to the byte; the design
+  matrices cost exactly +92 allocations each, fully attributed to the one new
+  `SALCScratch` field over the bench's 46 columns. See `bench/BENCH_LOG.md`.
+
 ### Added — the `SolidHarmonics` displacement kernel (2026-08-21)
 
 A pure addition: no existing code path calls it yet. `SolidHarmonics` is the
