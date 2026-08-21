@@ -340,11 +340,24 @@ UnclassifiableBasis
 The regression layer: rows `(config, marked atom)` with `y = ê·M` under the mode
 rule (4 → `directions`, 1 → `constraint_axes`), a decomposability gate
 `|M| sin²θ ≤ gate_eps` (required keyword) with per-orbit survival and a coverage
-floor, the resolvability gate at the dataset door, a fit that solves the gated and
-(for disclosure) the ungated rows with no centering — the `l = 0` `[MARK]` columns
-are the per-orbit intercepts — and a validating prediction door whose default
+floor, the resolvability gate at the dataset door (first — it is a statement about
+the basis alone), the `directions` unit door and the zero-moment placeholder door
+(`zero_moment_atol`, refusing a referenced atom whose `‖MW‖ ≤ atol` would enter
+the design as the fabricated ẑ direction), a fit that solves the gated and (for
+disclosure) the ungated rows with no centering — the `l = 0` `[MARK]` columns are
+the per-orbit intercepts — and a validating prediction door whose default
 `axes = e` is the mode-4 identity. Not persisted in this step: `save` refuses a
 moment basis / fit / model by name (design record §4.2).
+
+Diagnostics ride on the same rows: the coverage-band residual profile along the
+marked-sublattice order parameter `|⟨e⟩|` (`ds.order`), the pair-consistent
+local-field coordinates `(‖h₁‖, ê·ĥ)` with a training-vs-new coverage monitor,
+and the simple-feature nested floor (per-orbit intercept + Legendre shell sums on
+exactly the fit's kept rows, with an inclusion report instead of an assumed
+bound). `salc_groups(mb)` (the pointed method of the selection helper documented
+above — mark-class granularity, never the energy-side `(body, orbit_id, decors)`
+key alone) and `GroupAdaptiveRidge(mb; lambda)` (unit weights) give group-adaptive
+shrinkage; `fit` reduces such an estimator to the active columns with the freeze.
 
 ```@docs
 MomentDataset
@@ -352,6 +365,10 @@ MomentFit
 rmse_moment
 MomentModel
 predict_moment
+moment_band_profile
+moment_local_field
+moment_coverage
+moment_simple_floor
 ```
 
 ## DFT data sources

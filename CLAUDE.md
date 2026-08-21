@@ -300,13 +300,46 @@ Easy to break silently — confirm before touching the algorithm.
   therefore a validating DOOR (the unit-norm rule with the component bound): `e`
   unit everywhere, `axes` unit on the MARKED columns only (unmarked axes columns
   are never read — a whole-matrix door would refuse the legitimate closed-form
-  ê = x̂/ŷ/ẑ readout). `MomentDataset` runs `moment_resolvability` at construction
+  ê = x̂/ŷ/ẑ readout). `MomentDataset` is the OTHER door and the only one a
+  training datum passes: `SpinDatum` validates `constraint_axes` but NOT
+  `directions` (the 8-field direct form is public), so the dataset ctor runs
+  `_validate_config` on every datum's `directions` and refuses a referenced atom
+  (marked or environment, `_referenced_atoms(::MomentBasis)`) with `‖MW‖ ≤
+  zero_moment_atol` — its direction is the ẑ placeholder. Remove either check and
+  a non-unit or fabricated column reaches the harmonic kernels silently (the gate
+  `g` stops being `|M| sin²θ` first). The resolvability gate runs FIRST in that
+  ctor (basis-only) so its refusal is never masked by a data door.
+  `MomentDataset` runs `moment_resolvability` at construction
   and `fit` freezes the vanishing columns to EXACT zero — the same frozen-column
   discipline as the energy side, so `coef != 0` reads structure; weakening either
   half silently reintroduces arbitrary min-norm coefficients for columns no cell
   determines. The moment side is NOT persisted (design record §4.2): `save`
   refuses `MomentBasis` / `MomentFit` / `MomentModel` by name; a later schema
   version adds it — do not "just write the coefficients" into the v5 document.
+- **The moment channel's diagnostics replay the dataset's arithmetic**
+  (`fitting/momentfit.jl`): (1) the row axis is resolved in ONE function,
+  `_moment_axis_matrix(d)` — the dataset constructor, `moment_local_field`'s
+  `SpinDatum` method and `moment_simple_floor` all read it; an inline
+  `mode == 4 ? directions : constraint_axes` copy anywhere else is the drift
+  hazard. (2) `moment_simple_floor`'s pairing door recomputes `y = ê·M` with the
+  SAME expression the constructor evaluates and compares BITWISE (`==`), and
+  replays one configuration's design rows through `_design_moment` and compares
+  `==` — introduce `muladd`/`@fastmath` in either site, or change the
+  accumulation order, and the door refuses every legitimate dataset; relax both
+  together or neither. (3) `_pair_neighbors` rebuilds the `cutoff_pair`
+  MinimumImage list with the basis's own recorded `mb.tie_tol` — the diagnostics'
+  neighbor multiplicity (one term per tied image) matches the pair basis's
+  member multiplicity only while both read the same band. (4)
+  `salc_groups(::MomentBasis)` keys on `(body, orbit_id, decors, marked atoms,
+  marked sites)` of the canonical FIRST member; it relies on
+  `_canonicalize_members`' sort order and on every pointed term carrying exactly
+  one DISP slot — the energy-side `(body, orbit_id, decors)` key is NOT a
+  substitute (it folds Fe-marked with Ge-marked columns of one pair orbit).
+  (5) `fit(MomentFit, …)` reduces a `GroupAdaptiveRidge` to the active columns
+  (`_reduce_to_active`, frozen columns leave their groups — a deliberate
+  divergence from upstream's energy side, where ASR-frozen columns stay in
+  `column_groups`); any new column-structured estimator needs its own
+  `_reduce_to_active` method or it will hit the `DimensionMismatch` in the solve.
 - **`coeftable` columns ↔ `SALCKey` fields** (`sce/coeftable.jl`): each result row is
   read straight off a `SALCKey` (`body` / `orbit_id` / `decors`→comma string / `L_S` /
   `Lf` / `block`) plus `jphi`; the `J` column pairs with `basis.salc_basis.keys` **positionally**

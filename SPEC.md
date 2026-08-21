@@ -262,8 +262,22 @@ capability consumed by both the introspection and the Sunny interop.
   regularizers penalize them like any column (v1 OLS-first). `MomentModel` carries
   basis + gated coefficients (no mode flag); `predict_moment(model, e; axes = e)`
   defaults to the mode-4 identity and is a validating door (`e` unit everywhere,
-  `axes` unit + component-bounded on marked columns only). **Not persisted** (design
-  record §4.2): `save` refuses the moment types by name.
+  `axes` unit + component-bounded on marked columns only). The dataset constructor
+  is the training-side door: every datum's `directions` pass `_validate_config`
+  (a field-built `SpinDatum` carries no direction check), and a referenced atom
+  (marked or environment) with `‖MW‖ ≤ zero_moment_atol` is refused — its
+  direction is the ẑ placeholder. **Not persisted** (design record §4.2): `save`
+  refuses the moment types by name. Diagnostics on the same rows: `order` (per
+  config `|⟨e⟩|`) + `moment_band_profile` (equal-count bins, bin-free line, `r`);
+  `moment_local_field` (`‖h₁‖`, `ê·ĥ` over the `cutoff_pair` MinimumImage
+  neighbors at the basis's `tie_tol`, axis by the mode rule through the single
+  `_moment_axis_matrix`) + `moment_coverage` (upper-tail `h1` quantile,
+  `frac_anti`); `moment_simple_floor` (per-orbit intercept + Legendre shell sums
+  on the kept rows, `inclusion` report, `nested_bound` only for OLS, bitwise
+  pairing door). `salc_groups(::MomentBasis)` keys on the mark class (marked
+  atoms + marked sites of the canonical member) and `GroupAdaptiveRidge(mb;
+  lambda)` carries unit weights; `fit` reduces it to the active columns with the
+  vanishing freeze (`_reduce_to_active`).
 - **Tabular results** (`sce/coeftable.jl`): `coeftable(fit | model) -> SCECoefficients`
   is a **Tables.jl** source — one row per SALC (`body`, `orbit_id`, `decors` as a
   comma string — `"1,1,2"` on a pure-spin key, exactly the old `ls` column —, `L_S`,

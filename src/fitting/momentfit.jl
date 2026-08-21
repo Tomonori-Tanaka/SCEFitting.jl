@@ -7,7 +7,10 @@
 # D9′: periodic resolvability wired at the dataset door; M2 corrections:
 # decomposability gate, coverage floor, both-coefficients disclosure).
 #
-# Ported from SLCE.jl `837135d` to the pure-spin `SpinDatum`: no provenance (so no
+# Ported from SLCE.jl `837135d` (dataset + fit + model), `bd03517` (`order` + the
+# band profile), `a6a6386` (mark-class `salc_groups`, `GroupAdaptiveRidge(mb)`,
+# `_reduce_to_active`) and `3d54abb` (local-field diagnostics + the simple-feature
+# nested floor) to the pure-spin `SpinDatum`: no provenance (so no
 # setup-uniformity / reference-identity doors — a `SpinDatum` has neither), no
 # displacements (so no reference-geometry door — every datum sits at the reference
 # by construction), and no persistence: per the design record's §4.2 decision the
@@ -17,7 +20,8 @@
 
 """
     MomentDataset(basis::MomentBasis, data::AbstractVector{SpinDatum};
-                  gate_eps, coverage_floor = 0.5) -> MomentDataset
+                  gate_eps, coverage_floor = 0.5, zero_moment_atol = 1e-10)
+        -> MomentDataset
 
 Assemble the moment channel's regression problem. Rows are (configuration-major,
 marked-atom-minor) pairs over `basis`'s marked atoms; the target of row `(c, a)` is
@@ -34,9 +38,25 @@ The axis follows the **mode rule** (D8 addendum), per datum:
   false`) and recorded in the per-orbit report.
 
 Modes may be mixed in one dataset. Every datum must carry `moments_bare` and
-`constraint_mode` (loud otherwise). Every `SpinDatum` sits at the reference
-geometry by construction (this package carries no displacements), so the v1
-reference-geometry-only rule is satisfied structurally.
+`constraint_mode` (loud otherwise), and its `directions` are validated here as
+unit columns (the family's `_validate_config` rule: finite, 1e-6 norm band,
+component bound) — a `SpinDatum` built field-by-field carries no direction check
+of its own, and a non-unit column would corrupt the gate's `M⊥` and feed the
+harmonic kernels outside their domain. The zero-axis exclusion applies to mode 1
+only; a mode-4 axis IS a validated direction and cannot be zero. Every `SpinDatum`
+sits at the reference geometry by construction (this package carries no
+displacements), so the v1 reference-geometry-only rule is satisfied structurally.
+Two obligations the datum cannot carry and this constructor therefore cannot
+check: the data must come from ONE computational setup and ONE reference
+configuration per dataset (a `SpinDatum` has no provenance; mixing setups biases
+μ₀ and is invisible here — batch the training set upstream), and every atom the
+pointed basis references (marked atoms and their environments) must carry a
+nonzero magnetic moment `‖MW‖ > zero_moment_atol` in every configuration: a
+quenched moment's `directions` column is the ẑ placeholder the moments
+constructor fabricates, which would enter every neighbouring row as a fake
+environment coordinate (and, in mode 4, become that row's own axis while the
+`|M| = 0 → g = 0` convention waves the row through). The constructor refuses such
+a datum by name — the same door as `SCEDataset`'s `zero_moment_atol`.
 
 The **decomposability gate** keeps rows whose transverse remainder is small:
 `g = ‖M⊥‖²/|M| = |M| sin²θ ≤ gate_eps` (μB, computed in the cancellation-free form
@@ -47,13 +67,20 @@ a physical statement about the source calculation's constraint quality, so the
 caller must state it. `gate_eps = 0` keeps only rows with `g` exactly zero — in
 practice the `|M| = 0` rows, since a decomposable row's `g` is roundoff-scale but
 rarely exact. Two recorded applicability limits: the gate reads the MARKED atom
-only, so a collapsed/quenched ENVIRONMENT atom enters every neighbouring row
-through its `directions` column with no gate of its own; and the gate is even in
-`y`, so a mode-1 row whose converged moment is antiparallel to the recorded axis
-passes like a parallel one — exactly covariant for odd mark ranks, but the
-even-mark-rank columns (μ₀, `l_mark = 2`) assume the recorded axis is oriented on
-the converged moment's side. The per-orbit report therefore counts antiparallel
-rows (`n_anti`, mode-1 rows with `ê·e_MW < 0`).
+only, so a SOFT (small but above `zero_moment_atol`) environment moment enters
+every neighbouring row through its `directions` column with no gate of its own —
+only the hard placeholder case is refused; and the gate is even in `y`, so a
+mode-1 row whose converged moment is antiparallel to the recorded axis passes like
+a parallel one — exactly covariant for odd mark ranks, but the even-mark-rank
+columns (μ₀, `l_mark = 2`) assume the recorded axis is oriented on the converged
+moment's side. The per-orbit report therefore counts antiparallel rows (`n_anti`,
+mode-1 rows with `ê·e_MW < 0`) and the constructor logs them with the exact
+remedy: re-gauge `ê → sign(ê·e_MW) ê`, `y → −y` at the source (the transverse
+penalty is even in `ê`, so the physics is unchanged) — never here, where an
+archived axis is a recorded fact.
+
+`order[c]` is the marked-sublattice order parameter `|⟨e⟩| = ‖Σ_a e_a‖/n_marked` of
+configuration `c` — the coverage coordinate of [`moment_band_profile`](@ref).
 
 The design matrix `X` is built for ALL rows; `defined` and `keep` masks select the
 fit rows, so both the gated and the ungated coefficient sets can be disclosed from
@@ -89,23 +116,64 @@ struct MomentDataset
     orbit_report::Vector{@NamedTuple{orbit::Int, atoms::Vector{Int}, n_rows::Int,
                                      n_defined::Int, n_kept::Int, n_anti::Int,
                                      survival::Float64, mperp_rms::Float64}}
+    order::Vector{Float64}
     vanishing::Vector{Int}
     dependent::Vector{Vector{Tuple{Int,Float64}}}
     gate_eps::Float64
     coverage_floor::Float64
 end
 
+# The mode rule (D8 addendum), stated ONCE: mode 4 evaluates on the datum's
+# `directions` (identity substitution), mode 1 on its `constraint_axes` (present
+# is a SpinDatum ctor invariant). Every consumer needing a row axis — the dataset
+# constructor, the local-field diagnostics, the simple floor — resolves through
+# this function; a second inline copy is the coupled-site drift hazard.
+_moment_axis_matrix(d::SpinDatum)::Matrix{Float64} =
+    (d.constraint_mode::Int) == 4 ? d.directions : (d.constraint_axes::Matrix{Float64})
+
 function MomentDataset(basis::MomentBasis, data::AbstractVector{SpinDatum};
-                       gate_eps::Real, coverage_floor::Real = 0.5)::MomentDataset
+                       gate_eps::Real, coverage_floor::Real = 0.5,
+                       zero_moment_atol::Real = 1e-10)::MomentDataset
     isempty(data) && throw(ArgumentError("no training data"))
     gate_eps >= 0 || throw(ArgumentError("gate_eps = $gate_eps must be ≥ 0"))
     0 <= coverage_floor <= 1 ||
         throw(ArgumentError("coverage_floor = $coverage_floor must be in [0, 1]"))
+    zero_moment_atol >= 0 ||
+        throw(ArgumentError("zero_moment_atol = $zero_moment_atol must be ≥ 0"))
     nat = n_atoms(basis.crystal)
     atoms = basis.marked_atoms
     nmark = length(atoms)
     ncfg = length(data)
     nrow = ncfg * nmark
+
+    # The D9′ periodic-resolvability gate, wired at the dataset door and FIRST
+    # (before the row loop): it is a structural statement about the basis alone, so
+    # an unclassifiable basis must surface its own loud refusal before any data
+    # door (coverage, zero moments) can mask it with a softer message. What this
+    # cell cannot determine must not come back as a silently-arbitrary coefficient.
+    mr = moment_resolvability(basis)
+    if !isempty(mr.vanishing)
+        msg = "MomentDataset: $(length(mr.vanishing)) pointed column(s) vanish " *
+              "identically on this cell's periodic data and will be frozen to " *
+              "exact zero by fit"
+        @warn msg columns = mr.vanishing
+    end
+    if !isempty(mr.null_combinations)
+        msg = "MomentDataset: the design carries $(length(mr.null_combinations)) " *
+              "structurally dependent column combination(s) on this cell — the " *
+              "fitted coefficients along these directions are one arbitrary " *
+              "min-norm representative (predictions on this cell are unaffected)"
+        # a WIDE signature block can carry O(columns) dense combinations; the
+        # log summarizes past a handful (full list stays on `ds.dependent`)
+        if length(mr.null_combinations) <= 8
+            @warn msg combinations = mr.null_combinations
+        else
+            cols = sort!(unique!([j for c in mr.null_combinations for (j, _) in c]))
+            @warn msg n_combinations = length(mr.null_combinations) columns = cols
+        end
+    end
+    referenced = _referenced_atoms(basis)
+    labels = basis.crystal.species_labels
 
     # Resolve the per-datum axis matrix (mode rule) and assemble targets + masks
     # BEFORE the design build: the coverage refusal must fire without paying for X.
@@ -123,6 +191,26 @@ function MomentDataset(basis::MomentBasis, data::AbstractVector{SpinDatum};
         size(d.directions, 2) == nat || throw(ArgumentError(
             "config $ci has $(size(d.directions, 2)) atoms but the basis crystal " *
             "has $nat"))
+        # The direction door (unit columns, component bound): `SpinDatum` does not
+        # check `directions`, and both the gate algebra and the harmonic kernels
+        # assume unit columns.
+        _validate_config(d.directions, nat; label = "config $ci directions")
+        length(d.magmoms) == nat || throw(ArgumentError(
+            "config $ci has $(length(d.magmoms)) magmoms but the basis crystal " *
+            "has $nat"))
+        # The zero-moment placeholder door (the moment channel's analogue of
+        # `_check_referenced_moments`): a referenced atom with ‖MW‖ ≤ atol carries
+        # the fabricated ẑ direction.
+        for a = 1:nat
+            (referenced[a] && d.magmoms[a] <= zero_moment_atol) || continue
+            throw(ArgumentError(
+                "config $ci: atom $a ($(labels[basis.crystal.species[a]])) has a " *
+                "zero magnetic moment (‖MW‖ = $(d.magmoms[a]) ≤ $zero_moment_atol) " *
+                "but is referenced by the pointed basis (a marked atom or an " *
+                "environment site) — its placeholder ẑ direction would enter the " *
+                "design as a fabricated coordinate. Drop the configuration, or " *
+                "unsample the species if it is non-magnetic"))
+        end
         d.moments_bare === nothing && throw(ArgumentError(
             "config $ci carries no `moments_bare` — the moment channel fits the " *
             "bare internal moments; rebuild the datum from a source that provides " *
@@ -133,8 +221,7 @@ function MomentDataset(basis::MomentBasis, data::AbstractVector{SpinDatum};
             "a datum without a declared mode has no defined target"))
         M = d.moments_bare::Matrix{Float64}
         mode = d.constraint_mode::Int
-        # mode == 1 ⇒ constraint_axes present is a SpinDatum ctor invariant.
-        ax = mode == 4 ? d.directions : (d.constraint_axes::Matrix{Float64})
+        ax = _moment_axis_matrix(d)
         configs[ci] = d.directions
         # Always a copy: the zero-axis placeholder below writes into `axes[ci]`,
         # and aliasing the caller's datum field would turn that into silent
@@ -145,7 +232,7 @@ function MomentDataset(basis::MomentBasis, data::AbstractVector{SpinDatum};
             row_config[r] = ci
             row_atom[r] = a
             e1, e2, e3 = ax[1, a], ax[2, a], ax[3, a]
-            if e1 == 0.0 && e2 == 0.0 && e3 == 0.0
+            if mode == 1 && e1 == 0.0 && e2 == 0.0 && e3 == 0.0
                 # mode-1 unconstrained marked atom: no axis, no target. The design
                 # row still gets built (placeholder axis = the datum's direction),
                 # but `defined = false` bars it from every fit and y = NaN is loud
@@ -159,6 +246,9 @@ function MomentDataset(basis::MomentBasis, data::AbstractVector{SpinDatum};
                 axes[ci][3, a] = d.directions[3, a]
                 continue
             end
+            # moment_simple_floor's pairing door replays this expression
+            # BITWISE — keep muladd/@fastmath out of both sites, or relax both
+            # to isapprox together
             yv = e1 * M[1, a] + e2 * M[2, a] + e3 * M[3, a]
             mm = sqrt(M[1, a]^2 + M[2, a]^2 + M[3, a]^2)
             # Cancellation-free transverse remainder: M⊥ = M − y ê exactly, then
@@ -219,31 +309,46 @@ function MomentDataset(basis::MomentBasis, data::AbstractVector{SpinDatum};
               "$gate_eps μB); per-orbit survival " *
               join(["$(t.orbit): $(t.n_kept)/$(t.n_rows)" for t in report], ", ")
     end
-
-    # The D9′ periodic-resolvability gate, wired at the dataset door (before the
-    # design build): what this cell cannot determine must not come back as a
-    # silently-arbitrary coefficient. An unclassifiable basis (repeated-image
-    # environments) propagates that gate's own loud refusal.
-    mr = moment_resolvability(basis)
-    if !isempty(mr.vanishing)
-        msg = "MomentDataset: $(length(mr.vanishing)) pointed column(s) vanish " *
-              "identically on this cell's periodic data and will be frozen to " *
-              "exact zero by fit"
-        @warn msg columns = mr.vanishing
+    nanti = count(anti)
+    if nanti > 0
+        @info "MomentDataset: $nanti mode-1 row(s) carry a recorded axis " *
+              "antiparallel to the converged moment direction (ê·e_MW < 0). The " *
+              "gate is even in y so they are kept, and the odd-rank columns are " *
+              "exactly covariant; the even-rank columns (μ₀, l_mark = 2) read the " *
+              "axis sign as physical. Lossless remedy at the source: re-gauge " *
+              "ê → sign(ê·e_MW) ê with y → −y (the transverse penalty is even in ê)"
     end
-    if !isempty(mr.null_combinations)
-        msg = "MomentDataset: the design carries $(length(mr.null_combinations)) " *
-              "structurally dependent column combination(s) on this cell — the " *
-              "fitted coefficients along these directions are one arbitrary " *
-              "min-norm representative (predictions on this cell are unaffected)"
-        @warn msg combinations = mr.null_combinations
+
+    # Per-config coverage coordinate: the marked-sublattice order parameter
+    # |⟨e⟩| = ‖Σ_a e_a‖ / n_marked — the axis of the band-profile diagnostic
+    # (design record M2-8/L2-2).
+    order = Vector{Float64}(undef, ncfg)
+    for (ci, e) in enumerate(configs)
+        s1 = 0.0; s2 = 0.0; s3 = 0.0
+        for a in atoms
+            s1 += e[1, a]; s2 += e[2, a]; s3 += e[3, a]
+        end
+        order[ci] = sqrt(s1^2 + s2^2 + s3^2) / nmark
     end
 
     X = _design_moment(basis, configs, axes)
     return MomentDataset(basis, X, y, defined, keep, gate, row_config, row_atom,
-                         orbit_rep, report, collect(Int, mr.vanishing),
-                         mr.null_combinations, Float64(gate_eps),
+                         orbit_rep, report, order, collect(Int, mr.vanishing),
+                         # copied, like `vanishing`: the record is CACHED on the
+                         # basis, so storing the reference would alias one object
+                         # across the cache and every dataset built from it
+                         [copy(c) for c in mr.null_combinations], Float64(gate_eps),
                          Float64(coverage_floor))
+end
+
+# Every atom a pointed SALC member touches — marked atoms and their environment
+# sites; the zero-moment door reads it (mirror of `_referenced_atoms(::SCEBasis)`).
+function _referenced_atoms(mb::MomentBasis)::BitVector
+    ref = falses(n_atoms(mb.crystal))
+    for s in salcs(mb), mem in s.members, a in mem.atoms
+        ref[a] = true
+    end
+    return ref
 end
 
 function Base.show(io::IO, ds::MomentDataset)
@@ -281,7 +386,10 @@ across species; the `l = 2` 1-body columns are on-site ê anisotropies, not
 intercepts), so the design is passed to the estimator exactly as built. Note for
 regularized estimators (`Ridge`, …): the μ₀ columns are penalized like every other
 column — v1 is OLS-first; shrinking intercepts is a deliberate choice, not a
-default to reach for.
+default to reach for. A column-structured estimator ([`GroupAdaptiveRidge`](@ref))
+is reduced to the active columns with the freeze (`_reduce_to_active`): its labels
+must be built on THIS basis (`salc_groups(mb)` / `GroupAdaptiveRidge(mb; lambda)`),
+and a label vector of the wrong length is refused loudly.
 """
 struct MomentFit
     dataset::MomentDataset
@@ -297,13 +405,17 @@ function fit(::Type{MomentFit}, ds::MomentDataset,
     active = trues(p)
     active[ds.vanishing] .= false
     any(active) || throw(ArgumentError("every pointed column vanishes on this cell"))
+    est = _reduce_to_active(estimator, active)
     function _solve(mask::BitVector)::Vector{Float64}
-        c = solve_coefficients(estimator, ds.X[mask, active], ds.y[mask];
+        c = solve_coefficients(est, ds.X[mask, active], ds.y[mask];
                                groups = ds.row_config[mask])
         full = zeros(p)              # frozen columns: exact zero, not solver noise
         full[active] = c
         return full
     end
+    # the UN-reduced estimator is stored (user-facing provenance); the reduced
+    # one that actually produced the coefficients is a derived object — rebuild
+    # via _reduce_to_active if a future diagnostic needs it
     return MomentFit(ds, estimator, _solve(ds.keep), _solve(ds.defined))
 end
 
@@ -416,6 +528,473 @@ end
 predict_moment(f::MomentFit, e::AbstractMatrix{<:Real};
                axes::AbstractMatrix{<:Real} = e)::Vector{Float64} =
     predict_moment(MomentModel(f), e; axes)
+
+# ── band-profile diagnostic ────────────────────────────────────────────────────────
+
+"""
+    moment_band_profile(model::MomentModel, ds::MomentDataset; nbins = 4)
+    moment_band_profile(f::MomentFit; nbins = 4)
+
+The coverage-band residual profile (design record M2-8/L2-2): per-configuration
+mean residuals of the moment channel, organized along the marked-sublattice order
+parameter `|⟨e⟩|` (`ds.order`). Returns
+
+- `bands` — `nbins` equal-count bins in order of increasing `|⟨e⟩|`, each
+  `(; lo, hi, mean_residual, n)`;
+- `slope`, `intercept` — the least-squares line of per-config mean residual vs
+  `|⟨e⟩|` (the bin-free statement of the same trend);
+- `r` — the Pearson correlation of the two;
+- `order`, `mean_residual` — the underlying per-config points (plot fodder).
+
+Residuals are `y − X·V` over the KEPT rows only; a configuration with no kept
+row is absent from the profile, and every present configuration counts once
+regardless of how many of its rows survived the gate. The per-config mean runs
+over ALL marked orbits together — on a multi-species marked basis a trend in a
+small-moment orbit can be masked by a large-moment one (disaggregate by
+`ds.orbit_rep` when that matters). NaN conventions: a degenerate order spread
+(`sxx = 0`) gives `slope = r = NaN` with the intercept still the plain mean
+residual; a perfect fit (`syy = 0`) gives `slope = 0` with `r = NaN`. A
+systematic band trend on held-out data is the basis-insufficiency signature the
+design record's L2-2 reinterpretation names — report it next to any σ.
+"""
+function moment_band_profile(model::MomentModel, ds::MomentDataset; nbins::Int = 4)
+    nbins >= 1 || throw(ArgumentError("nbins = $nbins must be ≥ 1"))
+    model.basis === ds.basis || throw(ArgumentError(
+        "the model and the dataset carry different bases — a same-width mismatch " *
+        "would profile nonsense silently, so identity is required"))
+    pred = ds.X * model.coeffs
+    ncfg = length(ds.order)
+    sums = zeros(ncfg)
+    counts = zeros(Int, ncfg)
+    for r in eachindex(ds.y)
+        ds.keep[r] || continue
+        c = ds.row_config[r]
+        sums[c] += ds.y[r] - pred[r]
+        counts[c] += 1
+    end
+    cfgs = [c for c = 1:ncfg if counts[c] > 0]
+    isempty(cfgs) && throw(ArgumentError("no configuration has a kept row"))
+    mres = [sums[c] / counts[c] for c in cfgs]
+    ord = ds.order[cfgs]
+    q = sortperm(ord)
+    n = length(cfgs)
+    bands = @NamedTuple{lo::Float64, hi::Float64, mean_residual::Float64, n::Int}[]
+    nb = min(nbins, n)          # effective bin count: every config lands in a bin
+    for b = 1:nb
+        sel = q[div((b - 1) * n, nb)+1:div(b * n, nb)]
+        isempty(sel) && continue
+        push!(bands, (; lo = minimum(ord[sel]), hi = maximum(ord[sel]),
+                      mean_residual = sum(mres[sel]) / length(sel), n = length(sel)))
+    end
+    mo = sum(ord) / n
+    mr_ = sum(mres) / n
+    sxx = sum((o - mo)^2 for o in ord)
+    sxy = sum((ord[i] - mo) * (mres[i] - mr_) for i = 1:n)
+    syy = sum((v - mr_)^2 for v in mres)
+    slope = sxx == 0.0 ? NaN : sxy / sxx
+    r = (sxx == 0.0 || syy == 0.0) ? NaN : sxy / sqrt(sxx * syy)
+    # Degenerate order spread (sxx = 0): the slope is undefined (NaN), but the
+    # intercept is still the plain mean residual — never NaN-poisoned.
+    intercept = sxx == 0.0 ? mr_ : mr_ - slope * mo
+    return (; bands, slope, intercept, r, order = ord, mean_residual = mres)
+end
+
+moment_band_profile(f::MomentFit; nbins::Int = 4) =
+    moment_band_profile(MomentModel(f), f.dataset; nbins)
+
+# ── group labels for group-adaptive shrinkage over pointed columns ─────────────────
+
+"""
+    salc_groups(mb::MomentBasis) -> Vector{Int}
+
+Per-design-matrix-column group labels for the pointed basis (contiguous `1:G`, one
+label per SALC in `SALCKey` order): columns grouped by
+`(key.body, key.orbit_id, key.decors, mark class)`, where the mark class is the
+stabilizer orbit of mark placements — read off as the sorted set of representative-
+member atoms that carry the DISP (mark) slot across the SALC's terms.
+
+The energy-side key `(body, orbit_id, decors)` is NOT enough here: pointed SALC keys
+sort the decoration into a canonical multiset, so two stabilizer-inequivalent mark
+placements of one cluster — e.g. an Fe–Ge pair marked on Fe versus marked on Ge,
+which predict different atoms' moments — share `(body, orbit_id, decors)` and differ
+only in `block`. Folding them into one group would couple the adaptive shrinkage of
+physically distinct channels. Gauge blocks (`L_S`/`Lf`/`block`) of ONE mark class
+still share a label, mirroring the energy-side convention.
+
+One SALC spans exactly one stabilizer orbit of assignments, so its terms' mark
+placements enumerate exactly one mark class. The class is fingerprinted on the
+FIRST member (deterministic: `_canonicalize_members` sorts members by
+`(atoms, shifts)`) by BOTH the marked reference-cell atoms AND the marked site
+indices: the atom set alone is not injective — a canonical member carrying two
+periodic images of one atom projects two distinct mark placements onto the same
+atom set (reproduced on a 2-atom P1 cell, `nbody = 3`: member atoms `[1, 1, 2]`,
+mark on site 1 vs site 2, both "atom 1"), and folding those couples physically
+distinct channels. The site set can in principle be finer than the true class
+partition across gauge blocks (zero-folded terms are dropped per block), which
+errs on the safe side: over-splitting adds a group, merging couples channels.
+Feed the labels to [`GroupAdaptiveRidge`](@ref), or use the
+`GroupAdaptiveRidge(mb; lambda, ...)` convenience (unit weights: the moment
+channel has no Monte-Carlo contraction cost to weight by).
+"""
+function salc_groups(mb::MomentBasis)::Vector{Int}
+    sal = salcs(mb)
+    labels = Vector{Int}(undef, length(sal))
+    seen = Dict{Tuple{Int,Int,Vector{SiteDecor},Vector{Int},Vector{Int}},Int}()
+    for (j, s) in enumerate(sal)
+        mem = s.members[1]                       # canonical representative member
+        marks = Int[]
+        sites = Int[]
+        for t in mem.terms
+            ms = findfirst(sl -> sl.factor.channel == DISP, t.slots)
+            ms === nothing && error("pointed SALC without a mark slot")
+            push!(sites, t.slots[ms].site)
+            push!(marks, mem.atoms[t.slots[ms].site])
+        end
+        key = (s.key.body, s.key.orbit_id, s.key.decors, sort!(unique!(marks)),
+               sort!(unique!(sites)))
+        labels[j] = get!(seen, key, length(seen) + 1)
+    end
+    return labels
+end
+
+"""
+    GroupAdaptiveRidge(mb::MomentBasis; lambda, epsilon = 1e-8, max_iter = 50,
+                       tol = 1e-6)
+
+Group-adaptive estimator for a pointed basis: [`salc_groups`](@ref)`(mb)` labels
+with UNIT weights (the moment channel has no MC contraction cost; the energy-side
+`cost_weights` story does not apply). See the primary [`GroupAdaptiveRidge`](@ref)
+constructor for the estimator itself. Note the ridge-family caveat of
+[`fit`](@ref)`(MomentFit, ...)`: the penalty also shrinks the μ₀ intercept columns.
+"""
+function GroupAdaptiveRidge(mb::MomentBasis; lambda::Real, epsilon::Real = 1e-8,
+                            max_iter::Integer = 50, tol::Real = 1e-6)
+    cg = salc_groups(mb)
+    return GroupAdaptiveRidge(cg, ones(maximum(cg)); lambda = lambda,
+                              epsilon = epsilon, max_iter = max_iter, tol = tol)
+end
+
+# Column-structured estimators must follow fit's vanishing-column reduction: the
+# frozen columns are removed from the solve, so per-column metadata has to shrink
+# with them. For GroupAdaptiveRidge the reduction preserves every group NORM
+# exactly (frozen coefficients are exact zeros), but the group SIZE p_g drops by
+# the frozen count, so the weight w_g = v_g/(‖β_g‖² + p_g·ε) moves at O(ε) —
+# material only for a group already at the ε floor, and defensible there: ε is
+# documented as a per-coefficient floor and a frozen column carries no
+# coefficient. Note the deliberate divergence from the energy side, where
+# ASR-frozen columns STAY in column_groups and keep their p_g contribution
+# (upstream SLCE.jl; this package's energy side has no frozen columns at all).
+# Groups emptied by the reduction are relabeled away (the estimator's
+# every-label-present contract). Every other estimator passes through unchanged.
+_reduce_to_active(estimator::AbstractEstimator, ::BitVector) = estimator
+function _reduce_to_active(estimator::GroupAdaptiveRidge,
+                           active::BitVector)::GroupAdaptiveRidge
+    all(active) && return estimator
+    length(estimator.column_groups) == length(active) || throw(DimensionMismatch(
+        "GroupAdaptiveRidge column_groups length $(length(estimator.column_groups)) " *
+        "does not match the pointed design column count $(length(active)); build " *
+        "the labels on THIS basis (salc_groups(mb))"))
+    sub = estimator.column_groups[findall(active)]
+    remap = Dict{Int,Int}()
+    labels = [get!(remap, g, length(remap) + 1) for g in sub]
+    old = Vector{Int}(undef, length(remap))
+    for (g, n) in remap
+        old[n] = g
+    end
+    return GroupAdaptiveRidge(labels, estimator.group_weights[old];
+                              lambda = estimator.lambda, epsilon = estimator.epsilon,
+                              max_iter = estimator.max_iter, tol = estimator.tol)
+end
+
+# ── local-field diagnostics + the simple-feature nested floor ──────────────────────
+
+# The pair-consistent neighbor sets of the marked atoms: for each marked atom, the
+# reference-cell atoms j reachable through the spec's `cutoff_pair` MinimumImage
+# enumeration, one entry PER TIED IMAGE (the pair basis's member multiplicity),
+# same-atom images excluded (the pair enumeration's i == j drop), restricted to
+# species the basis reads (`lmax_env > 0`). The tie band is read off the basis
+# (`mb.tie_tol`, stored at construction), so the enumeration matches the basis's
+# by construction — no manual matching.
+function _pair_neighbors(mb::MomentBasis)
+    spec = mb.spec
+    sp = mb.crystal.species
+    nl = build_neighbor_list(mb.crystal, spec.cutoff_pair, MinimumImage();
+                             tol = mb.tie_tol)
+    nbrs = Dict(a => Int[] for a in mb.marked_atoms)
+    for p in nl.pairs
+        haskey(nbrs, p.i) || continue
+        spec.lmax_env[sp[p.j]] > 0 || continue
+        push!(nbrs[p.i], p.j)
+    end
+    return nbrs
+end
+
+@inline _legendre(l::Int, x::Float64)::Float64 =
+    l == 1 ? x :
+    l == 2 ? (3.0 * x^2 - 1.0) / 2 :
+    l == 3 ? (5.0 * x^3 - 3.0 * x) / 2 :
+    throw(ArgumentError("Legendre order $l not supported (1 ≤ l ≤ 3)"))
+
+"""
+    moment_local_field(mb::MomentBasis, configs; axes = configs)
+    moment_local_field(mb::MomentBasis, data::AbstractVector{SpinDatum})
+        -> NamedTuple
+
+Per-row local-field diagnostics of the moment channel, rows aligned with
+[`MomentDataset`](@ref) (configuration-major, marked-atom-minor). For each row
+`(c, i)` the pair-consistent local direction field is `h₁ = Σ ê_j` over the marked
+atom's `cutoff_pair` MinimumImage neighbors — one term per tied image (the pair
+basis's member multiplicity), same-atom images excluded, species with
+`lmax_env = 0` excluded (the basis never reads them). Returns
+
+- `h1` — `‖h₁‖` per row (`0.0` when the basis reads no environment species);
+- `edoth` — `ê·h₁/‖h₁‖`, the alignment of the row's evaluation axis with the
+  local field (`NaN` when `‖h₁‖ = 0` or the row axis is undefined — the mode-1
+  zero-axis case). This is the collapse coordinate: on FeGe, anti-alignment
+  (`ê·ĥ < 0`), not weak `|h₁|`, is what marks the longitudinal-collapse rows;
+- `row_config`, `row_atom` — the row bookkeeping.
+
+The `SpinDatum` method resolves the row axis by the mode rule
+(`_moment_axis_matrix`, the same function the dataset constructor reads); the raw
+method's `axes = configs` default IS the mode-4 identity, exactly like
+[`predict_moment`](@ref) — pass explicit axes for a mode-1-style readout. A
+validating door: configuration columns unit everywhere; axes columns unit on the
+MARKED atoms, with an exactly-zero column allowed (undefined row, `edoth = NaN`).
+The neighbor tie band is the basis's own (`mb.tie_tol`).
+"""
+function moment_local_field(mb::MomentBasis,
+                            configs::AbstractVector{<:AbstractMatrix{<:Real}};
+                            axes::AbstractVector{<:AbstractMatrix{<:Real}} = configs)
+    isempty(configs) && throw(ArgumentError("no configurations"))
+    nat = n_atoms(mb.crystal)
+    length(axes) == length(configs) ||
+        throw(ArgumentError("$(length(axes)) axis matrices for " *
+                            "$(length(configs)) configurations"))
+    nbrs = _pair_neighbors(mb)
+    marked = mb.marked_atoms
+    nmark = length(marked)
+    nrow = length(configs) * nmark
+    h1 = Vector{Float64}(undef, nrow)
+    edoth = Vector{Float64}(undef, nrow)
+    row_config = Vector{Int}(undef, nrow)
+    row_atom = Vector{Int}(undef, nrow)
+    for (ci, e) in enumerate(configs)
+        _validate_config(e, nat; label = "config $ci")
+        ax = axes[ci]
+        size(ax) == (3, nat) ||
+            throw(ArgumentError("config $ci: axes are $(size(ax)), expected (3, $nat)"))
+        for (ai, a) in enumerate(marked)
+            r = (ci - 1) * nmark + ai
+            row_config[r] = ci
+            row_atom[r] = a
+            hx = hy = hz = 0.0
+            for j in nbrs[a]
+                hx += e[1, j]; hy += e[2, j]; hz += e[3, j]
+            end
+            h = sqrt(hx^2 + hy^2 + hz^2)
+            h1[r] = h
+            a1, a2, a3 = Float64(ax[1, a]), Float64(ax[2, a]), Float64(ax[3, a])
+            if a1 == 0.0 && a2 == 0.0 && a3 == 0.0
+                edoth[r] = NaN                       # undefined row axis (mode 1)
+            else
+                _validate_axis_column(SVector{3,Float64}(a1, a2, a3),
+                                      "axes column $a (config $ci)")
+                edoth[r] = h == 0.0 ? NaN : (a1 * hx + a2 * hy + a3 * hz) / h
+            end
+        end
+    end
+    return (; h1, edoth, row_config, row_atom)
+end
+
+function moment_local_field(mb::MomentBasis, data::AbstractVector{SpinDatum})
+    isempty(data) && throw(ArgumentError("no data"))
+    for (ci, d) in enumerate(data)
+        d.constraint_mode === nothing && throw(ArgumentError(
+            "config $ci carries no `constraint_mode` — the row axis is resolved " *
+            "by the mode rule"))
+    end
+    return moment_local_field(mb, [d.directions for d in data];
+                              axes = [_moment_axis_matrix(d) for d in data])
+end
+
+"""
+    moment_coverage(train::NamedTuple, new::NamedTuple; q = 0.99) -> NamedTuple
+
+Feature-space coverage monitor (design record M2-8): compare a runtime/validation
+batch against the training distribution in the [`moment_local_field`](@ref)
+coordinates. Returns
+
+- `threshold` — the `q`-quantile of the TRAINING `h1`;
+- `frac_beyond` — the fraction of NEW rows with `h1 > threshold` (≈ `1 − q` in
+  distribution; substantially more flags extrapolation in the local-field
+  strength);
+- `frac_anti` — the fraction of NEW rows (among those with a defined `edoth`)
+  with `ê·ĥ < 0`: the collapse-risk band the training set rarely visits — rows
+  there carry the model's largest errors (measured on FeGe), so a consumer
+  sampling them is outside the fitted regime;
+- `n_rows`, `n_defined` — the new batch's row counts.
+
+Both arguments are [`moment_local_field`](@ref) outputs (or any NamedTuple with
+`h1` and `edoth`) — from the SAME basis, which the monitor cannot verify. The
+`h1` flag is UPPER-tail only by design (the recorded M2-8 axis; on a degenerate
+training distribution — every row at one `|h₁|` — it can never fire); the
+weak-field side is monitored through `frac_anti`, since the measured collapse
+coordinate is anti-alignment, not field strength.
+"""
+function moment_coverage(train::NamedTuple, new::NamedTuple; q::Real = 0.99)
+    0 < q < 1 || throw(ArgumentError("q = $q must lie in (0, 1)"))
+    isempty(train.h1) && throw(ArgumentError("empty training rows"))
+    isempty(new.h1) && throw(ArgumentError("empty new rows"))
+    thr = quantile(train.h1, Float64(q))
+    defined = .!isnan.(new.edoth)
+    nd = count(defined)
+    return (; threshold = thr, q = Float64(q),
+            frac_beyond = count(>(thr), new.h1) / length(new.h1),
+            frac_anti = nd == 0 ? NaN : count(<(0.0), new.edoth[defined]) / nd,
+            n_rows = length(new.h1), n_defined = nd)
+end
+
+"""
+    moment_simple_floor(f::MomentFit, data::AbstractVector{SpinDatum};
+                        lmax = 2) -> NamedTuple
+
+The simple-feature NESTED performance floor (design record M2-5): fit, on exactly
+the SALC fit's kept rows, the trivial geometric model
+
+    y ≈ μ_g + Σ_{l = 1}^{lmax} b_{g,l} Σ_j P_l(ê_i · ê_j)
+
+— one intercept and one Legendre shell-sum slope per marked-atom orbit `g`, the
+sum over the same `cutoff_pair` neighbors as [`moment_local_field`](@ref). Returns
+
+- `sigma_floor` / `sigma_model` — `std` of the simple model's and the SALC fit's
+  gated residuals. The nested bound `sigma_model ≤ sigma_floor` holds on the
+  training rows by construction only under BOTH conditions the return value
+  reports: the features lie in the SALC column span (a pair basis with
+  `lmax_mark ≥ l` and `lmax_env ≥ l` contains the `P_l` shell sums — read
+  `inclusion`) AND the fit is unregularized (`nested_bound = true` ⇔
+  `f.estimator isa OLS`; a shrinkage estimator legitimately trades training
+  residual for variance, so the bound does not apply and its violation
+  diagnoses nothing). An OLS fit with `inclusion ≈ 0` reporting
+  `sigma_model > sigma_floor` IS mis-assembled. The `std` comparison rides on
+  both residual vectors having zero mean, which holds because both designs
+  span the per-orbit constants (the floor's intercepts; the SALC design's μ₀
+  columns). With `design_rank ≥ n_rows` (a saturated design) both sigmas are
+  trivially ~0 and the statement is vacuous — the returned counts disclose it;
+- `inclusion` — per feature column, the relative residual of projecting it onto
+  the SALC design's kept rows (`≈ 0` ⇔ the feature is representable; reported,
+  never assumed);
+- `coef`, `n_features`, `feature_labels` — the simple model itself.
+
+`data` must be the very vector the fit's dataset was built from — checked loudly
+(row count and a bitwise target recomputation on the defined rows), because a
+silently re-paired `data` would fit the floor to the wrong targets.
+"""
+function moment_simple_floor(f::MomentFit, data::AbstractVector{SpinDatum};
+                             lmax::Integer = 2)
+    1 <= lmax <= 3 || throw(ArgumentError("lmax = $lmax must lie in 1:3"))
+    ds = f.dataset
+    mb = ds.basis
+    marked = mb.marked_atoms
+    nmark = length(marked)
+    length(data) * nmark == length(ds.y) || throw(ArgumentError(
+        "$(length(data)) configurations × $nmark marked atoms ≠ " *
+        "$(length(ds.y)) dataset rows — pass the vector the dataset was built from"))
+    # pairing door, two halves. (1) Targets: recompute through the SAME
+    # expression the dataset constructor evaluates (bitwise — keep muladd /
+    # @fastmath out of BOTH sites, or relax both to isapprox together).
+    for r in eachindex(ds.y)
+        ds.defined[r] || continue
+        d = data[ds.row_config[r]]
+        (d.moments_bare === nothing || d.constraint_mode === nothing) &&
+            throw(ArgumentError("config $(ds.row_config[r]) lacks the moment " *
+                                "channel fields — not the dataset's data"))
+        a = ds.row_atom[r]
+        ax = _moment_axis_matrix(d)
+        M = d.moments_bare::Matrix{Float64}
+        yv = ax[1, a] * M[1, a] + ax[2, a] * M[2, a] + ax[3, a] * M[3, a]
+        yv == ds.y[r] || throw(ArgumentError(
+            "recomputed target of row $r ($(yv)) ≠ dataset target ($(ds.y[r])) — " *
+            "`data` does not pair with the fit's dataset"))
+    end
+    # (2) Environment: the target check reads only the marked columns, but the
+    # floor's features read the whole `directions` matrix — replay ONE
+    # configuration's design rows through the production build and compare
+    # exactly (same code path ⇒ ==). The first config whose marked axis
+    # columns are all nonzero replays verbatim; a dataset without one (every
+    # config carries a zero-axis marked atom) falls back to the target-only
+    # door, disclosed here rather than silently weakened.
+    ci_full = findfirst(ci -> all(!iszero, eachcol(
+                            _moment_axis_matrix(data[ci])[:, marked])),
+                        eachindex(data))
+    if ci_full !== nothing
+        d = data[ci_full]
+        Xrep = _design_moment(mb, [d.directions], [_moment_axis_matrix(d)])
+        rows = ((ci_full - 1) * nmark + 1):(ci_full * nmark)
+        Xrep == ds.X[rows, :] || throw(ArgumentError(
+            "config $ci_full's replayed design rows differ from the dataset's — " *
+            "`data` does not pair with the fit's dataset (environment columns " *
+            "moved)"))
+    end
+
+    nbrs = _pair_neighbors(mb)
+    kept = findall(ds.keep)
+    # orbits with at least one KEPT row only: an orbit surviving the coverage
+    # floor with zero kept rows (possible at a relaxed floor) would otherwise
+    # contribute identically-zero feature columns and a silent rank deficiency
+    orbits = sort(unique(ds.orbit_rep[kept]))
+    gidx = Dict(g => k for (k, g) in enumerate(orbits))
+    nfeat = length(orbits) * (1 + lmax)
+    col(g, l) = (gidx[g] - 1) * (1 + lmax) + 1 + l        # l = 0 is the intercept
+    F = zeros(length(kept), nfeat)
+    # the feature x = ê_i·ê_j is a cosine only on unit columns, and P₂/P₃ are
+    # nonlinear — validate every configuration once (a diagnostic entry point
+    # is a door, deliberately stricter than the dataset constructor)
+    for (ci, d) in enumerate(data)
+        _validate_config(d.directions, n_atoms(mb.crystal); label = "config $ci")
+    end
+    for (kr, r) in enumerate(kept)
+        d = data[ds.row_config[r]]
+        e = d.directions
+        ax = _moment_axis_matrix(d)
+        a = ds.row_atom[r]
+        g = ds.orbit_rep[r]
+        F[kr, col(g, 0)] = 1.0
+        for j in nbrs[a]
+            x = ax[1, a] * e[1, j] + ax[2, a] * e[2, j] + ax[3, a] * e[3, j]
+            for l = 1:lmax
+                F[kr, col(g, l)] += _legendre(l, x)
+            end
+        end
+    end
+    yk = ds.y[kept]
+    c = F \ yk
+    sigma_floor = std(yk - F * c)
+    sigma_model = std(residuals(f))
+    # one-sided inclusion: is each feature representable in the SALC design's
+    # kept rows? (reported, never assumed — the nesting claim rides on it)
+    # Projection onto span(X_kept) through an explicit orthonormal range basis
+    # with a stated rank cut — never `Xk \ F`: the vanishing columns are
+    # identically zero BY CONSTRUCTION (the design is rank-deficient whenever
+    # the resolvability record is nonempty), and a square kept design would
+    # even dispatch `\` to LU (SingularException / garbage). The active-column
+    # reduction mirrors fit's.
+    act = setdiff(1:size(ds.X, 2), ds.vanishing)
+    Xk = ds.X[kept, act]
+    S = svd(Xk)
+    rank_cut = maximum(S.S; init = 0.0) * maximum(size(Xk)) * eps(Float64)
+    nrank = count(>(rank_cut), S.S)
+    U = @view S.U[:, 1:nrank]
+    proj = U * (U' * F)
+    inclusion = [begin
+                     nf = norm(@view F[:, k])
+                     nf == 0.0 ? 0.0 : norm(@view(F[:, k]) - @view(proj[:, k])) / nf
+                 end for k = 1:nfeat]
+    labels = [l == 0 ? "orbit $g: intercept" : "orbit $g: P$l shell sum"
+              for g in orbits for l = 0:lmax]
+    return (; sigma_floor, sigma_model, nested_bound = f.estimator isa OLS,
+            coef = c, inclusion, n_features = nfeat, feature_labels = labels,
+            n_rows = length(kept), design_rank = nrank)
+end
 
 # ── persistence: refused by name (design record §4.2) ──────────────────────────────
 

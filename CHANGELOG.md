@@ -6,6 +6,108 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — moment-channel diagnostics + mark-class shrinkage (2026-08-21)
+
+Step M5 of the pointed site-moment backport: upstream SLCE.jl `bd03517`
+(`MomentDataset.order` + `moment_band_profile`), `a6a6386` (mark-class
+`salc_groups(::MomentBasis)`, `GroupAdaptiveRidge(mb; lambda)`,
+`_reduce_to_active`, the summarized dependency log, the copied dependency
+record) and `3d54abb` (`_moment_axis_matrix`, `_pair_neighbors`, `_legendre`,
+`moment_local_field`, `moment_coverage`, `moment_simple_floor`), adapted to
+`SpinDatum` (no provenance, 2-arg `MomentModel`, `isotropy` for `soc`).
+
+- **`MomentDataset.order`** — per-config marked-sublattice order parameter
+  `|⟨e⟩| = ‖Σ_a e_a‖/n_marked`; **`moment_band_profile(model, ds; nbins)`** /
+  `(f; nbins)` — per-config mean residual over the KEPT rows in equal-count
+  `|⟨e⟩|` bins plus the bin-free least-squares line and Pearson `r` (the L2-2
+  basis-insufficiency signature, to report next to any σ).
+- **`salc_groups(mb::MomentBasis)`** — group labels keyed by
+  `(body, orbit_id, decors, marked atoms, marked sites)` of the canonical
+  representative member: the energy-side key folds an Fe-marked and a Ge-marked
+  placement of one pair orbit (they differ only in `block`), and the atom set
+  alone folds two mark placements on a member carrying two periodic images of
+  one atom. **`GroupAdaptiveRidge(mb; lambda, …)`** with unit weights;
+  **`fit(MomentFit, …)`** reduces a `GroupAdaptiveRidge` to the active columns
+  with the vanishing freeze (`_reduce_to_active`: emptied groups relabeled
+  away, weights follow; a label vector of the wrong length is refused). The
+  stored `estimator` stays the caller's un-reduced object.
+- **`moment_local_field(mb, configs; axes = configs)`** / `(mb, data)` — per row
+  `‖h₁‖` and `ê·ĥ` with `h₁ = Σ_j ê_j` over the marked atom's `cutoff_pair`
+  MinimumImage neighbors (one term per tied image, same-atom images excluded,
+  `lmax_env = 0` species excluded; tie band = `mb.tie_tol`); the `SpinDatum`
+  method resolves the axis by the mode rule through `_moment_axis_matrix`, the
+  ONE function the dataset constructor reads. **`moment_coverage(train, new;
+  q)`** — upper-tail `h1` threshold + `frac_beyond` + the anti-alignment
+  fraction `frac_anti` (the measured collapse coordinate on FeGe).
+- **`moment_simple_floor(f, data; lmax)`** — the nested simple-feature floor
+  `y ≈ μ_g + Σ_l b_{g,l} Σ_j P_l(ê_i·ê_j)` on exactly the fit's kept rows, with
+  `sigma_floor` / `sigma_model`, a per-feature `inclusion` (relative projection
+  residual onto the kept design's range, rank-cut SVD — never `Xk \ F`),
+  `nested_bound = f.estimator isa OLS`, and a two-half pairing door (bitwise
+  target replay + one config's design-row replay) that refuses re-paired data.
+- The dependency warning summarizes past 8 combinations (wide P1 blocks); the
+  dataset stores a COPY of the cached resolvability record.
+
+Gated in `test_momentfit.jl` (204 → 403): hand-oracle `order`, the profile
+recomputed from public fields + an independent normal-equation line + a planted
+linear-in-order corruption recovered by the slope (+0.5), fewer-configs-than-bins,
+the different-basis refusal; `salc_groups` refining the energy key with a
+design-side disjoint-row-support oracle and ≥ 2 groups per pair orbit, gauge
+blocks folding (same row support), the same-atoms/different-sites split on a P1
+image cell; the GAR freeze reduction with `lambda = 0 ≡ OLS` and a non-uniform
+weight relabeling; the **real face-(a) vanishing fixture** (3×3×6 cell,
+`Δf = (.5, .5, .25)`, ops `[I, m_y]`, `isotropy = false`: 16 of 38 columns vanish
+— exact zero on random periodic data, null report complete, end-to-end freeze
+with no ctor injection, the GAR path on the real set) and its P1 face-(b)
+control (every reported combination annihilates the numerical design; the
+summarized log); the local field on a hand-derivable ±x tied cell (`h₁ = 2ê_other`,
+`ê·ĥ = cos θ`, mode-1 `x̂` axis → `sin θ`, zero axis → NaN, `lmax_env = 0` species
+off), a hand-checked coverage quantile (`9.901`), and the floor recovering planted
+`(a₀, b₀)` with `P₂` reported non-representable on an `lmax_env = 1` basis, plus
+every pairing door.
+
+### Changed — `MomentDataset` doors closed after the M4 numerical + saboteur reviews (2026-08-21)
+
+- **The `directions` door**: `MomentDataset` now validates every datum's
+  `directions` with the family's unit-column rule (`_validate_config`: finite, 1e-6
+  norm band, component bound). A `SpinDatum` built field-by-field carries no
+  direction check, and nothing upstream of the dataset did either — a non-unit
+  column corrupted the gate's `M⊥` (so `g` was not `|M| sin²θ`) and fed the Legendre
+  recursion outside `|z| ≤ 1`. The zero-axis exclusion is now explicitly mode-1
+  only (a mode-4 axis IS a validated direction; an exactly-zero `directions`
+  column is refused, never silently `defined = false`).
+- **The zero-moment placeholder door** (`zero_moment_atol = 1e-10`, the moment
+  channel's analogue of `SCEDataset`'s): a referenced atom (marked, or an
+  environment site of any pointed member) with `‖MW‖ ≤ atol` is refused by name —
+  its `directions` column is the ẑ placeholder the moments constructor fabricates,
+  which would enter the design as a fake coordinate while the `|M| = 0 → g = 0`
+  convention waved the row through. `M_int = 0` on a marked atom is NOT this case
+  and still passes. The applicability-limit paragraph now states the remaining
+  soft-environment half precisely.
+- **Door order**: `moment_resolvability` runs first (basis-only, cached), so an
+  unclassifiable basis surfaces its own refusal before any data door can mask it.
+- **Antiparallel rows are logged** (`@info`, mode-1 `ê·e_MW < 0`) with the exact
+  lossless remedy — re-gauge `ê → sign(ê·e_MW) ê`, `y → −y` at the source — instead
+  of a bare count in the report; the one-setup / one-reference obligation the
+  datum cannot carry is stated in the docstring.
+- `_design_moment`'s shape checks moved out of the threaded loop (a throw there
+  surfaced as a `TaskFailedException`), and its precondition comment names the
+  actual doors.
+
+New gates (`test_momentfit.jl`, 138 → 204): the `directions` door on marked and
+environment columns in both modes (scaled / near-pole / zero / NaN), the
+zero-moment door on a marked Fe, a sampled-environment Ge, and an unreferenced Ge
+(unsampled basis: passes), two literal hand-worked rows (`ê = ẑ`, `M = (0.1, 0.2,
+3.0)` → `y = 3`, `g = 0.05/√9.05`; `ê = x̂`), the two-orbit μ₀ shift (`c0` on Fe
+rows, `c1 ≠ c0` on Ge rows, residuals invariant; the two `[MARK]` columns are
+exact orbit indicators), the normal-equation oracle and `min|r| ≤ rmse ≤ max|r|`
+on the ungated solve, a `groups` spy estimator (receives exactly
+`row_config[keep]` then `row_config[defined]`), the Ge-only marked basis with
+mixed modes (`row_atom == repeat(5:8, 2)`, the undefined row at `nm + 3`, Fe
+`directions` as environment coordinates), the exact survival ratio
+`(20nm − 4)/20nm` with a `coverage_floor = 0.96` refusal naming the undefined
+count, and `predict_moment` refusing a bad `e` behind good `axes`.
+
 ### Added — `MomentDataset` / `fit(MomentFit, …)` / `MomentModel` / `predict_moment` (2026-08-21)
 
 Step M4 of the pointed site-moment backport (upstream SLCE.jl `837135d`, adapted to

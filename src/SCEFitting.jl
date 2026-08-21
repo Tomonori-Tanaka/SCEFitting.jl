@@ -13,7 +13,7 @@ module SCEFitting
 using LinearAlgebra: norm, det, I, eigen, eigvals, svdvals, svd, Symmetric, Diagonal,
     dot, cross, qr, ColumnNorm
 using StaticArrays
-using Statistics: mean
+using Statistics: mean, quantile, std
 using Random: AbstractRNG, default_rng
 import TOML
 import Tables
@@ -97,7 +97,8 @@ export AbstractSymmetryBackend, NoSymmetry, SpglibBackend
 # the SCE pipeline
 export BasisSpec, SCEBasis, SCEDataset, SCEPredictor, SCEFit, fit, refit, n_salcs, read_setup
 export MomentSpec, MomentBasis, moment_resolvability
-export MomentDataset, MomentFit, MomentModel, predict_moment, rmse_moment
+export MomentDataset, MomentFit, MomentModel, predict_moment, rmse_moment,
+    moment_band_profile, moment_local_field, moment_coverage, moment_simple_floor
 export predict_energy, predict_torque, has_torque
 # estimators
 export AbstractEstimator, OLS, Ridge, ElasticNet, Lasso, AdaptiveLasso, AdaptiveRidge,
