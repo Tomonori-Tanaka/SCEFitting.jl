@@ -43,6 +43,7 @@ makedocs(;
             "theory/index.md",
             "theory/sce.md",
             "theory/resolvability.md",
+            "theory/moment.md",
             "theory/architecture.md",
         ],
         "Verification" => [

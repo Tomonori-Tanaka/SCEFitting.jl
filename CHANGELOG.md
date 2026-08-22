@@ -6,6 +6,18 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — theory chapter on the pointed site-moment expansion (2026-08-22)
+
+- `docs/src/theory/moment.md`: what the moment channel computes and why it is
+  built this way — the adiabatic map, covariance versus invariance, the
+  three-site star worked end to end, the mark as a decoration, Frobenius
+  reciprocity (why the energy-side projector is reused unchanged), the site
+  sum rule and the `l_mark = 0` "new information", the Landau origin of the
+  `(0,1,1)` channel, the signed-projection regression with its axis rule and
+  row gate, the induced-moment vector, scope and caveats, normalization
+  bookkeeping, and a symbols-to-code table. Wired into the Theory section
+  (`theory/index.md`, `make.jl`) and the home-page table.
+
 ### Added — Claude Code development procedure, aligned with Magesty.jl (2026-08-22)
 
 The collaboration scaffolding Magesty.jl uses, ported with this package's
