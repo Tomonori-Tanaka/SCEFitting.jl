@@ -70,6 +70,7 @@ Crystal + BasisSpec ──▶ SCEBasis ──▶ SCEDataset ──▶ fit ──
 | [Guide: data and fitting](guide/fitting.md) | Datasets, the energy + torque co-fit, estimators (OLS / Ridge / Lasso / elastic-net), diagnostics |
 | [Guide: persistence and I/O](guide/io.md) | Save/reload models, human-authored `input.toml`, the DFT-source (VASP) seam |
 | [Guide: Sunny export](guide/sunny.md) | Turn a fitted model into a `Sunny.System` for linear spin-wave theory |
+| [Guide: adiabatic site moments](guide/moment.md) | Fit the configuration-dependent site moment `m_a(e)` on a pointed (site-marked) basis: spec, resolvability, gate, fit, diagnostics |
 | [Tutorials](tutorials/index.md) | Narrated end-to-end runs (Heisenberg chain, kagome three-body) |
 | [Theory](theory/index.md) | The SCE formalism, minimum-image/Wigner–Seitz resolvability, the rebuild's architecture |
 | [Verification](verification/angular_momentum.md) | Human-readable numerical checks, recomputed at every docs build (Clebsch–Gordan, Wigner-D) |
@@ -91,6 +92,10 @@ Crystal + BasisSpec ──▶ SCEBasis ──▶ SCEDataset ──▶ fit ──
   surface, so the two are consistent by construction.
 - **Sunny.jl export** — bilinear exchange + single-ion, on the training supercell or
   unfolded onto the chemical primitive cell.
+- **Adiabatic site moments** — the bare site moment `m_a(e)` of constrained DFT data
+  is fitted on a pointed (site-marked) SALC basis with a structural resolvability gate,
+  a decomposability gate, and coverage / local-field / simple-floor diagnostics. See
+  [Adiabatic site moments](guide/moment.md).
 
 ## Citation
 

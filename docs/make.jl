@@ -31,6 +31,7 @@ makedocs(;
             "guide/fitting.md",
             "guide/io.md",
             "guide/sunny.md",
+            "guide/moment.md",
         ],
         "Tutorials" => [
             "tutorials/index.md",

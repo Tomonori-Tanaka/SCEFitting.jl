@@ -1,5 +1,8 @@
 # SCEFitting.jl
 
+[![Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://tomonori-tanaka.github.io/SCEFitting.jl/dev/)
+[![CI](https://github.com/Tomonori-Tanaka/SCEFitting.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/Tomonori-Tanaka/SCEFitting.jl/actions/workflows/CI.yml)
+
 A clean, extensible, Julia-native rebuild of **Magesty.jl** — fitting
 **spin-cluster expansion (SCE)** models to noncollinear DFT data.
 
@@ -229,16 +232,19 @@ refinements over Magesty.jl, and [`SPEC.md`](SPEC.md) for the realized architect
 
 ## Documentation
 
-A full Documenter.jl site (home, getting started, a guide, narrated tutorials, theory, and
-the API reference) lives under [`docs/`](docs/). Build and read it locally:
+**<https://tomonori-tanaka.github.io/SCEFitting.jl/dev/>** — the full Documenter.jl site:
+home, getting started, the guides (basis, data and fitting, persistence and I/O, Sunny
+export, adiabatic site moments), narrated tutorials, theory, verification pages recomputed
+at every build, and the API reference. It is rebuilt and deployed from `main` by the
+`documentation build` CI job on every push, so it always tracks the current code.
+
+To build and read it locally (the first build resolves `docs/Project.toml` — Documenter +
+Spglib + the package):
 
 ```bash
 make -C docs serve      # build, then serve at http://localhost:8000 with live reload
 # or:  make -C docs build && make -C docs open
 ```
-
-The first build resolves `docs/Project.toml` (Documenter + Spglib + the package). The site
-is not yet deployed — add a remote and `deploydocs` when one exists.
 
 ## Status
 
@@ -254,6 +260,15 @@ Basis/model **persistence**, a human-authored **`input.toml`**, **tabular coeffi
 output** (`coeftable`), a **code-agnostic DFT-source seam** (`SpinDatum` / `SCEDataset`; the
 concrete VASP adapter lives in the companion `SCETools.jl`), **GLMNet** Lasso / elastic-net /
 adaptive-Lasso estimators, and **Sunny.jl export** are implemented as extensions.
+
+**Adiabatic site moments** (the configuration-dependent bare site moment `m_a(e)` of
+constrained-noncollinear DFT data) are fitted on a pointed — site-marked — SALC basis:
+`MomentSpec` / `MomentBasis` with a structural periodic-resolvability gate, `MomentDataset`
+with the decomposability gate `|M| sin²θ ≤ gate_eps`, `fit(MomentFit, …)` with any
+estimator (including the group-adaptive `GroupAdaptiveRidge(mb; lambda)`), `predict_moment`,
+and the coverage-band / local-field / simple-floor diagnostics. Validated on FeGe (B20) and
+FeRh (B2) data against the sibling SLCE.jl implementation (bitwise design-column parity; see
+`test/parity/`). Not persisted yet.
 
 The v0 vertical slice is feature-complete.
 

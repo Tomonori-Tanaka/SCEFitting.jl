@@ -6,6 +6,17 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — docs: adiabatic site-moment guide; README links to the published site (2026-08-22)
+
+- `docs/src/guide/moment.md`: the pointed-expansion guide (spec and basis, the
+  resolvability gate, the `SpinDatum` trio and the readers that fill it, the
+  dataset's axis rule and decomposability gate, fitting and prediction, the three
+  diagnostics, scope and limits), executed at every docs build on a synthetic
+  planted map. Listed on the home page and in `make.jl`.
+- `README.md`: documentation and CI badges, the published site URL
+  (<https://tomonori-tanaka.github.io/SCEFitting.jl/dev/>) in place of the stale
+  "not yet deployed" note, and the moment channel in the status section.
+
 ### Added — `test/parity/`: real-data parity tier vs SLCE.jl (2026-08-21)
 
 S6 of the pointed-moment backport. A separate environment (`SCEFitting` and the
