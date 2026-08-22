@@ -55,5 +55,7 @@ deps/src/
 # Note: paper PDFs live under references/papers/ and are ignored there
 # (references/.gitignore).
 
-# agent-internal scratch notes (local only)
-.claude/
+# Claude Code scaffolding is tracked (.claude/agents, hooks, mcp-setup.md);
+# only the per-machine settings stay local.
+.claude/settings.json
+.claude/settings.local.json

@@ -60,7 +60,7 @@ on data values, and numerical agreement is `test/oracle/`'s job.
 
 ## Recording results
 
-Append a before/after entry to [`../.claude/bench_log.md`](../.claude/bench_log.md)
+Append a before/after entry to [`BENCH_LOG.md`](BENCH_LOG.md)
 when you touch a hot path (`basis/salcbasis.jl`, `clusters/`, `sce/model.jl` design
 kernels, `fitting/estimators.jl`, `basis/Harmonics.jl`). Note machine, Julia version,
 thread count, and the fixture size (`n`, `lmax`, `m`).

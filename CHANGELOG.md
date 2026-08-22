@@ -6,6 +6,35 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — Claude Code development procedure, aligned with Magesty.jl (2026-08-22)
+
+The collaboration scaffolding Magesty.jl uses, ported with this package's
+names and one deliberate difference (local commits on `main` need no
+per-commit confirmation; remote operations still do):
+
+- `Makefile` with the test tiers (`test-unit` / `test-aqua` / `test-jet` /
+  `test-all` / `test-oracle` / `test-sunny` / `test-glmnet` / `test-pin` /
+  `test-parity` / `test-examples` / `test-downstream` / `docs`), the CI-parity
+  gate `test-ci`, the cold-start `ci-local`, and the `bench-*` targets. Every
+  test target pins `JULIA_NUM_THREADS=4`.
+- `.claude/agents/`: the two review tiers (`code-reviewer`; the four-axis panel
+  `numerical-reviewer` / `maintainability-reviewer` / `performance-reviewer` /
+  `api-reviewer`), `test-runner`, `profiler`, `spec-reviewer`, `git-helper`,
+  `release-helper` — each tuned to this package's layers, hot paths, coupled
+  sites, and test map. `.claude/hooks/no-japanese.sh` (PostToolUse; wired by
+  the gitignored `.claude/settings.json`), `.claude/mcp-setup.md` + `.mcp.json`.
+  `.claude/` is now tracked except the two settings files.
+- `CLAUDE.md`: Core / Implementation / Language rules, the Makefile test table,
+  Performance guidelines (hot paths + bench bookkeeping), the spec-folder
+  workflow (`docs/specs/_template/`, `docs/specs/README.md`), design notes
+  (`DESIGN_NOTES.md`, `docs/design-notes/README.md`), and the working
+  principles (free / propose / confirm lists, sub-agent usage, review tiers).
+- `CONTRIBUTING.md`, `SECURITY.md`, GitHub issue / PR templates,
+  `CompatHelper.yml`, `TagBot.yml`.
+- `bench/README.md` pointed at `bench/BENCH_LOG.md` (the `.claude/bench_log.md`
+  path it named never existed here); one source comment no longer cites
+  `CLAUDE.md` (scaffolding must not be referenced from `.jl` files).
+
 ### Added — docs: adiabatic site-moment guide; README links to the published site (2026-08-22)
 
 - `docs/src/guide/moment.md`: the pointed-expansion guide (spec and basis, the

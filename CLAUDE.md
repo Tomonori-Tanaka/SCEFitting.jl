@@ -29,6 +29,59 @@ physical/intrinsic (symmetry invariance, finite differences, known-coupling
 recovery); the oracle compares convention-fixed kernels and gauge-invariant
 aggregates, never raw gauge-dependent SALC coefficients.
 
+## Core rules
+
+- Never silently change numerical conventions (signs, units, normalization,
+  the `(4π)` scale, key ordering). Before editing an algorithm, confirm the
+  relevant equations and the current conventions (next section).
+- Any change that may alter numerical results must come with:
+  1. A short explanation of why the result changes.
+  2. A regression or validation test whose oracle is **independent of the
+     implementation** (`~/Packages/CLAUDE.md` Testing section); a captured
+     pin only when labeled as a change detector.
+  3. Updates to `docs/` / `examples/` / `SPEC.md` if user-facing.
+- Git: local `add` / `commit` on `main` are pre-authorized (no per-commit
+  confirmation); **remote** operations (`push`, tags, releases) always need an
+  explicit user instruction. See "Git" below.
+
+## Implementation rules
+
+- Avoid hidden global state.
+- Exported APIs must have explicit type annotations and docstrings; the
+  `public` (unexported) tier is documented too (`checkdocs = :public`).
+- Validating constructors are **inner** constructors (`STYLE_GUIDE.md`).
+- Record performance changes (before / after) in `bench/BENCH_LOG.md`.
+
+For detailed coding style (naming, loop conventions, argument order, the
+`SALCKey` rule), see `STYLE_GUIDE.md` and the shared Julia style in
+`~/Packages/CLAUDE.md`. **Always consult them when editing code.**
+
+## Language and terminology
+
+- **Conversation with the user**: Japanese is fine.
+- **Everything committed to the repository**: English only — `.jl` source,
+  comments, docstrings, all Markdown (`CLAUDE.md`, `SPEC.md`, `README`,
+  `docs/**`, `.claude/agents/*.md`), shell scripts, TOML, commit messages,
+  PR titles and descriptions, issue templates.
+  - **Exception — spec working files.** The per-slug documents under
+    `docs/specs/[YYMMDD]-[slug]/` may be written in Japanese; the template
+    `docs/specs/_template/` and the index `docs/specs/README.md` stay English.
+- **Commit messages follow Conventional Commits** (`<type>(<scope>): <subject>`;
+  types `feat` / `fix` / `docs` / `test` / `refactor` / `perf` / `chore` /
+  `style`; imperative lowercase subject; `BREAKING CHANGE:` in the body).
+  Backports from SLCE.jl cite the upstream SHA.
+- **US English** throughout; preserve external API spellings literally.
+- **Japanese in any committed file is auto-blocked by the PostToolUse hook**
+  (`.claude/hooks/no-japanese.sh`, wired in `.claude/settings.json`). The hook
+  covers the repository with these exemptions: per-slug spec working files
+  under `docs/specs/[YYMMDD]-[slug]/` and the historical `bench/BENCH_LOG.md`.
+- **Do not reference Claude-internal scaffolding from source code.** In `.jl`
+  comments and docstrings, never name `CLAUDE.md` / `DESIGN_NOTES.md` /
+  `docs/design-notes/` / `.claude/` / `docs/specs/`. Summarize the relevant
+  context inline. References allowed in source: `docs/src/` (Documenter),
+  `SPEC.md`, `STYLE_GUIDE.md`, `bench/`, `test/pin/PIN.md`, and the published
+  docs URL. Commit-message `Refs:` lines may cite scaffolding paths.
+
 ## Numerical / physics conventions
 
 Easy to break silently — confirm before touching the algorithm.
@@ -484,36 +537,181 @@ comma-free `u(k:l)` decors token (`e828524`), and the validating persist reader
 
 ## Tests
 
-| Command | Purpose |
-|---|---|
-| `julia --project -t 4 -e 'using Pkg; Pkg.test()'` | unit + Aqua (default) |
-| `TEST_MODE=all julia --project -t 4 -e 'using Pkg; Pkg.test()'` | unit + Aqua + JET |
-| `TEST_MODE=jet julia --project -t 4 -e 'using Pkg; Pkg.test()'` | JET type-stability |
-| `julia --project=test/oracle test/oracle/runtests.jl` | from-scratch numerics vs pinned Magesty |
-| `julia --project=test/sunny test/sunny/runtests.jl` | real `Sunny.System` energy vs SCE (extension) |
-| `julia --project=test/glmnet test/glmnet/runtests.jl` | GLMNet Lasso / elastic-net solve (extension) |
-| `julia --project=test/parity -t 4 test/parity/runtests.jl` | real-data parity of the moment channel vs the sibling SLCE.jl checkout (FeGe / FeRh; needs external data; **no CI job**) |
+Always run tests via the Makefile after edits (every target pins
+`JULIA_NUM_THREADS=4`, which the suite requires).
+
+| Command | Target | Purpose |
+|---|---|---|
+| `make test-unit` | `test/unit/` | Module-level unit tests |
+| `make test-aqua` / `make test-jet` | — | Aqua.jl hygiene / JET.jl type analysis |
+| `make test-all` | unit + Aqua + JET | Default for routine checks (`TEST_MODE=all`) |
+| `make test-oracle` | `test/oracle/` | From-scratch numerics vs a pinned Magesty.jl checkout (local only) |
+| `make test-sunny` / `make test-glmnet` | `test/sunny/`, `test/glmnet/` | Extension suites in their own environments |
+| `make test-pin` | `test/pin/` | Byte-level change detectors over the SALC chain, 4 and 1 threads (`test/pin/PIN.md`) |
+| `make test-parity` | `test/parity/` | Real-data parity of the moment channel vs the sibling SLCE.jl checkout (external data; **no CI job**) |
+| `make test-examples` | `examples/` | Every example runs and its `@assert` fences hold |
+| `make test-downstream` | `../SCEMonteCarlo.jl` | The dependent's suite against this checkout (needs the sibling) |
+| `make docs` | `docs/` | Strict Documenter build; executes every `@example` |
+| `make test-ci` | the CI matrix | `test-all` + extensions + examples + pins + docs — run before a release |
+| `make ci-local` | — | Cold-start reproduction of CI on the juliaup `release` channel |
 
 The core suite (`runtests.jl`) dispatches on the `TEST_MODE` env var
 (`default`/`all`/`unit`/`aqua`/`jet`) and never depends on Magesty. The oracle,
-Sunny, and GLMNet suites are separate environments that carry the heavy/optional
-dependency (a pinned Magesty.jl / Sunny / GLMNet) the core deliberately omits.
+Sunny, GLMNet, pin, and parity suites are separate environments that carry the
+heavy/optional dependency the core deliberately omits. See the Makefile for the
+benchmark targets (`make bench-salcbasis`, `make bench-design-matrix`, …).
 
-## Git (this rebuild)
+## Git
 
-Local git (`add` / `commit` / branch) is pre-authorized for this exploratory
-rebuild — no per-action confirmation. Only remote operations (`push`,
-registration) require confirmation. Commit directly to `main`; the `feat/v0-core`
-working branch was retired once v0 landed (it tracked `main` one-to-one, so it
-gave no isolation). Cut a short-lived topic branch only for genuinely risky or
-experimental work you do not want on `main` yet.
+Local git (`add` / `commit` / branch) is pre-authorized — no per-action
+confirmation. Only remote operations (`push`, tags, releases) require an
+explicit user instruction. Commit directly to `main` (no standing topic
+branches; a draft PR is used only to run CI on a long-lived branch, and is
+fast-forwarded into `main` so the hashes survive). Commits go through the
+`git-helper` agent (`.claude/agents/git-helper.md`): it drafts the
+Conventional Commit message, runs the no-Japanese check, commits via
+`git commit -F file` (never `-m` — a backtick in a double-quoted `-m` is
+executed by the shell), and pushes only when the user's instruction is relayed.
+
+## Performance guidelines
+
+Hot paths: the SALC projection in `basis/salcbasis.jl`, cluster enumeration /
+orbit reduction in `clusters/`, the energy and torque design kernels in
+`sce/model.jl` (and `_design_moment` in `basis/momentbasis.jl`), the
+estimators in `fitting/estimators.jl`, and the buffered harmonics in
+`basis/Harmonics.jl`.
+
+- `SVector` / `MVector` for 3-vectors; `@views` + `SVector` conversion for
+  column slices; no `Vector` allocation inside inner loops; `@inbounds` only
+  where provably safe.
+- The configuration loop is the primary `Threads.@threads` target. Any threaded
+  reduction must stay schedule-independent: the threaded ≡ serial **bitwise**
+  gates in `test/unit/test_threading.jl` are the contract.
+- Screen before you build: the coupling-path `keep` predicate in
+  `AngularMomentum.build_real_bases` is the pattern for expensive tensors.
+- **Bench bookkeeping**: when touching a hot path, run the matching
+  `bench/bench_*.jl` before and after on the recorded stress fixture and append
+  an entry to `bench/BENCH_LOG.md`, even if numerical results are unchanged.
+  The regression rule and the two gate scripts are named at the top of the
+  2026-08-21 baseline entry.
+
+## Managing development units
+
+Mid-sized or larger work goes into **spec folders**. No cross-sprint progress
+trackers.
+
+- **Active development units**: `docs/specs/[YYMMDD]-[slug]/`, each with
+  `requirements.md` / `design.md` / `tasklist.md`. Index at
+  `docs/specs/README.md`; template at `docs/specs/_template/`.
+- **Cross-cutting design notes, investigations, on-hold ideas**:
+  `DESIGN_NOTES.md` (index) with bodies under `docs/design-notes/`. Operating
+  rules at `docs/design-notes/README.md`. The rebuild's standing rationale stays
+  at `docs/design-notes.md`.
+- **Day-to-day TODOs**: `TaskCreate` (in-session only).
+- **Historical benchmark records**: `bench/BENCH_LOG.md` and `git log`.
+
+### Spec-folder workflow
+
+**Always create a spec folder and agree on it before starting mid-sized or
+larger work.**
+
+Entry criteria (any of these triggers a spec): multi-day effort; multiple
+design choices (API, types, conventions); a mid-sized or larger change to
+existing behavior; future readers will ask "why was this done this way?".
+
+Skip the spec for: bug fixes (covered by a regression test); documentation or
+comment fixes; a small refactor within a single file; minor behavior tweaks
+already covered by existing tests.
+
+Procedure (Claude executes):
+1. Create `docs/specs/[YYMMDD]-[slug]/` (`YYMMDD` = `date +%y%m%d`; `slug` is
+   English kebab-case).
+2. Copy the three files from `docs/specs/_template/` and fill them out with the
+   user; run the `spec-reviewer` agent before presenting the draft.
+3. Reach agreement on the spec before starting implementation.
+4. Keep the folder after completion (it is the historical record). Update the
+   `Status:` line in `tasklist.md` and the table in `docs/specs/README.md`
+   together.
+
+## Working principles for Claude
+
+### Free to proceed without asking
+
+- Bug fixes (minimal change plus test), adding / fixing tests, documentation
+  typos, notes in `DESIGN_NOTES.md` / `docs/design-notes/`, local commits of
+  finished work units.
+
+### Sub-agent usage
+
+- After implementing, use the `test-runner` agent to run and diagnose tests.
+- For performance investigation, use the `profiler` agent.
+- For commits, hand off to `git-helper` (drafts + applies the commit; pushes
+  only on a relayed user instruction). The main agent must not run
+  `git commit -m` directly.
+- To prepare a release, use `release-helper` (version decision, `Project.toml`
+  bump, CHANGELOG finalization, sibling-compat sweep, `make test-ci` gate). It
+  never commits, pushes, or tags.
+
+### Code review: two tiers
+
+**Tier 1 — `code-reviewer`.** A single generalist pass over the diff. Use it
+for bug fixes, small diffs, and any change too small to warrant a spec. Run it
+before committing.
+
+**Tier 2 — the four-axis review panel.** Use it after a spec-level feature
+lands. The four axes: `numerical-reviewer` (opus — equations, conventions,
+coupled sites, test oracles), `maintainability-reviewer`,
+`performance-reviewer`, `api-reviewer`.
+
+Panel procedure (the main agent orchestrates):
+1. Launch all four reviewers **in one message** (parallel), each given the
+   same diff range or file list.
+2. Collect the reports (shared schema: `blocker` / `major` / `minor`, optional
+   `[contention: <axis>]` tags).
+3. Apply every `numerical-reviewer` finding — numerical correctness is
+   non-negotiable. Apply the remaining blockers / majors unless contested.
+4. Detect conflicts (same location, mutually exclusive fixes; or a tagged
+   contention the named axis actually contradicts).
+5. Correctness always wins. For a **material** performance vs maintainability
+   tradeoff with no correctness angle, present both positions to the user via
+   `AskUserQuestion`. Do not escalate trivial or one-sided disagreements.
+6. Hand the user a single merged summary.
+
+### Propose before implementing
+
+- Algorithm changes (when numerical results may change).
+- Refactors that cross layer boundaries (`geometry` → … → `io`).
+- Performance improvements (present benchmark numbers first).
+- Backports to / from SLCE.jl that touch a divergence-ledger row.
+
+### Always confirm — do not implement first
+
+- Physics-convention changes (signs, units, normalization, the `(4π)` scale,
+  SALC / CG conventions, resolvability rules, the moment-channel doors).
+- New external dependencies.
+- Public-API signature changes (anything in `export` / `public`).
+- Changes to the TOML persistence format or `SALCKey` ordering.
+- Recapturing regression pins (`test/pin/`).
+- `git push`, tags, releases, or any other remote operation.
 
 ## References
 
-- `STYLE_GUIDE.md` — package-specific style deltas.
+Consult as needed before working.
+
+- `STYLE_GUIDE.md` — package-specific style deltas. **Always consult when
+  editing code.**
 - `SPEC.md` — realized architecture, types, public API.
-- `docs/design-notes.md` — why the rebuild diverges from Magesty (the refinements).
-- `CHANGELOG.md` — what landed in the v0 slice.
+- `docs/specs/` — active and completed specs; `DESIGN_NOTES.md` — index of
+  design notes and investigations (bodies under `docs/design-notes/`).
+- `docs/design-notes.md` — why the rebuild diverges from Magesty (the
+  refinements).
+- `CHANGELOG.md` — what landed, by slice.
+- `bench/README.md` / `bench/BENCH_LOG.md` — fixtures, recorded baselines, the
+  regression rule.
 - `examples/heisenberg_chain.jl` — runnable end-to-end (recovers `J`);
-  `examples/kagome_threebody.jl` — 3-body / multi-term SALCs, energy+torque co-fit.
+  `examples/kagome_threebody.jl` — 3-body / multi-term SALCs, energy+torque
+  co-fit; `examples/persist_and_input.jl` — save / load / `input.toml`.
 - `references/` — supporting literature (notes tracked, PDFs local-only).
+- Published docs: <https://tomonori-tanaka.github.io/SCEFitting.jl/dev/>
+  (theory pages hold the conventions behind the code).
+- `.claude/mcp-setup.md` — optional MCP servers (GitHub / Context7 / arXiv).

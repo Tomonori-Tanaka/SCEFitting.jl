@@ -7,7 +7,7 @@
 # report of a WIDE signature block, which the economy SVD under-enumerated — the
 # QR completion below). The one spelling change is the screen keyword
 # (`isotropy = true` keeps L_S = 0 only — this package's name for upstream's
-# `soc = false`, see the divergence ledger in CLAUDE.md).
+# `soc = false`; the two are the same screen under opposite names).
 #
 # The MARK is the displacement decor `SiteDecor(disp = (1, 0))` — the polar l = 0,
 # k = 1 radial factor |u|² — evaluated on the synthetic indicator field u = x̂ at the
