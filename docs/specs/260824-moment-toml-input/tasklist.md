@@ -56,4 +56,7 @@ that do not apply.
 - [x] `CHANGELOG.md` `[Unreleased]` updated.
 - [x] `Status:` line in this file and the table in `docs/specs/README.md`
       updated in sync.
-- [ ] Implementation commit hash appended below.
+- [x] Implementation commit hash appended below.
+
+Implementation: `efb9eeb` (feat(io): [moment] TOML section and MomentBasis(path)),
+preceded by `5d87866` (docs(api): the pre-existing strict-build fix).
