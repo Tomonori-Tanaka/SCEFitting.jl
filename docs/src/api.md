@@ -133,6 +133,7 @@ generics of the same name (`islinear` is public but unexported).
 ```@docs
 fit
 refit
+torque_weight_per_site
 AbstractEstimator
 OLS
 Ridge
