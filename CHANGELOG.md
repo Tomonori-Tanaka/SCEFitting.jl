@@ -6,6 +6,20 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — `torque_weight_per_site` and a scale note on the co-fit objective (2026-08-23)
+
+- `fit`'s objective `(1 − w)·MSE_energy + w·MSE_torque` measures the energy
+  error on the **total** energy of a cell and the torque error per site
+  component, so on a large cell a weight that reads torque-dominated is still
+  energy-dominated (on a 1296-site cell `w = 0.99` leaves `0.01·MSE_energy`
+  above `0.99·MSE_torque`; the torque error only moves near `w ≥ 0.999`).
+  Found on Miyazaki's 36×36 Kondo-lattice data, where every `w ≤ 0.99` fit
+  showed the same "tangential-field plateau". The `fit` docstring now says so,
+  and `torque_weight_per_site(w_site, n_atoms)` maps a weight stated on the
+  per-site energy scale to the `torque_weight` that realizes it
+  (`w = w_site·n² / (w_site·n² + 1 − w_site)`). No change to `fit` itself —
+  `lambda` scales of penalized estimators are untouched.
+
 ### Fixed — `moment_resolvability` no longer forms the dense signature block (2026-08-23)
 
 - `_moment_resolvability` used to assemble the pointed signature expansion as a

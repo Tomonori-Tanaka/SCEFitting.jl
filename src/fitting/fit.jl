@@ -67,6 +67,16 @@ receives per-row group labels so its folds are **grouped by configuration** — 
 configuration's energy row and its torque-component rows are never split across the
 train/holdout boundary, which would otherwise leak within-configuration structure
 into the CV estimate and bias λ selection.
+
+**Scale of the two terms.** `MSE_energy` is the mean squared error of the **total**
+energy of a configuration, `MSE_torque` that of one torque component of one site.
+On a cell of `N` atoms the energy residual carries the site residuals summed `N`
+times, so at equal per-site accuracy `MSE_energy ≈ N²·MSE_torque`-ish and a
+weight that *reads* torque-dominated can still be energy-dominated: on a
+1296-site cell `w = 0.99` leaves `0.01·MSE_energy` above `0.99·MSE_torque` and
+the torque error of the fit only starts to move near `w = 0.999–0.9999`. Use
+[`torque_weight_per_site`](@ref) to state the weight on the per-site energy
+scale instead, or scan `w` on a held-out set ([`cross_validate`](@ref)).
 """
 function fit(::Type{SCEFit}, dataset::SCEDataset, estimator::AbstractEstimator;
              torque_weight::Real = 0.0)::SCEFit
@@ -82,6 +92,36 @@ function fit(::Type{SCEFit}, dataset::SCEDataset, estimator::AbstractEstimator;
     j0 = ybar - dot(xbar, jphi)
     residuals = dataset.y_E .- (j0 .+ dataset.X_E * jphi)
     return SCEFit(dataset, j0, jphi, estimator, residuals, w, nothing)
+end
+
+"""
+    torque_weight_per_site(w_site, n_atoms) -> Float64
+
+The `torque_weight` that makes [`fit`](@ref)'s objective
+
+    L = (1 − w)·MSE_energy + w·MSE_torque
+
+equal, up to an overall factor, to the **per-site** objective
+
+    L_site = (1 − w_site)·MSE_energy / n_atoms² + w_site·MSE_torque,
+
+i.e. the weight the user means when the energy is thought of per site
+(`E / n_atoms`) rather than per cell. Matching the two ratios gives
+
+    w = w_site·n_atoms² / (w_site·n_atoms² + 1 − w_site),
+
+with `w_site = 0 → 0` and `w_site = 1 → 1`. Every estimator that is invariant
+to an overall scale of the design (OLS, Ridge at a rescaled `lambda`) returns
+the same coefficients for `fit(…; torque_weight = torque_weight_per_site(w_site,
+n))` as for the per-site-scaled problem; a penalized estimator's `lambda` is on
+the scale of the objective `fit` actually assembles (see [`ElasticNet`](@ref)).
+"""
+function torque_weight_per_site(w_site::Real, n_atoms::Integer)::Float64
+    (0 <= w_site <= 1) || throw(ArgumentError("w_site must be in [0, 1]; got $w_site"))
+    n_atoms >= 1 || throw(ArgumentError("n_atoms must be ≥ 1; got $n_atoms"))
+    ws = Float64(w_site)
+    n2 = Float64(n_atoms)^2
+    return ws * n2 / (ws * n2 + 1 - ws)
 end
 
 """

@@ -1,6 +1,7 @@
 using Test
 using SCEFitting
 using LinearAlgebra
+using Statistics
 using StaticArrays
 using Random
 
@@ -126,5 +127,40 @@ end
         @test_throws ArgumentError SCEDataset(basis, configs, zeros(10), [zeros(3, 3) for _ = 1:10])
         # mismatched count
         @test_throws ArgumentError SCEDataset(basis, configs, zeros(10), [zeros(3, 2) for _ = 1:9])
+    end
+    @testset "torque_weight_per_site: the per-site energy scale, by hand" begin
+        # ORACLE: the per-site objective assembled by hand — energy rows scaled by
+        # √((1−w_s)/n_E)/N, torque rows by √(w_s/n_T) — solved by QR, must give the
+        # coefficients `fit` returns at torque_weight = torque_weight_per_site(w_s, N).
+        # Noisy targets so that the weight actually matters (an exact model makes
+        # every weight return the same coefficients and the test vacuous).
+        interaction = BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1], isotropy = true)
+        basis = SCEBasis(crystal, interaction)
+        m = length(basis.salc_basis)
+        model0 = SCEPredictor(basis, 0.2, randn(rng, m), basis.salc_basis.keys)
+        configs = [randcfg(rng, 2) for _ = 1:12]
+        energies = [predict_energy(model0, c) + 0.05 * randn(rng) for c in configs]
+        torques = [predict_torque(model0, c) .+ 0.02 .* randn(rng, 3, 2) for c in configs]
+        ds = SCEDataset(basis, configs, energies, torques)
+        N = 2
+        ws = 0.3
+        w = torque_weight_per_site(ws, N)
+        @test 0 < w < 1
+        @test torque_weight_per_site(0.0, N) == 0.0
+        @test torque_weight_per_site(1.0, N) == 1.0
+        # a weight that means "30 % torque" per site is far more torque-heavy per cell
+        @test torque_weight_per_site(0.3, 1296) > 0.999
+        f = fit(SCEFit, ds, OLS(); torque_weight = w)
+        XE = ds.X_E .- mean(ds.X_E; dims = 1)
+        yE = ds.y_E .- mean(ds.y_E)
+        nE, nT = length(ds.y_E), length(ds.y_T)
+        X = vcat(XE .* (sqrt((1 - ws) / nE) / N), ds.X_T .* sqrt(ws / nT))
+        y = vcat(yE .* (sqrt((1 - ws) / nE) / N), ds.y_T .* sqrt(ws / nT))
+        @test isapprox(coef(f), X \ y; rtol = 1e-9)
+        # ... and that answer differs from the cell-scale fit at the same number
+        f_cell = fit(SCEFit, ds, OLS(); torque_weight = ws)
+        @test !isapprox(coef(f), coef(f_cell); rtol = 1e-6)
+        @test_throws ArgumentError torque_weight_per_site(1.5, N)
+        @test_throws ArgumentError torque_weight_per_site(0.5, 0)
     end
 end

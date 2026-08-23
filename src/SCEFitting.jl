@@ -96,6 +96,7 @@ export AbstractImageSelection, MinimumImage, AllImages
 export AbstractSymmetryBackend, NoSymmetry, SpglibBackend
 # the SCE pipeline
 export BasisSpec, SCEBasis, SCEDataset, SCEPredictor, SCEFit, fit, refit, n_salcs, read_setup
+export torque_weight_per_site
 export MomentSpec, MomentBasis, moment_resolvability
 export MomentDataset, MomentFit, MomentModel, predict_moment, rmse_moment,
     moment_band_profile, moment_local_field, moment_coverage, moment_simple_floor
