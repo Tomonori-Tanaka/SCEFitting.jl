@@ -11,7 +11,7 @@ diagnostics, persistence, Sunny export, introspection) is realized; see `SPEC.md
 module SCEFitting
 
 using LinearAlgebra: norm, det, I, eigen, eigvals, svdvals, svd, Symmetric, Diagonal,
-    dot, cross, qr, ColumnNorm
+    dot, cross, qr, qr!, ColumnNorm
 using StaticArrays
 using Statistics: mean, quantile, std
 using Random: AbstractRNG, default_rng

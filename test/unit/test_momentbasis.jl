@@ -460,4 +460,47 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
                   if c.body == 3 && any(j -> (kch[j].body, kch[j].orbit_id) ==
                                              (c.body, c.orbit_id), jt))
     end
+    @testset "resolvability gate streams per marked atom (27-atom supercell)" begin
+        # The gate used to assemble the signature expansion as ONE dense block
+        # (rows = every distinct signature key on the cell) and was killed by
+        # memory on a 1296-atom torus. It now folds one block per marked atom
+        # into a triangular R by stacked QR; the ORACLE is unchanged — the
+        # symbolic rank must equal the rank of an independent random design
+        # and every reported null combination must annihilate it — but here
+        # the blocks are many (27) and the signature rows far outnumber the
+        # columns, which the 8-atom FeGe fixture above does not exercise.
+        L = 3
+        fr = hcat([[i, j, k] ./ L for i = 0:L-1, j = 0:L-1, k = 0:L-1]...)
+        csc = Crystal(Lattice(Matrix(Float64(L) * I(3))), fr, fill(1, L^3), ["Fe"])
+        perms = ((1, 2, 3), (1, 3, 2), (2, 1, 3), (2, 3, 1), (3, 1, 2), (3, 2, 1))
+        Wc = SMatrix{3,3,Float64}[]
+        for p in perms, sx in (1, -1), sy in (1, -1), sz in (1, -1)
+            W = zeros(3, 3)
+            W[1, p[1]] = sx; W[2, p[2]] = sy; W[3, p[3]] = sz
+            push!(Wc, SMatrix{3,3,Float64}(W))
+        end
+        tc = [SVector{3,Float64}(i / L, j / L, k / L) for i = 0:L-1, j = 0:L-1, k = 0:L-1]
+        Wall = [W for W in Wc for _ in tc]
+        tall = [t for _ in Wc for t in vec(tc)]
+        sgc = _assemble_spacegroup(csc, Wall, tall, "Pm-3m (3x3x3)", 221; tol = 1e-5)
+        @test n_ops(sgc) == 48 * L^3
+        spc = MomentSpec(; lmax_env = [2], sampled = [true], lmax_mark = 2,
+                         nbody = 2, cutoff_pair = 1.8, isotropy = true)   # 3 shells
+        mbc = MomentBasis(csc, spc; backend = _MBFixedSG(sgc))
+        resc = moment_resolvability(mbc)
+        cfgc = [_mb_unit(rng, L^3) for _ = 1:40]
+        Xc = _design_moment(mbc, cfgc, cfgc)
+        svc = svd(Xc).S
+        @test count(>(1e-9 * svc[1]), svc) == resc.rank
+        @test resc.rank == length(svc) || svc[resc.rank] / svc[resc.rank + 1] > 1e3
+        @test length(resc.null_combinations) == length(resc.kept) - resc.rank
+        for comb in resc.null_combinations
+            v = zeros(n_salcs(mbc))
+            for (j, w) in comb
+                v[j] = w
+            end
+            @test norm(Xc * v) < 1e-10 * norm(Xc) * norm(v)
+        end
+        @test all(c -> c.n_mark_atoms >= 2, resc.census)
+    end
 end

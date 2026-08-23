@@ -534,20 +534,20 @@ end
 
 # ── pointed resolvability gate ─────────────────────────────────────────────────────
 
-# Row identity of the pointed signature expansion: the marked reference-cell atom,
-# the mark factor's (l, μ) in the INDEPENDENT axis variable ê_a, and the sorted
+# Row identity of the pointed signature expansion WITHIN one marked atom's block:
+# the mark factor's (l, μ) in the INDEPENDENT axis variable ê_a and the sorted
 # environment factors (reference-cell atom, l, μ) in the configuration variable e.
-# Periodic images fold onto reference-cell atoms — exactly the folding where a
-# Wigner–Seitz tie's aliasing becomes visible.
+# The marked reference-cell atom itself is the block index, not part of the key —
+# the blocks of different marked atoms share no row. Periodic images fold onto
+# reference-cell atoms — exactly the folding where a Wigner–Seitz tie's aliasing
+# becomes visible.
 struct _MomentRowKey
-    mark_atom::Int
     mark_lm::Tuple{Int,Int}
     env::Vector{Tuple{Int,Int,Int}}
 end
-Base.hash(k::_MomentRowKey, h::UInt) =
-    hash(k.env, hash(k.mark_lm, hash(k.mark_atom, hash(:mrk, h))))
+Base.hash(k::_MomentRowKey, h::UInt) = hash(k.env, hash(k.mark_lm, hash(:mrk, h)))
 Base.:(==)(a::_MomentRowKey, b::_MomentRowKey) =
-    a.mark_atom == b.mark_atom && a.mark_lm == b.mark_lm && a.env == b.env
+    a.mark_lm == b.mark_lm && a.env == b.env
 
 """
     moment_resolvability(mb; rtol = nothing) -> NamedTuple
@@ -624,60 +624,91 @@ function _moment_resolvability(mb::MomentBasis, rtol::Float64)
                                       "overcounting the rank. Use a reference cell " *
                                       "in which the images are distinct atoms"))
     end
+    # The signature block S (rows = distinct signature keys, columns = pointed
+    # SALCs) is never formed densely: on a supercell its row count scales as
+    # (atoms × neighbours × harmonic components) — tens of millions of rows on a
+    # 36×36 torus, i.e. tens of GB dense — while everything read off it (column
+    # norms, rank, right singular vectors) is a function of SᵀS alone. Rows are
+    # grouped by the marked atom (blocks of different marked atoms share no key),
+    # so each block B_a (rows marked at atom a × all columns) is assembled densely,
+    # its column norms accumulated, and it is folded into an upper-triangular R by
+    # R ← qr([R; B_a]).R. Stacked QR is exact: R = Qᵀ S for an orthogonal Q, so
+    # svd(R[:, kept]) has the singular values and right singular vectors of
+    # S[:, kept]. Duplicate (key, column) entries within a block are SUMMED before
+    # the norm is taken (the cancellation the vanishing test looks for), exactly as
+    # the dense S[r, j] += w did. [Found on Miyazaki's 36×36 KLM torus, 2026-08-23:
+    # the dense block was SIGKILLed at 8–16 GB on every basis past 201 columns.]
+    nat = n_atoms(mb.crystal)
+    c = length(sal)
+    term_index = _mark_term_index(sal, collect(1:nat))    # (member, term) marked at each atom
+    scales = [(4π)^(count(has_spin, s.decors) / 2) for s in sal]
+    gross = zeros(c)
+    colnorm2 = zeros(c)
+    nrows_total = 0
+    R = zeros(0, c)
     rows = Dict{_MomentRowKey,Int}()
-    entries = Vector{Vector{Tuple{Int,Float64}}}()   # per row: (col, weight)
-    gross = zeros(length(sal))
-    for (j, s) in enumerate(sal)
-        scale = (4π)^(count(has_spin, s.decors) / 2)
-        for mem in s.members, t in mem.terms
-            slots = t.slots
-            mslot = findfirst(sl -> sl.factor.channel == DISP, slots)
-            mslot === nothing && error("pointed SALC without a mark slot")
-            mark_site = slots[mslot].site
-            mark_atom = mem.atoms[mark_site]
-            for index in CartesianIndices(t.folded)
-                w = t.folded[index] * scale
-                w == 0.0 && continue
-                mark_lm = (0, 0)
-                env = Tuple{Int,Int,Int}[]
-                for i in eachindex(slots)
-                    sl = slots[i]
-                    if sl.factor.channel == DISP
-                        continue                     # the mark's |u|²R₀₀ ≡ const
-                    elseif sl.site == mark_site
-                        mark_lm = (sl.factor.l, index[i] - sl.factor.l - 1)
-                    else
-                        push!(env, (mem.atoms[sl.site], sl.factor.l,
-                                    index[i] - sl.factor.l - 1))
+    entries = Vector{Vector{Tuple{Int,Float64}}}()
+    for a = 1:nat
+        empty!(rows); empty!(entries)
+        for j = 1:c
+            s = sal[j]
+            for (mi, ti) in term_index[j][a]
+                mem = s.members[mi]
+                t = mem.terms[ti]
+                slots = t.slots
+                mslot = findfirst(sl -> sl.factor.channel == DISP, slots)
+                mslot === nothing && error("pointed SALC without a mark slot")
+                mark_site = slots[mslot].site
+                for index in CartesianIndices(t.folded)
+                    w = t.folded[index] * scales[j]
+                    w == 0.0 && continue
+                    mark_lm = (0, 0)
+                    env = Tuple{Int,Int,Int}[]
+                    for i in eachindex(slots)
+                        sl = slots[i]
+                        if sl.factor.channel == DISP
+                            continue                     # the mark's |u|²R₀₀ ≡ const
+                        elseif sl.site == mark_site
+                            mark_lm = (sl.factor.l, index[i] - sl.factor.l - 1)
+                        else
+                            push!(env, (mem.atoms[sl.site], sl.factor.l,
+                                        index[i] - sl.factor.l - 1))
+                        end
                     end
+                    sort!(env)
+                    key = _MomentRowKey(mark_lm, env)
+                    r = get!(rows, key) do
+                        push!(entries, Tuple{Int,Float64}[])
+                        length(entries)
+                    end
+                    push!(entries[r], (j, w))
+                    gross[j] += abs(w)
                 end
-                sort!(env)
-                key = _MomentRowKey(mark_atom, mark_lm, env)
-                r = get!(rows, key) do
-                    push!(entries, Tuple{Int,Float64}[])
-                    length(entries)
-                end
-                push!(entries[r], (j, w))
-                gross[j] += abs(w)
             end
         end
+        isempty(entries) && continue
+        B = zeros(length(entries), c)
+        for (r, es) in enumerate(entries), (j, w) in es
+            B[r, j] += w
+        end
+        for j = 1:c
+            colnorm2[j] += sum(abs2, @view B[:, j])
+        end
+        nrows_total += size(B, 1)
+        W = vcat(R, B)                  # one copy; qr! factors it in place
+        R = Matrix(qr!(W).R)
     end
-    S = zeros(length(entries), length(sal))
-    for (r, es) in enumerate(entries), (j, w) in es
-        S[r, j] += w
-    end
-    colnorm = [norm(@view S[:, j]) for j = 1:length(sal)]
-    vanishing = [j for j = 1:length(sal)
-                 if gross[j] > 0.0 && colnorm[j] <= _CANCELLATION_RTOL * gross[j]]
-    kept = setdiff(1:length(sal), vanishing)
+    colnorm = sqrt.(colnorm2)
+    vanishing = [j for j = 1:c if gross[j] > 0.0 && colnorm[j] <= _CANCELLATION_RTOL * gross[j]]
+    kept = setdiff(1:c, vanishing)
     rank = 0
     null_combinations = Vector{Vector{Tuple{Int,Float64}}}()
     if !isempty(kept)
-        F = svd(S[:, kept])
+        F = svd(R[:, kept])
         cut = maximum(F.S; init = 0.0) * max(Float64(rtol),
-                                             minimum(size(S)) * eps(Float64))
+                                             min(nrows_total, c) * eps(Float64))
         rank = count(>(cut), F.S)
-        c = length(kept)
+        ck = length(kept)
         _push_comb!(v) = push!(null_combinations,
                                [(kept[t], v[t]) for t in eachindex(kept)
                                 if abs(v[t]) > 1e-8])
@@ -691,9 +722,9 @@ function _moment_resolvability(mb::MomentBasis, rtol::Float64)
         # dataset door's dependency disclosure silently missed all 54). The
         # complement is read off a QR completion of V (never a full SVD: the
         # row side can be huge and its full U is never needed).
-        if size(F.V, 2) < c
-            Qfull = qr(F.V).Q * Matrix{Float64}(I, c, c)
-            for q = (size(F.V, 2) + 1):c
+        if size(F.V, 2) < ck
+            Qfull = qr(F.V).Q * Matrix{Float64}(I, ck, ck)
+            for q = (size(F.V, 2) + 1):ck
                 _push_comb!(Qfull[:, q])
             end
         end

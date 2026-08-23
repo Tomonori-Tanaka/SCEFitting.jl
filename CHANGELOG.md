@@ -6,6 +6,27 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — `moment_resolvability` no longer forms the dense signature block (2026-08-23)
+
+- `_moment_resolvability` used to assemble the pointed signature expansion as a
+  dense matrix `S` (rows = distinct signature keys, columns = pointed SALCs) and
+  SVD it. On a supercell the row count scales as atoms × neighbours × harmonic
+  components — tens of millions of rows on a 36×36 triangular torus — so
+  `MomentDataset` (which runs the gate first) was SIGKILLed at 8–16 GB on every
+  basis past ~200 columns there, before a single design row existed. The gate
+  now groups the signature rows by the marked atom (blocks of different marked
+  atoms share no key), assembles each block densely, accumulates the column
+  norms, and folds the block into an upper-triangular `R` by a stacked QR
+  (`R ← qr([R; B_a]).R`). `R = Qᵀ S` for an orthogonal `Q`, so `svd(R[:, kept])`
+  carries the singular values and right singular vectors of `S[:, kept]` — rank,
+  null combinations and the wide-block completion are computed exactly as
+  before, and the vanishing test still sums duplicate (key, column) entries
+  within a block before taking the norm. Peak memory on the 36×36 torus with
+  301 pointed columns: 5.1 GB (basis 4.5 GB) instead of a kill; the existing
+  gates (symbolic rank ≡ numerical design rank, null combinations annihilate
+  the design, census, cache identity) are unchanged and pass. The
+  `_MomentRowKey` lost its `mark_atom` field (the block index is the atom).
+
 ### Added — theory chapter on the pointed site-moment expansion (2026-08-22)
 
 - `docs/src/theory/moment.md`: what the moment channel computes and why it is
