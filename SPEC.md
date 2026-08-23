@@ -213,13 +213,17 @@ capability consumed by both the introspection and the Sunny interop.
   without any serializer; TOML is stdlib (no dep) and round-trips `Float64` exactly.
   `save` / `load` are **unexported** (call qualified) to avoid clashing with
   `FileIO`/`JLD2`.
-- **TOML input** (`io/input.jl`): `read_setup(path) -> (; crystal, spec, backend, tol, images)`
-  and `SCEBasis(path::AbstractString; backend, tol, images)` build a basis from a human-authored
-  `input.toml` (`[structure]` inline crystal, `[interaction]` with optional `images`
-  (`"minimum_image"` default / `"all_images"`) and `cutoff = inf` for the full WS
-  cell, optional `[symmetry]`);
-  keyword arguments override the file's backend/tol. Training data and the estimator
-  stay in Julia (mirrors the basis/data separation).
+- **TOML input** (`io/input.jl`): `read_setup(path) -> (; crystal, spec, backend, tol,
+  images, tie_tol, moment)` and `SCEBasis(path::AbstractString; backend, tol, images,
+  tie_tol)` build a basis from a human-authored `input.toml` (`[structure]` inline
+  crystal, `[interaction]` with optional `images` (`"minimum_image"` default /
+  `"all_images"`), `tie_tol`, and `cutoff = inf` for the full WS cell, optional
+  `[symmetry]`); keyword arguments override the file's backend/tol. The optional
+  `[moment]` section is read into a `MomentSpec` (values handed to the keyword
+  constructor, which owns all validation; unknown keys and the upstream `soc` spelling
+  are refused) and `MomentBasis(path; backend, tol, tie_tol)` builds the pointed basis
+  from it, sharing `[interaction].tie_tol`. Training data and the estimator stay in
+  Julia (mirrors the basis/data separation).
 - **Pointed moment basis** (`basis/momentbasis.jl`): `MomentSpec` / `MomentBasis` /
   `moment_resolvability`, the adiabatic site-moment channel's counterpart of
   `SCEBasis`. The mark is `SiteDecor(disp = (1, 0))` riding the decor engine through

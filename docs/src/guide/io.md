@@ -88,6 +88,46 @@ B   = 0
 [`read_setup`](@ref) returns the parsed setup (including the image selection) if you want
 to inspect it before building.
 
+### The pointed site-moment basis
+
+The truncation of the adiabatic site-moment channel ([Site moments](moment.md)) can
+live in the same file as an optional `[moment]` section, so a fit script builds both
+bases from one setup:
+
+```toml
+[moment]
+nbody       = 3            # optional, default 3 (1, 2, or 3)
+lmax_mark   = 2            # optional, default 2: the marked site's own ê factor
+lmax_env    = [2]          # per species (index order), or a label table
+sampled     = ["Fe"]       # REQUIRED: species the consumer samples (labels, ["*"], or booleans)
+marked      = ["Fe"]       # optional, default every species: whose moments are expanded
+cutoff_pair = 4.1          # REQUIRED: mark–environment bond radius (Å); `inf` = whole WS cell
+cutoff_star = 4.1          # optional, default = cutoff_pair: the two mark bonds of a star
+lsum        = 4            # optional, default uncapped
+isotropy    = true         # optional, default true (L_S = 0 only)
+```
+
+```julia
+basis = SCEBasis("input.toml")
+mb    = MomentBasis("input.toml")   # same [symmetry] and [interaction].tie_tol
+```
+
+Every value is handed to the [`MomentSpec`](@ref) keyword constructor, which owns the
+validation (`sampled` is required there too, and every species with `lmax_env > 0`
+must be sampled). `lmax_env` takes the label-table form (`[moment.lmax_env]` with a
+`"*"` fallback) and `cutoff_pair` / `cutoff_star` the species-pair-table form
+(`[moment.cutoff_pair]` with `"Fe-*"` / `"*-*"` keys), exactly as in `[interaction]`;
+there are no body-order tables, because the pointed cutoffs are per role (pair / star).
+Unknown keys are refused, and so is the upstream spelling `soc` (use `isotropy`; the
+polarities are opposite). Two things to keep in mind:
+
+- `[moment].isotropy` defaults to **`true`** — the `MomentSpec` default — whereas
+  `[interaction].isotropy` defaults to `false`. Write both explicitly when they matter.
+- The moment basis is always minimum-image (`[interaction].images` does not apply to
+  it) and shares `[interaction].tie_tol`, so a widened same-distance band applies to
+  both channels. `MomentBasis(path)` still needs the `[interaction]` section, like
+  every setup file.
+
 ## Tabular coefficients
 
 [`coeftable`](@ref) returns an [`SCECoefficients`](@ref) — a **Tables.jl** source with one

@@ -279,8 +279,10 @@ Easy to break silently — confirm before touching the algorithm.
   `SCEBasis`'s fan-out (`_superset_cutoff` → `build_neighbor_list`,
   `cutoff` → `candidate_clusters` per-edge admission, `lsum` → `_enumerate_ls`),
   persistence, `show` — reads only the dense fields. Add a sugar form or change the
-  specificity rule → update the TOML reader (`_cutoff_from_input` etc.), the BasisSpec
-  docstring, and `test/unit/test_truncation.jl` together.
+  specificity rule → update the TOML reader (`_cutoff_from_input` etc. for
+  `[interaction]`, and `_moment_from_input` / `_moment_cutoff_from_input` for
+  `[moment]`, which reuse `_resolve_species_table` / `_resolve_pair_table`), the
+  BasisSpec docstring, and `test/unit/test_truncation.jl` together.
 - **The pointed moment basis rides the decor engine, and three conventions keep it
   honest** (`basis/momentbasis.jl` ↔ `basis/salcbasis.jl` `_orbit_salcs_decors`'s
   `admit` kwarg ↔ `clusters/orbits.jl` `_orbits_from_members` ↔
@@ -526,6 +528,7 @@ the one that bites.
 | Moment-basis screen | `MomentSpec(; soc = false)` — `soc = true` keeps every `L_S` | `MomentSpec(; isotropy = true)` — `isotropy = false` keeps every `L_S` | Same polarity trap as the engine row, one level up; the field is named `isotropy` here and forwarded as the engine's keyword |
 | Path screen placement | `_decor_coupled_bases(slots)` builds every path; the screen is applied afterwards | `_decor_coupled_bases(slots, isotropy)` hands `AngularMomentum.build_real_bases` a `keep` predicate so a rejected path never builds its tensor | Same SALCs, different call shape; port logic, not signatures |
 | Admission | `_admit_assignment(t, species, …)` — a production, species-resolved rule | only the `admit` hook; callers (tests) transcribe the per-species `lmax` | The pointed builder (D4) will need its own mark-aware rule; upstream's is the reference, not a drop-in |
+| `[moment]` TOML section | none (no TOML moment input; the spec is spelled `soc`) | `read_setup(path).moment::Union{Nothing,MomentSpec}`, `MomentBasis(path)` (`io/input.jl`) | Exists only here. A port upstream must flip the key to `soc` with the OPPOSITE polarity; this reader refuses a `soc` key by name |
 | Function-space reduction | none | `_function_vector` / `_reduce_orbit_salcs` (pure-spin only; refuses decorated SALCs, message = wiring checklist) | Exists only here; upstream ports nothing back |
 | `SolidHarmonics` | values + Euclidean gradient API (`solid_harmonics_grad[!]`, `grad_Rlm`) + `solid_harmonic_poly` (the ASR and lattice-side builders) | **values only** (347 → 240 lines); the value recurrence is upstream's line for line | No force rows here; do not re-port the gradient "because upstream has it" — count what the production path actually reads (`R₀₀ ≡ 1`) |
 | Test oracles | `CountingOracle` (852 lines), `_ls_block_stats` (C-2 block diagonality), plus the Cartesian projector since `08743d1` | the ~45-line Cartesian projector only; C-2 deferred to wiring | Counts agree; the projector shares no code with the SALC machinery in either package |

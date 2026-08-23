@@ -76,6 +76,12 @@ With `lmax_mark = 1` and `lmax_env = 1` the basis is the `l = 0` mark (the
 intercept `μ₀`) plus the isotropic mark–neighbour pair `ê_i · e_j`. The marked
 reference-cell atoms — the design's row atoms — are `mb.marked_atoms`.
 
+The same truncation can be written as the `[moment]` section of the TOML setup file
+that already holds the crystal and the energy basis, and built with
+`MomentBasis("input.toml")` — see [the `[moment]` section](io.md#The-pointed-site-moment-basis)
+in the I/O guide. Every key maps one-to-one onto the keywords above (`sampled` is
+spelled as species labels there, `sampled = ["Fe"]`).
+
 ### Periodic resolvability of the pointed columns
 
 A finite training cell cannot determine every pointed column: some cancel

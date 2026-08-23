@@ -8,6 +8,7 @@ When starting a new spec, copy from [`_template/`](_template/).
 
 | Spec | Status | One-line summary |
 |---|---|---|
+| [260824-moment-toml-input](260824-moment-toml-input/) | landed (2026-08-24) | Optional `[moment]` TOML section → `MomentSpec`; `MomentBasis(path)` |
 
 (Work before this index was introduced — the v0 rebuild, the SLCE.jl
 carve-out, and the pointed-moment backport — is recorded in `CHANGELOG.md`

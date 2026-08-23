@@ -71,11 +71,10 @@ include("sce/introspect.jl")
 # extraction above.
 include("interop/sunny.jl")
 
-# --- I/O: persistence (TOML model schema), TOML input files, and the code-agnostic DFT
-# data boundary. Concrete DFT-code adapters (e.g. the VASP reader/writer) live in
-# SCETools.jl; the SCE pipeline only ever sees `SpinDatum` / `SCEDataset`.
+# --- I/O: persistence (TOML model schema) and the code-agnostic DFT data boundary.
+# Concrete DFT-code adapters (e.g. the VASP reader/writer) live in SCETools.jl; the
+# SCE pipeline only ever sees `SpinDatum` / `SCEDataset`.
 include("io/persist.jl")
-include("io/input.jl")
 include("io/dftsource.jl")
 include("io/embset.jl")
 include("io/extxyz.jl")
@@ -84,6 +83,11 @@ include("io/extxyz.jl")
 # decor engine; the data boundary above supplies its trio.
 include("basis/momentbasis.jl")
 include("fitting/momentfit.jl")
+
+# TOML input files (`input.toml` → crystal + energy-side `BasisSpec` + symmetry, and
+# the optional `[moment]` section → `MomentSpec`): after the moment basis, because the
+# reader returns a `MomentSpec` and defines `MomentBasis(path)`.
+include("io/input.jl")
 
 # --- Public API (exported) --------------------------------------------------------
 # The fitting workflow a user reaches for. Construction internals (cluster / neighbor /

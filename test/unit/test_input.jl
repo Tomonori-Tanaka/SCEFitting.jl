@@ -133,3 +133,177 @@ _writetoml(s) = (p = tempname() * ".toml"; write(p, s); p)
         @test_throws ArgumentError read_setup(_writetoml(bad_lattice))
     end
 end
+
+# ── [moment] ───────────────────────────────────────────────────────────────────────
+# Oracles: a hand-written `MomentSpec(; ...)` keyword call (never the parser) and the
+# documented defaults; the basis gate compares against the existing Julia path.
+
+# 2-species cell: Fe chain + one Rh; [interaction] is the minimum a setup file needs.
+const _INPUT_FERH = """
+[structure]
+lattice = [[3.0, 0.0, 0.0], [0.0, 3.0, 0.0], [0.0, 0.0, 6.0]]
+positions = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.5], [0.5, 0.5, 0.25]]
+species = [1, 1, 2]
+species_labels = ["Fe", "Rh"]
+
+[interaction]
+nbody = 2
+cutoff = 3.1
+lmax = [2, 0]
+"""
+
+const _MOMENT_FULL = """
+[moment]
+nbody       = 3
+lmax_mark   = 2
+lmax_env    = [2, 0]
+sampled     = ["Fe"]
+marked      = ["Fe", "Rh"]
+cutoff_star = 3.1
+lsum        = 4
+isotropy    = true
+
+[moment.cutoff_pair]
+"Fe-Fe" = 4.1
+"*-*"   = 3.0
+"""
+
+# Same spec in the label-table / boolean spellings.
+const _MOMENT_FULL_ALT = """
+[moment]
+nbody       = 3
+lmax_mark   = 2
+sampled     = [true, false]
+marked      = ["*"]
+cutoff_star = 3.1
+lsum        = 4
+isotropy    = true
+
+[moment.lmax_env]
+"*" = 0
+Fe  = 2
+
+[moment.cutoff_pair]
+"Fe-Fe" = 4.1
+"Fe-Rh" = 3.0
+"Rh-Rh" = 3.0
+"""
+
+const _MOMENT_MINIMAL = """
+[moment]
+lmax_env    = [1, 0]
+sampled     = ["Fe"]
+cutoff_pair = 3.1
+"""
+
+_ferh_toml(moment::String) = _writetoml(_INPUT_FERH * "\n" * moment)
+
+@testset "[moment] section" begin
+    @testset "fields equal the hand-written MomentSpec" begin
+        expected = MomentSpec(; lmax_env = [2, 0], sampled = [true, false],
+                              lmax_mark = 2, marked = [true, true], nbody = 3,
+                              cutoff_pair = [4.1 3.0; 3.0 3.0],
+                              cutoff_star = 3.1, lsum = 4, isotropy = true)
+        for text in (_MOMENT_FULL, _MOMENT_FULL_ALT)
+            got = read_setup(_ferh_toml(text)).moment
+            @test got isa MomentSpec
+            for f in fieldnames(MomentSpec)
+                @test getfield(got, f) == getfield(expected, f)
+            end
+        end
+    end
+
+    @testset "documented defaults for omitted keys" begin
+        m = read_setup(_ferh_toml(_MOMENT_MINIMAL)).moment
+        @test m.nbody == 3
+        @test m.lmax_mark == 2
+        @test m.marked == [true, true]
+        @test m.cutoff_pair == fill(3.1, 2, 2)
+        @test m.cutoff_star == m.cutoff_pair
+        @test m.lsum == typemax(Int)              # uncapped
+        @test m.isotropy == true                  # NOT the [interaction] default (false)
+        @test read_setup(_ferh_toml(_MOMENT_MINIMAL)).spec.isotropy == false
+    end
+
+    @testset "files without [moment] are unchanged" begin
+        @test read_setup(_writetoml(_INPUT_FULL)).moment === nothing
+        @test read_setup(_writetoml(_INPUT_MINIMAL)).moment === nothing
+        @test_throws ArgumentError MomentBasis(_writetoml(_INPUT_FULL))
+        try
+            MomentBasis(_writetoml(_INPUT_FULL))
+        catch err
+            @test occursin("[moment]", err.msg)
+        end
+    end
+
+    @testset "MomentBasis(path) == building from the same Crystal/MomentSpec" begin
+        path = _ferh_toml(_MOMENT_FULL)
+        inp = read_setup(path)
+        mb_file = MomentBasis(path)
+        # the manual path takes the hand-written spec, not the parser's
+        expected = MomentSpec(; lmax_env = [2, 0], sampled = [true, false],
+                              lmax_mark = 2, marked = [true, true], nbody = 3,
+                              cutoff_pair = [4.1 3.0; 3.0 3.0],
+                              cutoff_star = 3.1, lsum = 4, isotropy = true)
+        mb_manual = MomentBasis(inp.crystal, expected)
+        @test mb_file.salc_basis.keys == mb_manual.salc_basis.keys
+        @test mb_file.marked_atoms == mb_manual.marked_atoms
+        @test n_salcs(mb_file) == n_salcs(mb_manual)
+        @test n_salcs(mb_file) > 0
+        # keywords override the file; [interaction].tie_tol is shared with the moment basis
+        @test mb_file.tie_tol == SCEFitting._SAME_DIST_RTOL
+        @test MomentBasis(path; tie_tol = 1e-6).tie_tol == 1e-6
+        shared = _writetoml(replace(_INPUT_FERH, "nbody = 2" =>
+                                    "nbody = 2\ntie_tol = 1e-5") * "\n" * _MOMENT_FULL)
+        @test MomentBasis(shared).tie_tol == 1e-5
+        @test MomentBasis(path; tol = 1e-3).spacegroup.tol == 1e-3
+    end
+
+    @testset "refusals" begin
+        bad(text) = @test_throws ArgumentError read_setup(_ferh_toml(text))
+        msg(text) = try
+            read_setup(_ferh_toml(text)); ""
+        catch err
+            err isa ArgumentError ? err.msg : rethrow()
+        end
+        # required keys
+        bad(replace(_MOMENT_MINIMAL, "sampled     = [\"Fe\"]\n" => ""))
+        bad(replace(_MOMENT_MINIMAL, "cutoff_pair = 3.1\n" => ""))
+        bad(replace(_MOMENT_MINIMAL, "lmax_env    = [1, 0]\n" => ""))
+        # unknown key, upstream spelling
+        @test occursin("unknown key", msg(_MOMENT_MINIMAL * "lmax_enviroment = 2\n"))
+        @test occursin("upstream spelling", msg(_MOMENT_MINIMAL * "soc = false\n"))
+        # species lists: unknown label, mixed kinds, integers, wrong length, duplicates
+        @test occursin("unknown species label",
+                       msg(replace(_MOMENT_MINIMAL, "[\"Fe\"]" => "[\"Co\"]")))
+        bad(replace(_MOMENT_MINIMAL, "[\"Fe\"]" => "[\"Fe\", true]"))
+        bad(replace(_MOMENT_MINIMAL, "[\"Fe\"]" => "[1, 0]"))
+        bad(replace(_MOMENT_MINIMAL, "[\"Fe\"]" => "[]"))
+        @test occursin("entries for", msg(replace(_MOMENT_MINIMAL, "[\"Fe\"]" => "[true]")))
+        @test occursin("duplicate entry",
+                       msg(replace(_MOMENT_MINIMAL, "[\"Fe\"]" => "[\"Fe\", \"Fe\"]")))
+        # MomentSpec's own consistency rule surfaces unchanged (environment spins on an
+        # unsampled species)
+        @test occursin("not sampled", msg(replace(_MOMENT_MINIMAL, "[1, 0]" => "[1, 1]")))
+        # bare scalar lmax_env, body-order tables, duplicate unordered pair key
+        bad(replace(_MOMENT_MINIMAL, "[1, 0]" => "1"))
+        bad(_MOMENT_MINIMAL * "lsum = { 2 = 4 }\n")
+        @test occursin("body-order", msg(replace(_MOMENT_MINIMAL, "cutoff_pair = 3.1" =>
+                                                 "cutoff_pair = { 2 = 3.1 }")))
+        @test occursin("duplicate", msg(replace(_MOMENT_MINIMAL, "cutoff_pair = 3.1" =>
+                    "cutoff_pair = { \"Fe-Rh\" = 3.0, \"Rh-Fe\" = 3.0, \"*-*\" = 3.0 }")))
+        # wrong value kinds — booleans are Integers in Julia, so they are refused by name
+        bad(_MOMENT_MINIMAL * "nbody = \"three\"\n")
+        bad(_MOMENT_MINIMAL * "isotropy = \"yes\"\n")
+        bad(_MOMENT_MINIMAL * "isotropy = 1\n")
+        bad(_MOMENT_MINIMAL * "nbody = true\n")
+        bad(_MOMENT_MINIMAL * "lsum = 4.0\n")
+        bad(replace(_MOMENT_MINIMAL, "[1, 0]" => "[true, false]"))
+        bad(replace(_MOMENT_MINIMAL, "cutoff_pair = 3.1" => "cutoff_pair = true"))
+        bad(_MOMENT_MINIMAL * "nbody = 4\n")        # MomentSpec range rule
+        # a setup with all_images builds (minimum-image) but warns
+        ai_setup = replace(_INPUT_FERH, "nbody = 2" => "nbody = 2\nimages = \"all_images\"")
+        ai = _writetoml(ai_setup * "\n" * _MOMENT_MINIMAL)
+        @test (@test_logs (:warn, r"all_images") MomentBasis(ai)) isa MomentBasis
+    end
+end

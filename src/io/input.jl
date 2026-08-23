@@ -49,6 +49,39 @@ Schema:
     [symmetry]                                            # optional section
     backend = "spglib"                                    # "none" (default) or "spglib"
     tol     = 1.0e-5                                       # optional, default 1e-5
+
+    [moment]                      # optional section: the pointed site-moment basis
+    nbody       = 3           # optional, default 3 (1, 2, or 3)
+    lmax_mark   = 2           # optional, default 2: cap on the marked site's own ê factor
+    lmax_env    = [2]         # per species (index order), or a label table (below)
+    sampled     = ["Fe"]      # REQUIRED: species the downstream consumer samples —
+                              #   labels, ["*"] (= every species), or per-species booleans
+    marked      = ["Fe"]      # optional (default every species): whose moments are expanded
+    cutoff_pair = 4.1         # REQUIRED: mark–environment bond radius (Å) of 2-body
+                              #   clusters — scalar (`inf` = whole WS cell) or pair table
+    cutoff_star = 4.1         # optional, default = cutoff_pair: the two mark bonds of
+                              #   3-body stars (the environment–environment edge is free)
+    lsum        = 4           # optional, default uncapped: total spin rank per label
+    isotropy    = true        # optional, default true (L_S = 0 only) — NOTE the default
+                              #   differs from [interaction].isotropy (false)
+
+    # Label-keyed alternatives (same rules as [interaction]; no body-order tables —
+    # the pointed cutoffs are per ROLE, pair / star, not per body order):
+    #
+    #     [moment.lmax_env]
+    #     "*" = 2
+    #     Rh  = 0
+    #
+    #     [moment.cutoff_pair]
+    #     "Fe-Fe" = 4.1
+    #     "*-*"   = 3.0
+
+The `[moment]` section is read into a `MomentSpec` (every value is handed to the
+`MomentSpec` keyword constructor, which does all the validation); unknown keys are
+refused (unlike `[interaction]`, which ignores keys it does not read), and so is the
+upstream spelling `soc` (use `isotropy`; the polarities are opposite). The moment
+basis is always minimum-image and shares `[interaction].tie_tol`. See
+`MomentBasis(path)`.
 """
 
 _input_require(d, key, ctx) =
@@ -148,6 +181,118 @@ function _interaction_from_input(d, labels::Vector{String})::BasisSpec
                      isotropy = isotropy)
 end
 
+# ── [moment] ───────────────────────────────────────────────────────────────────────
+# The reader only collects and converts; every range / length / consistency check is
+# `MomentSpec`'s (one validation locus). Errors raised here are the purely syntactic
+# ones a keyword constructor cannot see: unknown keys, wrong TOML value kinds, labels.
+
+const _MOMENT_KEYS = ("nbody", "lmax_mark", "lmax_env", "sampled", "marked",
+                      "cutoff_pair", "cutoff_star", "lsum", "isotropy")
+
+# A species list: labels (with "*" = every species) or per-species booleans. Converts
+# to the `Vector{Bool}` the spec takes; the length check of the boolean form is the
+# spec's. TOML hands mixed arrays over as `Vector{Any}`, so the element kind is tested
+# explicitly — `[1, 0]` must not pass as booleans.
+function _species_list_from_input(x, labels::Vector{String}, what::String)::Vector{Bool}
+    (x isa AbstractVector && !isempty(x)) ||
+        throw(ArgumentError("$what must be a non-empty array of species labels or of " *
+                            "booleans"))
+    nkd = length(labels)
+    if all(v -> v isa Bool, x)
+        return Bool[v for v in x]
+    elseif all(v -> v isa AbstractString, x)
+        out = falses(nkd)
+        seen = Set{String}()
+        for v in x
+            k = String(v)
+            k in seen && throw(ArgumentError("$what: duplicate entry $(repr(k))"))
+            push!(seen, k)
+            i = _species_key_index(k, labels, what)
+            i === nothing ? (out .= true) : (out[i] = true)
+        end
+        return out
+    end
+    throw(ArgumentError("$what must be an array of species labels (strings, \"*\" = " *
+                        "every species) or an array of booleans, not $(repr(x))"))
+end
+
+# TOML integers arrive as `Int`; `Bool <: Integer`, so `isa Integer` would let `true`
+# through as 1 — the kind test is on the concrete type.
+_is_toml_int(v) = v isa Int
+
+function _moment_lmax_env_from_input(x, labels::Vector{String})::Vector{Int}
+    what = "[moment].lmax_env"
+    (x isa AbstractVector || x isa AbstractDict) ||
+        throw(ArgumentError("$what must be a per-species integer array or a label " *
+                            "table (a bare scalar is not accepted, as for " *
+                            "[interaction].lmax)"))
+    all(_is_toml_int, x isa AbstractDict ? values(x) : x) ||
+        throw(ArgumentError("$what entries must be integers"))
+    return _resolve_species_table(_lmax_from_input(x), length(labels), labels, what)
+end
+
+function _moment_cutoff_from_input(x, labels::Vector{String}, key::String)
+    what = "[moment].$key"
+    x isa Bool && throw(ArgumentError("$what must be a number; got $(repr(x))"))
+    x isa Real && return Float64(x)
+    x isa AbstractDict ||
+        throw(ArgumentError("$what must be a number or a species-pair table"))
+    any(_is_bodykey, keys(x)) &&
+        throw(ArgumentError("$what: body-order tables are not accepted here — the " *
+                            "pointed cutoffs are per role (`cutoff_pair` / " *
+                            "`cutoff_star`), not per body order; give a scalar or a " *
+                            "species-pair table"))
+    return _resolve_pair_table(_pairtable_from_input(x, what), length(labels), labels, what)
+end
+
+function _moment_scalar(d, key::String, ::Type{T}, kind::String, default) where {T}
+    haskey(d, key) || return default
+    v = d[key]
+    v isa T || throw(ArgumentError("[moment].$key must be $kind; got $(repr(v))"))
+    return v
+end
+
+function _moment_lsum_from_input(d)::Union{Nothing,Int}
+    haskey(d, "lsum") || return nothing
+    d["lsum"] isa AbstractDict &&
+        throw(ArgumentError("[moment].lsum is one total spin rank per label — no " *
+                            "body-order table here (unlike [interaction].lsum)"))
+    return _moment_scalar(d, "lsum", Int, "an integer", nothing)
+end
+
+function _moment_from_input(d, labels::Vector{String})::MomentSpec
+    d isa AbstractDict || throw(ArgumentError("[moment] must be a table"))
+    haskey(d, "soc") &&
+        throw(ArgumentError("[moment].soc is the upstream spelling — use `isotropy` " *
+                            "(opposite polarity: `isotropy = true` keeps L_S = 0 only, " *
+                            "which upstream calls `soc = false`)"))
+    for k in keys(d)
+        k in _MOMENT_KEYS ||
+            throw(ArgumentError("[moment]: unknown key $(repr(k)) (allowed: " *
+                                join(_MOMENT_KEYS, ", ") * ")"))
+    end
+    lmax_env = _moment_lmax_env_from_input(_input_require(d, "lmax_env", "moment"), labels)
+    sampled = _species_list_from_input(_input_require(d, "sampled", "moment"), labels,
+                                       "[moment].sampled")
+    marked = haskey(d, "marked") ?
+        _species_list_from_input(d["marked"], labels, "[moment].marked") : nothing
+    cutoff_pair = _moment_cutoff_from_input(_input_require(d, "cutoff_pair", "moment"),
+                                            labels, "cutoff_pair")
+    cutoff_star = haskey(d, "cutoff_star") ?
+        _moment_cutoff_from_input(d["cutoff_star"], labels, "cutoff_star") : nothing
+    nbody = _moment_scalar(d, "nbody", Int, "an integer", 3)
+    lmax_mark = _moment_scalar(d, "lmax_mark", Int, "an integer", 2)
+    lsum = _moment_lsum_from_input(d)
+    isotropy = _moment_scalar(d, "isotropy", Bool, "a boolean", true)
+    try
+        return MomentSpec(; lmax_env, sampled, lmax_mark, marked, nbody, cutoff_pair,
+                          cutoff_star, lsum, isotropy)
+    catch err
+        err isa ArgumentError || rethrow()
+        throw(ArgumentError("[moment]: " * err.msg))
+    end
+end
+
 function _backend_from_name(name)::AbstractSymmetryBackend
     n = lowercase(String(name))
     n == "none" && return NoSymmetry()
@@ -165,22 +310,26 @@ function _image_selection_from_name(name)::AbstractImageSelection
 end
 
 """
-    read_setup(path) -> (; crystal, spec, backend, tol, images, tie_tol)
+    read_setup(path) -> (; crystal, spec, backend, tol, images, tie_tol, moment)
 
 Parse a human-authored TOML input file (schema in the file-level docstring of
 `src/io/input.jl`) into the in-memory `crystal::Crystal`, `spec::BasisSpec` (from the
 file's `[interaction]` section), symmetry `backend::AbstractSymmetryBackend`,
-`tol::Float64`, the periodic-image selection `images::AbstractImageSelection`, and
-the same-distance band `tie_tol::Float64` (`[interaction].tie_tol`, defaulting to
-the `SCEBasis` default). Training data and the estimator are **not** part of the
-file (see [`SCEDataset`](@ref) / [`fit`](@ref)). See also `SCEBasis(path)`.
+`tol::Float64`, the periodic-image selection `images::AbstractImageSelection`, the
+same-distance band `tie_tol::Float64` (`[interaction].tie_tol`, defaulting to the
+`SCEBasis` default), and `moment::Union{Nothing,MomentSpec}` — the pointed
+site-moment truncation from the optional `[moment]` section (`nothing` when the
+section is absent). Training data and the estimator are **not** part of the file
+(see [`SCEDataset`](@ref) / [`fit`](@ref)). See also `SCEBasis(path)` and
+`MomentBasis(path)`.
 """
 function read_setup(path::AbstractString)::@NamedTuple{crystal::Crystal,
                                                        spec::BasisSpec,
                                                        backend::AbstractSymmetryBackend,
                                                        tol::Float64,
                                                        images::AbstractImageSelection,
-                                                       tie_tol::Float64}
+                                                       tie_tol::Float64,
+                                                       moment::Union{Nothing,MomentSpec}}
     doc = TOML.parsefile(path)
     haskey(doc, "structure") ||
         throw(ArgumentError("input file is missing the [structure] section"))
@@ -201,7 +350,9 @@ function read_setup(path::AbstractString)::@NamedTuple{crystal::Crystal,
     sym = get(doc, "symmetry", Dict{String,Any}())
     backend = haskey(sym, "backend") ? _backend_from_name(sym["backend"]) : NoSymmetry()
     tol = haskey(sym, "tol") ? Float64(sym["tol"]) : 1e-5
-    return (; crystal, spec, backend, tol, images, tie_tol)
+    moment = haskey(doc, "moment") ?
+        _moment_from_input(doc["moment"], crystal.species_labels) : nothing
+    return (; crystal, spec, backend, tol, images, tie_tol, moment)
 end
 
 """
@@ -225,4 +376,37 @@ function SCEBasis(path::AbstractString;
     tt = tie_tol === nothing ? inp.tie_tol : Float64(tie_tol)
     return SCEBasis(inp.crystal, inp.spec; backend = be, tol = tl, images = im,
                     tie_tol = tt)
+end
+
+"""
+    MomentBasis(path::AbstractString; backend = nothing, tol = nothing, tie_tol = nothing)
+        -> MomentBasis
+
+Build a pointed [`MomentBasis`](@ref) directly from a TOML input file
+([`read_setup`](@ref)): the crystal from `[structure]`, the truncation from the
+`[moment]` section (required here — its absence is an `ArgumentError` naming the
+section), symmetry from `[symmetry]`, and the same-distance band from
+`[interaction].tie_tol` (the file's `[interaction]` section is still required, as for
+every setup file). The symmetry settings (`backend`, `tol`) and `tie_tol` are each
+overridable by the keyword of the same name; the crystal and the truncation always
+come from the file. The moment basis is always minimum-image — an
+`[interaction].images = "all_images"` setting is ignored here, with a warning. Using
+the Spglib backend requires `using Spglib`.
+"""
+function MomentBasis(path::AbstractString;
+                     backend::Union{Nothing,AbstractSymmetryBackend} = nothing,
+                     tol::Union{Nothing,Real} = nothing,
+                     tie_tol::Union{Nothing,Real} = nothing)::MomentBasis
+    inp = read_setup(path)
+    inp.moment === nothing &&
+        throw(ArgumentError("input file is missing the [moment] section — " *
+                            "MomentBasis(path) needs the pointed truncation there " *
+                            "(see the input-schema docstring)"))
+    inp.images isa AllImages &&
+        @warn "[interaction].images = \"all_images\" does not apply to the moment " *
+              "basis, which is always minimum-image; ignored" path = path
+    be = backend === nothing ? inp.backend : backend
+    tl = tol === nothing ? inp.tol : Float64(tol)
+    tt = tie_tol === nothing ? inp.tie_tol : Float64(tie_tol)
+    return MomentBasis(inp.crystal, inp.moment; backend = be, tol = tl, tie_tol = tt)
 end

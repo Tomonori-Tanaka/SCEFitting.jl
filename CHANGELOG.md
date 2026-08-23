@@ -6,6 +6,22 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — `[moment]` section in the TOML setup file (2026-08-24)
+
+- `input.toml` takes an optional `[moment]` section (`nbody`, `lmax_mark`,
+  `lmax_env`, `sampled`, `marked`, `cutoff_pair`, `cutoff_star`, `lsum`,
+  `isotropy`; label tables and species-pair tables in the `[interaction]`
+  spelling) that `read_setup` returns as `moment::Union{Nothing,MomentSpec}`,
+  and `MomentBasis(path; backend, tol, tie_tol)` builds the pointed basis from
+  the file the way `SCEBasis(path)` builds the energy basis. A fit script no
+  longer carries the moment truncation as Julia constants next to a TOML file
+  that carries the energy truncation. The reader only converts; every range /
+  consistency rule stays in the `MomentSpec` keyword constructor. Unknown keys
+  and the upstream spelling `soc` are refused. `[moment].isotropy` defaults to
+  `true` (the `MomentSpec` default), unlike `[interaction].isotropy`.
+- `include("io/input.jl")` moved after the moment basis (the reader now returns
+  a `MomentSpec`); no behavior change.
+
 ### Added — `torque_weight_per_site` and a scale note on the co-fit objective (2026-08-23)
 
 - `fit`'s objective `(1 − w)·MSE_energy + w·MSE_torque` measures the energy

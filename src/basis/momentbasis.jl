@@ -67,7 +67,9 @@ const _CANCELLATION_RTOL = 1e-10
                cutoff_pair, cutoff_star = nothing, lsum = nothing, isotropy = true)
 
 The truncation spec of a pointed moment basis ([`MomentBasis`](@ref)). Species are
-indexed like `Crystal.species`; `lmax_env` fixes the species count.
+indexed like `Crystal.species`; `lmax_env` fixes the species count. The same spec can
+be written as the `[moment]` section of a TOML setup file ([`read_setup`](@ref),
+`MomentBasis(path)`).
 
 - `lmax_env::Vector{Int}` — per-species cap on **environment** spin factors
   (`0` = this species' spins never enter the environment).
