@@ -1,6 +1,6 @@
 # Tasklist: pointed moment basis の体数一般化（門は 4）
 
-Status: draft (2026-08-24) — spec-reviewer 第 3 回反映済み
+Status: in progress (2026-08-24) — M0 実測完了、requirements に書き戻し済み
 
 This file holds coarse-grained, commit-sized milestones. Day-to-day tracking
 goes through `TaskCreate` in-session.
@@ -17,37 +17,37 @@ goes through `TaskCreate` in-session.
 門だけ外した使い捨てビルドで測り、結果を requirements / design に書き戻す。
 **M0 が終わるまで実装に入らない**。
 
-- [ ] N=4 のラベル集合と各 `Σl` を列挙。mark `l=0` + env `(1,1,1)` の不在を確認
+- [x] N=4 のラベル集合と各 `Σl` を列挙。mark `l=0` + env `(1,1,1)` の不在を確認
       （`Σl = 2⌈(N−1)/2⌉` の一般則の直接確認）。
-- [ ] `(1,1,2)` の `L_S = 0` 路が全サイト配置で一意であることの裏取り（design §3）。
-- [ ] **gate 3 のフィクスチャ探し**: `D = 1`（安定化群が自明）になる結晶と `MomentSpec` を
+- [x] `(1,1,2)` の `L_S = 0` 路が全サイト配置で一意であることの裏取り（design §3）。
+- [x] **gate 3 のフィクスチャ探し**: `D = 1`（安定化群が自明）になる結晶と `MomentSpec` を
       特定する。`D` は `salcbasis.jl:428/569` が決めるので、候補ごとに
       `(assignment × path × Mf)` 次元を実測する。`D = 1` が取れないなら定数に `1/√D` を
       入れて手計算するか、代替オラクル（design §3 末尾）に落とす判断をする。
-- [ ] 27 原子 sc 超胞 / bcc Fe 3×3×3 で **(a) メンバ生成 / (b) SALC 射影 /
+- [x] 27 原子 sc 超胞 / bcc Fe 3×3×3 で **(a) メンバ生成 / (b) SALC 射影 /
       (c) `moment_resolvability`** の時間を**別々に**実測。**列数の倍率**（requirements の
       「約 13 倍」は M0 前の目安）と軌道数も測る。
-- [ ] FeGe B20 は N=3 で既に `UnclassifiableBasis` なので、N=4 でも拒否されることを確認。
-- [ ] 結果を requirements「設計に効く物理事実」「列数の増加」と design Q4 に反映。
+- [x] FeGe B20 は N=3 で既に `UnclassifiableBasis` なので、N=4 でも拒否されることを確認。
+- [x] 結果を requirements「設計に効く物理事実」「列数の増加」と design Q4 に反映。
 
-- [ ] **Exit**: requirements / design への書き戻しが済み、gate 3 のフィクスチャが決まっている。
+- [x] **Exit**: requirements / design への書き戻しが済み、gate 3 のフィクスチャが決まっている。
 
 ### M1 — pin 層の pointed フィクスチャ（`test(pin): pointed moment fixtures`）
 
 一般化の**前に**捕獲する。現状 `test/pin/` は純スピンのエネルギーのみで、pointed 変更に
 対して空虚に緑になる。
 
-- [ ] `capture.jl` に**フィクスチャ絞り込み**を足す（`:8` は `PIN_FIXTURES` を全再生成
+- [x] `capture.jl` に**フィクスチャ絞り込み**を足す（`:8` は `PIN_FIXTURES` を全再生成
       するので、そのままだと既存 5 本の値と `[meta]` を書き換えてしまう）。
       既存 5 本を再取得する場合は `PIN.md` 規則 5 / CLAUDE.md に従い**ユーザーの明示指示**
       のもとで行う。
-- [ ] `fixtures.jl` に pointed 項、`payload.jl` に pointed 分岐（L0 キーは `spin_ls` では
+- [x] `fixtures.jl` に pointed 項、`payload.jl` に pointed 分岐（L0 キーは `spin_ls` では
       なく**マーク印つき decor 多重集合**、L2 の 4 スロットはモーメント版で埋める）、
       必要なら `runtests.jl` の分岐、`pins/*.toml`、`PIN.md` の項。
       **`PIN_SCHEMA` は上げない**。L2 は **`OLS()` のみ**。
-- [ ] `make test-pin` 緑（既存 5 本が不変であることを含む）。
+- [x] `make test-pin` 緑（既存 5 本が不変であることを含む）。
 
-- [ ] **Exit**: `make test-pin` 緑、既存 5 本のピン値と `[meta]` が不変。
+- [x] **Exit**: `make test-pin` 緑、既存 5 本のピン値と `[meta]` が不変。
 
 ### M2 — 一般化（`refactor(basis): general body order for the pointed enumeration`）
 

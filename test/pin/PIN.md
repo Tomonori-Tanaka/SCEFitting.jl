@@ -46,6 +46,15 @@ are allowed to do about it.
 | **L1** values | every `folded` entry, as the raw IEEE-754 bit pattern in hex | exact on the capture platform, `rtol = 1e-12` elsewhere | conditional |
 | **L2** physics | `‖X_E‖_F²`, `r2`, the fitted `coef`, and held-out predicted energies | exact on the capture platform, loose tolerance elsewhere | conditional |
 
+The **pointed (moment) roster** carries the same four layers with three
+differences, because it is a different basis type with different design rows:
+the L0 key prints the mark-flagged decoration multiset (`m1,1,1`) rather than
+`spin_ls`, which drops a rank-0 mark entirely and would print the same string
+for two different labels; L0 additionally carries the
+`moment_resolvability` verdict (`vanishing`, `rank`), since which columns
+vanish on the cell is structure; and L2 reports `rmse_moment` in place of `r2`
+and held-out `predict_moment` values in place of energies.
+
 **L0 is a precondition, not just a layer.** L0′ and L1 are compared by position;
 if the structure moved, those two are comparing unrelated numbers, so the runner
 stops after L0 for that fixture rather than emit a hundred meaningless failures.
@@ -110,8 +119,30 @@ the runner printing the layer and the rule number is the whole mechanism.
 
 | file | role |
 |---|---|
-| `fixtures.jl` | the five crystals, as raw data, with what each one is for |
+| `fixtures.jl` | the five pure-spin crystals and the pointed roster, as raw data, with what each one is for |
 | `payload.jl` | **one** traversal, used by both capture and check, so their orders cannot drift |
-| `capture.jl` | regenerates `pins/*.toml`; never run by the suite |
+| `capture.jl` | regenerates `pins/*.toml`; never run by the suite. `PIN_ONLY=id1,id2` limits it to those fixtures — without it every pin is rewritten, including ones the change under way does not touch, and a rewritten pin detects nothing |
 | `runtests.jl` | the checker and the layer verdict |
 | `pins/*.toml` | the captured state, one file per fixture |
+
+## The pointed fixture
+
+`B2_FeRh_pointed` — a **2×2×2 supercell** of B2 FeRh, Fe marked and Rh not,
+`lmax_env = [1, 1]`, `lmax_mark = 1`, `lsum = 2`, star radius admitting only the
+Fe–Rh nearest-neighbour bonds.
+
+The supercell is not a stylistic choice. On a primitive cell every neighbour is
+reachable through several minimum images; the pointed star enumeration keeps
+those tied instances (deliberately — see `_pointed_star_candidates`), and
+`moment_resolvability` then refuses the basis outright with
+`UnclassifiableBasis`. Measured on the 2-atom bcc Fe, the 2-atom B2 FeRh and the
+8-atom rock-salt MnO cells: all three refuse. 2×2×2 is the smallest cell in this
+roster whose nearest-neighbour stars are untied.
+
+The narrow star radius is what keeps the payload comparable in size to the
+pure-spin pins. A pointed member count carries a factor `N!` per instance, so
+widening the star multiplies the `folded` dump by an order of magnitude without
+adding structure: at `lmax_env = [2]` on a 27-atom simple-cubic cell the same
+roster would carry 1.2 million tensor entries. As captured this fixture holds
+13 SALCs, 968 members and 8,648 tensor entries — the largest pin in the tier,
+and deliberately the only pointed one.

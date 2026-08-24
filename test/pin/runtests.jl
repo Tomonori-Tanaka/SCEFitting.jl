@@ -42,6 +42,83 @@ macro pin(layer, fid, what, ex)
     end
 end
 
+# One fixture, one payload builder.  The layers are identical in shape for the
+# pure-spin and the pointed rosters, so the comparison lives here once; only the
+# builder and the L2 field names differ.
+function check_pin(fx, payload, l2_scalars)
+    path = joinpath(@__DIR__, "pins", fx.id * ".toml")
+    @testset "$(fx.id)" begin
+        @test isfile(path)
+        isfile(path) || return
+        want = TOML.parsefile(path)
+        @test want["schema"] == PIN_SCHEMA
+        got = payload(fx)
+        exact_here = get(get(want, "meta", Dict()), "platform", "") == HERE
+
+        # -- the fixture itself.  A pin whose fixture drifted is comparing two
+        #    different crystals and every later layer is meaningless, so this
+        #    is a PRECONDITION, checked before anything numeric.
+        @pin("L0", fx.id, "fixture definition", got["fixture"] == want["fixture"]) ||
+            return
+
+        # -- L0 structure: integers and labels only.  Exact on every platform.
+        #    It is also the precondition for L0'/L1: those two are indexed by
+        #    position, so comparing them across a changed structure compares
+        #    unrelated numbers.
+        l0 = true
+        for k in ("n_salcs", "keys", "members", "terms")
+            l0 &= @pin("L0", fx.id, k, got["L0"][k] == want["L0"][k])
+        end
+        # the pointed payload carries the resolvability verdict in L0 as well:
+        # a change in which columns vanish on the cell is a structural change
+        for k in ("vanishing", "rank")
+            haskey(want["L0"], k) || continue
+            l0 &= @pin("L0", fx.id, k, got["L0"][k] == want["L0"][k])
+        end
+
+        if l0
+            # -- L0' coarse mask: the sign/support pattern of `folded` at a
+            #    threshold with nine decades of headroom (PIN.md).  Exact
+            #    everywhere: it survives any rounding two platforms differ by,
+            #    so a red L0' is a structural change, not arithmetic noise.
+            @pin("L0prime", fx.id, "eps",
+                 got["L0prime"]["eps"] == want["L0prime"]["eps"])
+            @pin("L0prime", fx.id, "support pattern",
+                 got["L0prime"]["support"] == want["L0prime"]["support"])
+
+            # -- L1 values.
+            if @pin("L1", fx.id, "folded length",
+                    length(got["L1"]["folded"]) == length(want["L1"]["folded"]))
+                if exact_here
+                    @pin("L1", fx.id, "folded (bitwise, capture platform)",
+                         got["L1"]["folded"] == want["L1"]["folded"])
+                else
+                    @pin("L1", fx.id, "folded (rtol $L1_RTOL, off-platform)",
+                         all(isapprox(unhexf(a), unhexf(b); rtol = L1_RTOL,
+                                      atol = 1e-300)
+                             for (a, b) in zip(got["L1"]["folded"],
+                                               want["L1"]["folded"])))
+                end
+            end
+        end
+
+        # -- L2 physics.  Gauge-DEPENDENT by construction (`coef` is one
+        #    representative of a non-unique solution when columns are frozen),
+        #    so a legitimate gauge change trips this layer and only this layer.
+        for k in l2_scalars
+            @pin("L2", fx.id, k, exact_here ? got["L2"][k] == want["L2"][k] :
+                 isapprox(unhexf(got["L2"][k]), unhexf(want["L2"][k]); rtol = 1e-10))
+        end
+        for k in ("coef", "heldout")
+            @pin("L2", fx.id, "$k length",
+                 length(got["L2"][k]) == length(want["L2"][k])) || continue
+            @pin("L2", fx.id, k, exact_here ? got["L2"][k] == want["L2"][k] :
+                 all(isapprox(unhexf(a), unhexf(b); rtol = 1e-8, atol = 1e-12)
+                     for (a, b) in zip(got["L2"][k], want["L2"][k])))
+        end
+    end
+end
+
 function run_pins()
     @testset "pins" begin
         Threads.nthreads() == 1 &&
@@ -49,71 +126,12 @@ function run_pins()
                   "build is threaded, and byte-stability across thread counts is " *
                   "part of what these detect)"
         for fx in PIN_FIXTURES
-            path = joinpath(@__DIR__, "pins", fx.id * ".toml")
-            @testset "$(fx.id)" begin
-                @test isfile(path)
-                isfile(path) || continue
-                want = TOML.parsefile(path)
-                @test want["schema"] == PIN_SCHEMA
-                got = pin_payload(fx)
-                exact_here = get(get(want, "meta", Dict()), "platform", "") == HERE
-
-                # -- the fixture itself.  A pin whose fixture drifted is comparing two
-                #    different crystals and every later layer is meaningless, so this
-                #    is a PRECONDITION, checked before anything numeric.
-                @pin("L0", fx.id, "fixture definition", got["fixture"] == want["fixture"]) ||
-                    continue
-
-                # -- L0 structure: integers and labels only.  Exact on every platform.
-                #    It is also the precondition for L0'/L1: those two are indexed by
-                #    position, so comparing them across a changed structure compares
-                #    unrelated numbers.
-                l0 = true
-                for k in ("n_salcs", "keys", "members", "terms")
-                    l0 &= @pin("L0", fx.id, k, got["L0"][k] == want["L0"][k])
-                end
-
-                if l0
-                    # -- L0' coarse mask: the sign/support pattern of `folded` at a
-                    #    threshold with nine decades of headroom (PIN.md).  Exact
-                    #    everywhere: it survives any rounding two platforms differ by,
-                    #    so a red L0' is a structural change, not arithmetic noise.
-                    @pin("L0prime", fx.id, "eps",
-                         got["L0prime"]["eps"] == want["L0prime"]["eps"])
-                    @pin("L0prime", fx.id, "support pattern",
-                         got["L0prime"]["support"] == want["L0prime"]["support"])
-
-                    # -- L1 values.
-                    if @pin("L1", fx.id, "folded length",
-                            length(got["L1"]["folded"]) == length(want["L1"]["folded"]))
-                        if exact_here
-                            @pin("L1", fx.id, "folded (bitwise, capture platform)",
-                                 got["L1"]["folded"] == want["L1"]["folded"])
-                        else
-                            @pin("L1", fx.id, "folded (rtol $L1_RTOL, off-platform)",
-                                 all(isapprox(unhexf(a), unhexf(b); rtol = L1_RTOL,
-                                              atol = 1e-300)
-                                     for (a, b) in zip(got["L1"]["folded"],
-                                                       want["L1"]["folded"])))
-                        end
-                    end
-                end
-
-                # -- L2 physics.  Gauge-DEPENDENT by construction (`coef` is one
-                #    representative of a non-unique solution when columns are frozen),
-                #    so a legitimate gauge change trips this layer and only this layer.
-                for k in ("design_frob2", "r2")
-                    @pin("L2", fx.id, k, exact_here ? got["L2"][k] == want["L2"][k] :
-                         isapprox(unhexf(got["L2"][k]), unhexf(want["L2"][k]); rtol = 1e-10))
-                end
-                for k in ("coef", "heldout")
-                    @pin("L2", fx.id, "$k length",
-                         length(got["L2"][k]) == length(want["L2"][k])) || continue
-                    @pin("L2", fx.id, k, exact_here ? got["L2"][k] == want["L2"][k] :
-                         all(isapprox(unhexf(a), unhexf(b); rtol = 1e-8, atol = 1e-12)
-                             for (a, b) in zip(got["L2"][k], want["L2"][k])))
-                end
-            end
+            check_pin(fx, pin_payload, ("design_frob2", "r2"))
+        end
+        # the pointed (moment) roster: a separate basis type, separate design rows
+        # and a separate fit, so the pure-spin pins above say nothing about it
+        for fx in PIN_MOMENT_FIXTURES
+            check_pin(fx, pin_moment_payload, ("design_frob2", "rmse"))
         end
     end
 

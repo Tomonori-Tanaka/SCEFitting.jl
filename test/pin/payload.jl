@@ -7,6 +7,7 @@
 
 using SCEFitting
 using SCEFitting: spin_ls, build_neighbor_list, build_clusters, evaluate_salc, solve_coefficients, n_ops
+using SCEFitting: is_marked, _design_moment, moment_resolvability, rmse_moment
 # Loaded, not imported: the package only needs the extension to trigger, and
 # Spglib exports `Crystal` / `Lattice`, which would shadow the ones under test.
 import Spglib
@@ -100,5 +101,106 @@ function pin_payload(fx)::Dict{String,Any}
             "r2" => hexf(r2(f)),
             "coef" => hexf.(coef(f)),
             "heldout" => hexf.(predict_energy(SCEPredictor(B, intercept(f), coef(f)), held))),
+    )
+end
+
+# --- the pointed (moment) channel ------------------------------------------------
+#
+# A separate payload, not a branch of the one above: the moment channel has its own
+# basis type, its own design rows (one per marked atom per configuration) and its own
+# fit, and the L0 key must show the MARK, which `spin_ls` drops (the rank-0 mark is a
+# pure displacement decor and carries no spin rank).
+
+# A key's decoration multiset with the mark flagged: "m1,1,1" is a rank-1 mark with two
+# rank-1 environment spins. `spin_ls` alone would print "1,1" for it and "1,1" for a
+# rank-0 mark with the same environment — two different labels, one string.
+_pin_decor_ls(k) =
+    join(((is_marked(d) ? "m" : "") * string(d.spin_l) for d in k.decors), ",")
+
+function pin_moment_basis(fx)
+    cr = Crystal(Lattice(fx.L), fx.frac, fx.species, fx.labels)
+    spec = MomentSpec(; lmax_env = fx.lmax_env, sampled = fill(true, length(fx.labels)),
+                      lmax_mark = fx.lmax_mark, marked = fx.marked, nbody = fx.nbody,
+                      cutoff_pair = fx.cutoff_pair, cutoff_star = fx.cutoff_star,
+                      lsum = fx.lsum, isotropy = false)
+    return MomentBasis(cr, spec; backend = SpglibBackend())
+end
+
+# Exactly decomposable data from a SEEDED RANDOM target: `M = y·ê` puts the whole
+# moment along the spin, so every row passes the decomposability gate and the gate's
+# own threshold plays no part in what is pinned. As on the energy side the target is
+# NOT pushed through this basis first — that round trip cancels, and a uniform rescale
+# of the basis would leave `coef` and the RMSE numerically identical.
+function pin_moment_data(mb, m::Int, seed::Int)
+    nat = n_atoms(mb.crystal)
+    cfgs = pin_configs(nat, m, seed)
+    rng = MersenneTwister(seed + 1)
+    data = SpinDatum[]
+    for e in cfgs
+        M = zeros(3, nat)
+        for a in mb.marked_atoms
+            M[:, a] .= randn(rng) .* e[:, a]
+        end
+        push!(data, SpinDatum(0.0, e, ones(nat), zeros(3, nat), zeros(3, nat), M,
+                              nothing, 4))
+    end
+    return cfgs, data
+end
+
+function pin_moment_payload(fx)::Dict{String,Any}
+    mb = pin_moment_basis(fx)
+    sal = mb.salc_basis.salcs
+    nat = n_atoms(mb.crystal)
+
+    keys_, mems, terms, support, folded = String[], String[], String[], String[], String[]
+    for (c, s) in enumerate(sal)
+        k = mb.salc_basis.keys[c]
+        push!(keys_, string(k.body, " ", k.orbit_id, " [", _pin_decor_ls(k), "] ",
+                            k.L_S, " ", k.Lf, " ", k.block))
+        for (mi, m) in enumerate(s.members)
+            push!(mems, string(c, " ", mi, " [", join(m.atoms, ","), "] ",
+                               join("(" * join(v, ",") * ")" for v in m.shifts)))
+            for (ti, t) in enumerate(m.terms)
+                lst = Int[sl.factor.l for sl in t.slots]
+                push!(terms, string(c, " ", mi, " ", ti, " [", join(lst, ","), "] [",
+                                    join(size(t.folded), ","), "]"))
+                push!(support, join(abs(v) <= PIN_EPS ? '.' : (v > 0 ? '+' : '-')
+                                    for v in t.folded))
+                for v in t.folded
+                    push!(folded, hexf(v))
+                end
+            end
+        end
+    end
+
+    p = length(sal)
+    res = moment_resolvability(mb)
+    _, data = pin_moment_data(mb, 4p + 20, 20260824)
+    ds = MomentDataset(mb, data; gate_eps = 1e-8)
+    f = fit(MomentFit, ds, OLS())
+    held, _ = pin_moment_data(mb, 10, 20260825)
+
+    return Dict{String,Any}(
+        "schema" => PIN_SCHEMA,
+        "fixture" => Dict{String,Any}("id" => fx.id, "nbody" => fx.nbody,
+                                      "lmax_env" => collect(fx.lmax_env),
+                                      "lmax_mark" => fx.lmax_mark,
+                                      "cutoff_pair" => fx.cutoff_pair,
+                                      "cutoff_star" => fx.cutoff_star,
+                                      "lsum" => fx.lsum,
+                                      "n_ops" => n_ops(mb.spacegroup),
+                                      "n_atoms" => nat,
+                                      "n_marked" => length(mb.marked_atoms)),
+        "L0" => Dict{String,Any}("n_salcs" => p, "keys" => keys_,
+                                 "members" => mems, "terms" => terms,
+                                 "vanishing" => collect(res.vanishing),
+                                 "rank" => res.rank),
+        "L0prime" => Dict{String,Any}("eps" => PIN_EPS, "support" => support),
+        "L1" => Dict{String,Any}("folded" => folded),
+        "L2" => Dict{String,Any}(
+            "design_frob2" => hexf(sum(abs2, ds.X)),
+            "rmse" => hexf(rmse_moment(f)),
+            "coef" => hexf.(coef(f)),
+            "heldout" => hexf.(vcat((predict_moment(f, e) for e in held)...))),
     )
 end

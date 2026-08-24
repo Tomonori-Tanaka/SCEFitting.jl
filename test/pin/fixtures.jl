@@ -35,3 +35,41 @@ const PIN_FIXTURES = [
      species = [1, 1, 1, 1, 2, 2, 2, 2], labels = ["Mn", "O"], nbody = 2,
      lmax = [2, 0], cutoff = 3.2),
 ]
+
+# The pointed (site-marked) moment fixtures.  A SEPARATE roster: the moment
+# channel has its own basis type, its own design rows (one per marked atom per
+# configuration) and its own fit, so nothing above can stand in for it.
+#
+#   B2_FeRh_pointed   Pm-3m 2x2x2 supercell, Fe marked / Rh not
+#
+# The cell is a SUPERCELL on purpose.  On the 2-atom primitive cell every
+# neighbour is reachable through several minimum images, the star enumeration
+# keeps those tied instances, and `moment_resolvability` refuses the basis
+# outright (`UnclassifiableBasis`) — measured on the 2-atom bcc Fe, B2 FeRh and
+# 8-atom rock-salt MnO cells.  2x2x2 is the smallest cell here with untied
+# nearest-neighbour stars.
+#
+# `cutoff_star` admits only the Fe-Rh nearest-neighbour bonds, which is what
+# keeps the payload to the size of the pure-spin pins: the pointed member count
+# carries a factor N! per instance, so a wider star multiplies the `folded`
+# dump by an order of magnitude for no extra structure.
+
+_pin_super(a, base, sp, L) = begin
+    pos = Float64[]
+    species = Int[]
+    for i = 0:L-1, j = 0:L-1, k = 0:L-1, (b, s) in zip(base, sp)
+        append!(pos, [(i + b[1]) / L, (j + b[2]) / L, (k + b[3]) / L])
+        push!(species, s)
+    end
+    (_pin_diag(Float64(L) * a), reshape(pos, 3, :), species)
+end
+
+const _PIN_FERH_L, _PIN_FERH_FRAC, _PIN_FERH_SP =
+    _pin_super(2.99, [(0.0, 0.0, 0.0), (0.5, 0.5, 0.5)], [1, 2], 2)
+
+const PIN_MOMENT_FIXTURES = [
+    (id = "B2_FeRh_pointed", L = _PIN_FERH_L, frac = _PIN_FERH_FRAC,
+     species = _PIN_FERH_SP, labels = ["Fe", "Rh"], nbody = 3, lmax_env = [1, 1],
+     lmax_mark = 1, marked = [true, false], cutoff_pair = 2.7, cutoff_star = 2.7,
+     lsum = 2),
+]
