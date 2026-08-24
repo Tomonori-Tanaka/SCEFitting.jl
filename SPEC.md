@@ -234,11 +234,15 @@ capability consumed by both the introspection and the Sunny interop.
   its `admit` kwarg; mark-aware admission (mark `ê` factor for any species up to
   `lmax_mark`, environment spins only for `sampled` species up to `lmax_env` —
   refused loudly when a spin-bearing species is unsampled); 1/2-body clusters from
-  the ordinary enumeration at `cutoff_pair`, 3-body stars mark–environment-bond cut
-  at `cutoff_star` (env–env edge free) with `candidate_clusters`' all-orderings
+  the ordinary enumeration at `cutoff_pair`, stars (`3 ≤ N ≤ nbody`, cap 4) cut on
+  their `N−1` mark–environment spokes at `cutoff_star` (env–env edges free) with
+  `candidate_clusters`' all-orderings
   multiplicity convention (`_orbits_from_members` is `build_clusters`' factored
   core); even-Σl (TR) only; `isotropy = true` keeps `L_S = 0` (upstream's
-  `soc = false`). `_design_moment`: rows `(config, marked atom)`, marked-column
+  `soc = false`). `nbody ∈ 1:4` — the enumeration is general in `N`, the cap is where
+  the oracles stop; a body order that no label can reach (`Σl = 2⌈(N−1)/2⌉` is its
+  floor) is dropped with a warning and `show` reports the realized order.
+  `_design_moment`: rows `(config, marked atom)`, marked-column
   substitution (exact — one mark per label), threaded per column, a mark→term index
   value-identical to the full evaluation. `moment_resolvability` (D9′): symbolic
   signature rank in the independent variables `(a, ê_a, e)`, null combinations naming
@@ -248,7 +252,7 @@ capability consumed by both the introspection and the Sunny interop.
   triangle enumeration, shell-sum normalization 2√3, G_i covariance with axes,
   bitwise TR, substitution locality, symbolic ≡ random-design rank. The 1-body
   `[MARK]` columns are the per-orbit intercepts μ₀. The star enumeration keeps a
-  triangle whose two environment sites are two minimum images of ONE neighbor (as
+  star whose environment sites include two minimum images of ONE neighbor (as
   upstream does, for column parity on small cells); such members reduce to
   lower-body functions, and the resolvability gate refuses the basis as
   `UnclassifiableBasis` — a hard door at `MomentDataset`, not an option.

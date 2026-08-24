@@ -2,8 +2,8 @@
 # `SCEDataset` / `fit(SCEFit, …)`. An INDEPENDENT vertical slice: its own rows
 # (config, marked atom), its own targets y = ê·M_int, its own coefficient vector V
 # (the l = 0 1-body [MARK] columns are the per-orbit intercepts μ₀) — it never
-# touches the energy/torque row bookkeeping. Design record: _brain_storming/
-# adiabatic-moment-sce (D8 addendum: marked-column substitution + the mode rule;
+# touches the energy/torque row bookkeeping. (D8 addendum: marked-column
+# substitution + the mode rule;
 # D9′: periodic resolvability wired at the dataset door; M2 corrections:
 # decomposability gate, coverage floor, both-coefficients disclosure).
 #

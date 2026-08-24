@@ -5,6 +5,13 @@
 #
 # Both packages are imported QUALIFIED: they export the same names.
 
+# SCOPE NOTE: every pointed case here pins `nbody = 3` (and the energy cases 2 or 3),
+# so this harness does NOT cover the pointed body-order door. This package builds
+# general `N` with a cap of 4; SLCE.jl is still 3-only. Until the port lands and an
+# `nbody = 4` case is added here, the two engines can diverge at N = 4 with this gate
+# green. See the "Pointed body order" row of the upstream divergence ledger.
+
+
 using Test
 using LinearAlgebra
 using Random

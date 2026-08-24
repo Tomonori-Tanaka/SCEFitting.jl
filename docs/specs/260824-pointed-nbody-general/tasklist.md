@@ -99,10 +99,23 @@ goes through `TaskCreate` in-session.
 
 ### M6 — 実験（package 外、コミットしない）
 
-- [ ] 同じ 3×3×3 bcc Fe データで `m_full_l2` + 4 体（l≤2, star 4.1）の CV を測り、
-      **0.0217 μB を割るか**を `INVESTIGATION-moment-residuals.md` §4d に追記。
+**⚠ M0 の実測で、spec が書いた形のままでは走らないことが判明した（2026-08-25）。**
+`m_full_l2` は `cutoff_star = 4.1`（3NN）で、そのまま `nbody = 4` にすると
+bcc Fe 3×3×3 で**星メンバ 2,774,736 本 / P1 軌道 115,614**（N=3 の 36 倍 / 9.0 倍）。
+さらに `lsum` 無指定・`lmax_mark = lmax_env = 2` だと N=4 のラベルだけで 6 本あり、
+列数は数万に達する — 行数は 5,400（100 config × 54 原子）しかないので**統計的にも無意味**。
 
-- [ ] **Exit**: §4d に測定結果（CV が 0.0217 を割るか）が追記されている。
+⇒ 4 体は**最近接殻だけ**（2.451 Å, C(8,3) = 56 星/原子）で入れるのが唯一意味のある
+第一プローブだが、`MomentSpec` の `cutoff_star` は**全 N で 1 枚**なので
+「3 体は 4.1 Å、4 体は 2.5 Å」が現状**表現できない**。
+
+- [ ] **前提**: `cutoff_star` を体数ごと（エネルギー側の `cutoff[N-1][a,b]` と同じ形）に
+      する。これが無いと M6 は走らない。
+- [ ] `m_full_l2` に 4 体（1NN 星のみ, `lsum = 4`）を足した variant で CV を測り、
+      **0.0217 μB を割るか**を `INVESTIGATION-moment-residuals.md` §4d に追記。
+      **列数と行数の比を必ず併記する**（過学習と改善の区別に要る）。
+
+- [ ] **Exit**: §4d に測定結果（CV が 0.0217 を割るか、列/行比つき）が追記されている。
 ## Exit checklist
 
 Run through every item once implementation lands. ~~Strike through~~ items

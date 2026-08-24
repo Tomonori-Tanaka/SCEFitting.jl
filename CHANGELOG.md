@@ -18,8 +18,9 @@ release, so everything lives under *Unreleased*.
 - A body order starts at `Σl = 2⌈(N−1)/2⌉` — every environment slot needs `l ≥ 1` and
   time reversal keeps only even `Σl` — so the 4-body sector begins at `Σl = 4` and its
   naive lowest member (a rank-0 mark with three `l = 1` environments) is absent: the
-  only rotational invariant of three vectors is the pseudoscalar triple product, which
-  is time-reversal odd.
+  only rotational invariant of three vectors is the triple product, which is
+  time-reversal odd. (It is a pseudoscalar, but that is not the reason — a chiral
+  space group allows pseudoscalars; the screen is time reversal.)
 - Oracles for the new sector: the star candidates match an independent brute force
   written from the definition (four cells including Wigner–Seitz ties, three cutoffs,
   `N = 3` and `4`), with the `N!` ordering multiplicity read off the production set;
@@ -29,6 +30,17 @@ release, so everything lives under *Unreleased*.
   projector acts on one dimension; covariance under an arbitrary `SO(3)` rotation of
   spins and axes together; bitwise time reversal; and the resolvability gate at `N = 4`
   on a 27-atom supercell against the numerical rank of a random design.
+- Review-panel follow-ups (2026-08-25): a requested body order that no label can
+  reach is now **loud** — the build warns, naming the sector's `Σl` floor and whether
+  the labels or the geometry are at fault, and `show` reports the body order actually
+  built rather than the one requested. The `UnclassifiableBasis` refusal names the two
+  cheap remedies (narrow `cutoff_star`, step `nbody` back) beside the expensive one,
+  and its guard now also catches an environment landing on an image of the mark
+  itself. The `MomentBasis` orbit loop is threaded, as `build_salc_basis` already was;
+  the resolvability census is one grouping pass instead of orbits × columns × members;
+  `_design_moment` schedules dynamically, its per-column costs being orders of
+  magnitude apart. `_combinations` / `_permutations` live beside `_ordered_subsets` in
+  the cluster layer.
 - The star cutoff rule is unchanged at higher `N`: only the `N−1` mark–environment
   spokes are cut, the environment–environment edges stay free. A star has a
   distinguished centre, so each environment site is fixed by its own spoke and two

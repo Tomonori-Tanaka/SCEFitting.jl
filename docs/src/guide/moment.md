@@ -53,7 +53,7 @@ are load-bearing:
   act as environment for others.
 
 The cutoffs are **mark-aware**: `cutoff_pair` bounds the mark–environment bond of a
-2-body cluster, `cutoff_star` the mark bonds of a star (`nbody ≥ 3`), and the
+2-body cluster, `cutoff_star` the `N−1` mark spokes of a star (`nbody ≥ 3`), and the
 environment–environment edge of a star is free. `isotropy = true` (the default)
 keeps the `L_S = 0` blocks only — the adiabatic map is taken to be spin-rotation
 covariant, exactly like an `isotropy = true` energy basis.
@@ -160,6 +160,23 @@ The dataset keeps the per-row bookkeeping a consumer of the diagnostics needs:
 `keep` / `gate` (the gate decision and statistic), `row_config` / `row_atom`,
 `orbit_rep` and the per-orbit `orbit_report`, and `order` — the marked-sublattice
 order parameter `|⟨e⟩|` of every configuration.
+
+## Body order
+
+`nbody` runs from 1 to 4. Each order starts at a total spin rank
+`Σl = 2⌈(N−1)/2⌉` — every environment slot needs `l ≥ 1`, and time reversal keeps
+only even `Σl` — so the four-body sector begins at `Σl = 4`, and a truncation that
+cannot reach it drops the sector entirely. That is not silent: the build warns, and
+`show` reports the body order it actually produced rather than the one requested.
+
+Raising `nbody` is expensive in a way the column count does not show. Star members
+grow as `C(z, N−1)·N!` in the neighbour count `z`; measured on bcc Fe 3×3×3 (54
+atoms) at a 3NN star radius, going from three to four bodies takes the member count
+from 76,788 to 2,774,736 (×36) and the symmetry orbits from 12,798 to 115,614 (×9).
+Everything downstream — the orbit reduction, the SALC projection, and
+`_design_moment` on every fit — scales with those. Narrow `cutoff_star` and cap
+`lsum` before raising `nbody`, and expect a cell that resolved at three bodies to
+refuse at four (the tie multiplicity grows as `(tie)^(N−1)`).
 
 ## Fitting and predicting
 

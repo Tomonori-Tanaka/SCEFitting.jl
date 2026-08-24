@@ -295,11 +295,14 @@ Easy to break silently — confirm before touching the algorithm.
   `admit` kwarg ↔ `clusters/orbits.jl` `_orbits_from_members` ↔
   `clusters/enumerate.jl` `candidate_clusters`): (1) **member multiplicity is the
   engine's all-orderings convention** — `candidate_clusters` lists every physical
-  instance once per site ordering (3! for a 3-body), and the SALC value scales with
-  that count, so a pointed enumeration emitting fewer orderings silently rescales
-  its columns per orbit (upstream measured half the prototype's 6.0 star oracle) —
-  `_pointed_star_candidates` therefore expands every translation class to all 3!
-  re-anchored orderings, and any new candidate source must do the same. (2) an
+  instance once per site ordering (`N!` at `N` distinct sites), and the SALC value
+  scales with that count, so a pointed enumeration emitting fewer orderings silently
+  rescales its columns per orbit (upstream measured half the prototype's 6.0 star
+  oracle) — `_pointed_star_candidates` therefore expands every translation class to
+  all `N!` re-anchored orderings, and any new candidate source must do the same. The
+  `N!` also sits in the absolute-normalization oracle
+  (`N!·(1/√D)·κ`, `test/unit/test_momentbasis.jl`), so a change here moves that
+  constant. (2) an
   `admit` predicate handed to `_orbit_salcs_decors` is judged on the lex-min
   representative of each permutation orbit, so its verdict MUST be a
   permutation-orbit invariant — anything built from (decor, species,
@@ -568,6 +571,7 @@ the one that bites.
 | Decor engine screen | `_orbit_salcs_decors(…, labels, soc::Bool, wcache; lmax_by_species, pmax_by_species, admit)` — 7th **positional**; `soc = true` keeps every `L_S` | `_orbit_salcs_decors(…, labels, wcache; isotropy::Bool)` — **required keyword**; `isotropy = true` keeps `L_S = 0` only | **Opposite meaning in the same slot.** A verbatim upstream call must be a `MethodError` here; never make `isotropy` positional or give it a default |
 | Moment-basis screen | `MomentSpec(; soc = false)` — `soc = true` keeps every `L_S` | `MomentSpec(; isotropy = true)` — `isotropy = false` keeps every `L_S` | Same polarity trap as the engine row, one level up; the field is named `isotropy` here and forwarded as the engine's keyword |
 | Path screen placement | `_decor_coupled_bases(slots)` builds every path; the screen is applied afterwards | `_decor_coupled_bases(slots, isotropy)` hands `AngularMomentum.build_real_bases` a `keep` predicate so a rejected path never builds its tensor | Same SALCs, different call shape; port logic, not signatures |
+| Pointed body order | `nbody <= 3`, `const _PERMS3`, `_pointed_star_candidates(crystal, nl, spec)` (3 hard-coded sites) | general `N` with the cap `_MOMENT_NBODY_MAX = 4`, `_combinations` / `_permutations` in `clusters/enumerate.jl`, `_pointed_star_candidates(…, spec, N)` | **Exists only here** (port pending). A verbatim upstream re-sync of `basis/momentbasis.jl` silently reverts the cap to 3 AND restores the single `if spec.nbody >= 3` star block, which returns the 3-body basis for any higher request without a word. `test/parity/` pins `nbody = 3`, so it does NOT detect this divergence — add an `nbody = 4` case when the port lands |
 | Penalty metric | none — SLCE.jl has no `penalty_metric` | `penalty_metric` / `MetricProvenance` / `metric` + `metric_provenance` on `Ridge` / `AdaptiveRidge` / `GroupAdaptiveRidge` / `with_lambda` / `_edof_free` / `_reduce_to_active` for the ridge family | **Exists only here** (port pending). `GroupAdaptiveRidge`'s inner constructor takes `metric, metric_provenance` **positionally with no default**, so a verbatim upstream 6-argument call is a `MethodError` — that is the point, and it must stay that way. Never port `estimators.jl` / `selection.jl` wholesale in either direction: upstream-to-here deletes the metric from every solve, here-to-upstream carries a half-wired one |
 | Admission | `_admit_assignment(t, species, …)` — a production, species-resolved rule | only the `admit` hook; callers (tests) transcribe the per-species `lmax` | The pointed builder (D4) will need its own mark-aware rule; upstream's is the reference, not a drop-in |
 | `[moment]` TOML section | none (no TOML moment input; the spec is spelled `soc`) | `read_setup(path).moment::Union{Nothing,MomentSpec}`, `MomentBasis(path)` (`io/input.jl`) | Exists only here. A port upstream must flip the key to `soc` with the OPPOSITE polarity; this reader refuses a `soc` key by name |

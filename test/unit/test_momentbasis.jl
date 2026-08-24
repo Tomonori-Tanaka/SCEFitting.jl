@@ -546,10 +546,15 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
             X4 = _design_moment(mb4, [e4], [e4])
             ref = [C4 * inv112(e4, setdiff([2, 3, 4], [l])..., l) for l in (2, 3, 4)]
             got = X4[1, b4]
-            # the block index is gauge, so compare the multiset and the sum, not the
-            # per-block pairing
-            @test sort(got) ≈ sort(ref) rtol = 1e-12
-            @test sum(got) ≈ sum(ref) rtol = 1e-12
+            # Both the block index and the column SIGN are gauge (`_sign_canon!` is
+            # allowed to flip a column; test_normalization.jl puts sign out of scope
+            # for the absolute oracles for the same reason), so the gauge-free
+            # statement is the multiset of MAGNITUDES. What it pins is the constant:
+            # a uniform loss of orderings would move every magnitude.
+            @test sort(abs.(got)) ≈ sort(abs.(ref)) rtol = 1e-12
+            # ...and the three blocks are the three assignments, not three copies of
+            # one: their magnitudes are distinct on a generic configuration
+            @test length(unique(round.(abs.(got); digits = 8))) == 3
         end
 
         # -- covariance under an ARBITRARY rotation, not just a space-group operation.
@@ -569,6 +574,20 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
             # time reversal is bitwise: every label has even total spin rank
             @test _design_moment(mb4, [-e4], [-e4]) == X4
         end
+
+        # -- a requested body order that cannot be reached is LOUD, and `show`
+        #    reports what was built rather than what was asked for. The sector's
+        #    `Σl` floor is 4, so an `lsum` below it drops the whole 4-body sector
+        #    while every cutoff stays generous — the silent-truncation shape.
+        spec_lo = MomentSpec(; lmax_env = [0, 2], sampled = [true, true],
+                             lmax_mark = 0, marked = [true, false], nbody = 4,
+                             cutoff_pair = 4.0, cutoff_star = 4.0, lsum = 2,
+                             isotropy = true)
+        mb_lo = @test_logs (:warn, r"body order 4 contributes no SALC") match_mode =
+            :any MomentBasis(cr4, spec_lo; backend = _MBFixedSG(sg4))
+        @test !any(k -> k.body == 4, mb_lo.salc_basis.keys)
+        @test occursin("of 4 requested", sprint(show, mb_lo))
+        @test !occursin("requested", sprint(show, mb4))    # nothing to disclose
 
         # -- opening the door adds columns rather than replacing them
         spec3 = MomentSpec(; lmax_env = [0, 2], sampled = [true, true], lmax_mark = 0,
@@ -641,6 +660,10 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
         @test count(>(1e-9 * sv4[1]), sv4) == res4.rank
         @test res4.rank == length(sv4) || sv4[res4.rank] / sv4[res4.rank + 1] > 1e3
         @test isempty(res4.vanishing)        # this cell resolves the 4-body sector
-        @test length(res4.null_combinations) == length(res4.kept) - res4.rank
+        @test res4.rank == length(res4.kept)  # ...and resolves it FULLY
+        @test isempty(res4.null_combinations)
+        # the mark→term index path is value-identical to the full per-SALC evaluation
+        @test _design_moment(mb4c, cfgc[1:2], cfgc[1:2]) ==
+              _design_moment(mb4c, cfgc[1:2], cfgc[1:2]; member_index = false)
     end
 end

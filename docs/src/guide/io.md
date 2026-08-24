@@ -96,13 +96,13 @@ bases from one setup:
 
 ```toml
 [moment]
-nbody       = 3            # optional, default 3 (1 to 4)
+nbody       = 3            # optional, default 3 (1 to 4; members grow as C(z,N-1)*N!)
 lmax_mark   = 2            # optional, default 2: the marked site's own ê factor
 lmax_env    = [2]          # per species (index order), or a label table
 sampled     = ["Fe"]       # REQUIRED: species the consumer samples (labels, ["*"], or booleans)
 marked      = ["Fe"]       # optional, default every species: whose moments are expanded
 cutoff_pair = 4.1          # REQUIRED: mark–environment bond radius (Å); `inf` = whole WS cell
-cutoff_star = 4.1          # optional, default = cutoff_pair: the two mark bonds of a star
+cutoff_star = 4.1          # optional, default = cutoff_pair: a star's N-1 mark spokes
 lsum        = 4            # optional, default uncapped
 isotropy    = true         # optional, default true (L_S = 0 only)
 ```

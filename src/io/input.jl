@@ -51,7 +51,9 @@ Schema:
     tol     = 1.0e-5                                       # optional, default 1e-5
 
     [moment]                      # optional section: the pointed site-moment basis
-    nbody       = 3           # optional, default 3 (1 to 4)
+    nbody       = 3           # optional, default 3 (1 to 4). Star members grow as
+                              #   C(z, N-1)*N! -- measured 36x from 3 to 4 bodies on a
+                              #   54-atom cell at a 3NN star radius
     lmax_mark   = 2           # optional, default 2: cap on the marked site's own ê factor
     lmax_env    = [2]         # per species (index order), or a label table (below)
     sampled     = ["Fe"]      # REQUIRED: species the downstream consumer samples —
@@ -59,8 +61,8 @@ Schema:
     marked      = ["Fe"]      # optional (default every species): whose moments are expanded
     cutoff_pair = 4.1         # REQUIRED: mark–environment bond radius (Å) of 2-body
                               #   clusters — scalar (`inf` = whole WS cell) or pair table
-    cutoff_star = 4.1         # optional, default = cutoff_pair: the two mark bonds of
-                              #   stars, nbody >= 3 (the env-env edges are free)
+    cutoff_star = 4.1         # optional, default = cutoff_pair: the N-1 mark-environment
+                              #   spokes of a star, nbody >= 3 (env-env edges free)
     lsum        = 4           # optional, default uncapped: total spin rank per label
     isotropy    = true        # optional, default true (L_S = 0 only) — NOTE the default
                               #   differs from [interaction].isotropy (false)

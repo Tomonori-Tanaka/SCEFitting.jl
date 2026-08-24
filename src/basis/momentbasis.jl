@@ -1,6 +1,5 @@
 # The pointed (site-marked) SALC basis for the adiabatic site-moment expansion
-# m_i(e) — the moment channel's counterpart of `SCEBasis`. Design record:
-# _brain_storming/adiabatic-moment-sce (D1–D10 + the D8 addendum, M3-1/M3-2).
+# m_i(e) — the moment channel's counterpart of `SCEBasis`.
 # Ported from SLCE.jl at `3d54abb` = `6960276` (the basis) + `bd03517` (the
 # mark→term index fast design path, asserted value-identical to the full
 # evaluation) + `28dfa24` (the resolvability cache AND the fix for the null
@@ -27,9 +26,9 @@
 #     l-cap would delete it), while ENVIRONMENT spin factors are allowed only for
 #     species the consumer samples (M3-1 decision A; slaving makes the mediated
 #     physics expressible through sampled-species clusters);
-#   * the 3-body cutoff is MARK–ENVIRONMENT-BOND based, not all-edge: the triangle
-#     is pinned by the two mark bonds (each minimum-image within its radius), and
-#     the environment–environment edge is free — an all-edge cut at the same radius
+#   * the star cutoff (`N ≥ 3`) is MARK–ENVIRONMENT-SPOKE based, not all-edge: the
+#     star is pinned by its `N−1` spokes (each minimum-image within its radius), and
+#     the environment–environment edges are free — an all-edge cut at the same radius
 #     keeps 3 of the 15 nn star pairs on FeGe and loses 20–32 % in σ (M2-5);
 #   * time reversal: y = ê·M is TR-even, so only even-Σl labels exist (the mark's
 #     spin rank counts) — enforced by the engine's existing screen.
@@ -75,6 +74,10 @@ const _CANCELLATION_RTOL = 1e-10
 
 # ── MomentSpec ─────────────────────────────────────────────────────────────────────
 
+# The largest body order the pointed enumeration will build. The code is general in
+# `N`; this is where the test oracles stop, so raising it means extending them first.
+const _MOMENT_NBODY_MAX = 4
+
 """
     MomentSpec(; lmax_env, sampled, lmax_mark = 2, marked = nothing, nbody = 3,
                cutoff_pair, cutoff_star = nothing, lsum = nothing, isotropy = true)
@@ -95,9 +98,10 @@ be written as the `[moment]` section of a TOML setup file ([`read_setup`](@ref),
   environment content).
 - `marked::Vector{Bool}` — which species' site moments the basis expands
   (default: every species).
-- `nbody` — 1 to 4 (1-body = the per-orbit intercepts μ₀ plus even-rank single-site
-  ê invariants; 3 and up are pointed stars). The enumeration is general in `N`; the
-  cap is where the test oracles stop, not where the code does. Each body order starts
+- `nbody` (`N` below) — 1 to 4 (1-body = the per-orbit intercepts μ₀ plus even-rank
+  single-site ê invariants; 3 and up are pointed stars). The enumeration is general in
+  `N`; the cap is where the test oracles stop, not where the code does. Each body
+  order starts
   at total spin rank `Σl = 2⌈(N−1)/2⌉` — every environment slot needs `l ≥ 1` and
   time reversal keeps only even `Σl` — so the 4-body sector begins at `Σl = 4`, and
   its naive lowest member (a rank-0 mark with three `l = 1` environments) is absent:
@@ -107,11 +111,13 @@ be written as the `[moment]` section of a TOML setup file ([`read_setup`](@ref),
 - `cutoff_star` — mark–environment bond radius for stars (`nbody ≥ 3`; default:
   `cutoff_pair`). Only the `N−1` mark–environment spokes are constrained; the
   environment–environment edges are free. That asymmetry with the energy side's
-  compact-cluster rule is deliberate: a star has a distinguished centre, so each
-  environment site is pinned by its own spoke and two orbits cannot carry the same
-  monomial. Where a spoke has several minimum images (a Wigner–Seitz tie), the
-  tie-induced member multiplicity grows as `(tie)^(N−1)`; `moment_resolvability` is
-  what catches the resulting degeneracy.
+  compact-cluster rule is deliberate: a star has a distinguished centre, so — **as long
+  as every spoke has a unique minimum image** — each environment site is fixed by the
+  mark's cell plus its own spoke, and two orbits cannot carry the same monomial. Where
+  a spoke has several minimum images (a Wigner–Seitz tie) that uniqueness is exactly
+  what fails: the tie-induced member multiplicity grows as `(tie)^(N−1)`, two orbits
+  can then carry the same monomial, and `moment_resolvability` is what catches the
+  degeneracy.
 - `lsum` — optional cap on the total spin rank of a label (`nothing` = uncapped).
 - `isotropy` — keep only the `L_S = 0` blocks (default `true`: the adiabatic map
   is treated as spin-rotation covariant, exactly like an `isotropy = true` energy
@@ -144,10 +150,13 @@ function MomentSpec(; lmax_env::AbstractVector{<:Integer},
     all(l -> l >= 0, lmax_env) ||
         throw(ArgumentError("lmax_env entries must be ≥ 0; got $lmax_env"))
     lmax_mark >= 0 || throw(ArgumentError("lmax_mark must be ≥ 0; got $lmax_mark"))
-    1 <= nbody <= 4 || throw(ArgumentError(
-        "nbody must be in 1:4; got $nbody. The enumeration and the SALC projection " *
-        "are written for general N, but only N ≤ 4 is covered by the test oracles — " *
-        "raising the cap without extending them would promise an unverified region."))
+    1 <= nbody <= _MOMENT_NBODY_MAX || throw(ArgumentError(
+        "nbody must be in 1:$_MOMENT_NBODY_MAX; got $nbody. The enumeration and the " *
+        "SALC projection are written for general N, but only N ≤ $_MOMENT_NBODY_MAX " *
+        "is covered by the test oracles — raising the cap without extending them " *
+        "would promise an unverified region. The oracles that set it are the " *
+        "pointed-star brute force in test/unit/test_ws_nbody.jl and the absolute " *
+        "normalization gate in test/unit/test_momentbasis.jl."))
     length(sampled) == nkd ||
         throw(ArgumentError("sampled has $(length(sampled)) entries for $nkd species"))
     for s = 1:nkd
@@ -224,40 +233,22 @@ end
 
 # Star clusters {mark, env₁, …, env_{N−1}}: every mark–environment spoke is a
 # minimum-image neighbor pair within the mark–env star radius for its species pair; the
-# environment–environment edge is FREE (the triangle is pinned by the two mark
-# bonds, so no periodic alias hides there — M2-5). The candidate set is closed
-# under the space group by construction (species and minimum-image distances are
-# symmetry invariants), which `_orbits_from_members`' closure assertion re-checks.
+# environment–environment edges are FREE (the star is pinned by its `N−1` spokes, so
+# no periodic alias hides there — M2-5; what that rests on is a spoke's minimum image
+# being unique, which a Wigner–Seitz tie breaks). The candidate set is closed under
+# the space group by construction (species and minimum-image distances are symmetry
+# invariants), which `_orbits_from_members`' closure assertion re-checks.
 #
 # MULTIPLICITY CONVENTION: `candidate_clusters` lists every physical instance once
-# per SITE ORDERING (3! = 6 anchored variants for a 3-body) — the space the SALC
-# projection needs, and the multiplicity `_canonicalize_members` folds into the
-# member weights. A pointed candidate set with fewer orderings per instance yields
-# SALCs scaled down by the missing factor (measured upstream: 3 of 6 orderings
-# halved the closed-star column against the prototype's 6.0 geometric oracle),
-# silently breaking cross-orbit coefficient comparability. So the enumeration here
-# first finds each triangle once (per translation class), then expands EVERY class
-# to all 3! re-anchored orderings — identical members to what `candidate_clusters`
-# would emit for the clusters it also admits.
-# Ascending `k`-subsets of `1:n`. Small `k` (= body order − 1) only; cheap.
-function _subsets(n::Int, k::Int)::Vector{Vector{Int}}
-    k == 0 && return [Int[]]
-    out = Vector{Int}[]
-    function grow!(cur::Vector{Int}, lo::Int)
-        if length(cur) == k
-            push!(out, copy(cur))
-            return
-        end
-        for i = lo:n
-            push!(cur, i)
-            grow!(cur, i + 1)
-            pop!(cur)
-        end
-    end
-    grow!(Int[], 1)
-    return out
-end
-
+# per SITE ORDERING (`N!` anchored variants at `N` distinct sites — 6 for a 3-body,
+# 24 for a 4-body) — the space the SALC projection needs, and the multiplicity
+# `_canonicalize_members` folds into the member weights. A pointed candidate set with
+# fewer orderings per instance yields SALCs scaled down by the missing factor
+# (measured upstream: 3 of 6 orderings halved the closed-star column against the
+# prototype's 6.0 geometric oracle), silently breaking cross-orbit coefficient
+# comparability. So the enumeration here first finds each star once (per translation
+# class), then expands EVERY class to all `N!` re-anchored orderings — identical
+# members to what `candidate_clusters` would emit for the clusters it also admits.
 function _pointed_star_candidates(crystal::Crystal, nl::NeighborList,
                                   spec::MomentSpec, N::Int)::Vector{ClusterMember}
     N >= 3 || throw(ArgumentError("pointed stars start at body order 3; got $N"))
@@ -276,9 +267,9 @@ function _pointed_star_candidates(crystal::Crystal, nl::NeighborList,
     for i = 1:nat
         ns = nbrs[i]
         length(ns) >= N - 1 || continue
-        for combo in _subsets(length(ns), N - 1)
-            for (t, c) in enumerate(combo)
-                sites[t] = ns[c]
+        for combo in _combinations(length(ns), N - 1)
+            for (k, c) in enumerate(combo)
+                sites[k] = ns[c]
             end
             # Only an exact (atom, shift) repeat is skipped. Two DIFFERENT minimum
             # images of one neighbor (same atom, different shift — a small cell's
@@ -289,20 +280,21 @@ function _pointed_star_candidates(crystal::Crystal, nl::NeighborList,
             # `UnclassifiableBasis`, and `MomentDataset` runs that gate at its door
             # — a hard refusal, never a silent overcount. (The energy side's
             # `candidate_clusters` drops these members instead; the pointed
-            # enumeration does not, deliberately.) The subsets are ascending, so a
-            # repeat can only be at adjacent positions.
-            ok = true
-            for t = 2:(N - 1)
-                sites[t] == sites[t - 1] && (ok = false; break)
-            end
-            ok || continue
-            m = ClusterMember(vcat([i], [t[1] for t in sites]),
-                              vcat([z], [t[2] for t in sites]))
+            # enumeration does not, deliberately.)
+            #
+            # The check is defensive: a minimum-image neighbor list emits each
+            # `(i, j, R)` once, so `ns` holds no duplicate and no subset of distinct
+            # INDICES can repeat a site. Ascending indices do not imply that on their
+            # own — with `ns = [A, B, A]` the repeat would be non-adjacent — so the
+            # test is over all pairs rather than adjacent ones.
+            allunique(sites) || continue
+            m = ClusterMember(vcat([i], [site[1] for site in sites]),
+                              vcat([z], [site[2] for site in sites]))
             get!(classes, _member_sig(m), m)
         end
     end
     out = ClusterMember[]
-    perms = _ordered_subsets(N, N)               # every ordering: the k = n case
+    perms = _permutations(N)
     for sig in sort!(collect(keys(classes)))     # deterministic emission order
         m = classes[sig]
         for p in perms
@@ -349,8 +341,14 @@ n_salcs(mb::MomentBasis)::Int = length(mb.salc_basis.salcs)
 salcs(mb::MomentBasis)::Vector{SALC} = mb.salc_basis.salcs
 
 function Base.show(io::IO, mb::MomentBasis)
+    # The REALIZED maximum body order, not the requested cap. A truncation that cannot
+    # reach a sector's `Σl` floor drops it silently (`_moment_labels` returns nothing
+    # for it), and printing the request would make the object assert columns it does
+    # not have. The request is shown alongside when the two differ.
+    got = maximum(k.body for k in mb.salc_basis.keys)
     print(io, "MomentBasis(", length(mb.salc_basis.salcs), " SALCs, ",
-          length(mb.marked_atoms), " marked atoms, nbody = ", mb.spec.nbody, ")")
+          length(mb.marked_atoms), " marked atoms, nbody = ", got,
+          got == mb.spec.nbody ? "" : " of $(mb.spec.nbody) requested", ")")
 end
 
 function MomentBasis(crystal::Crystal, spec::MomentSpec;
@@ -387,15 +385,15 @@ function MomentBasis(crystal::Crystal, spec::MomentSpec;
     if spec.nbody >= 3
         # One neighbor list for every star order: `cutoff_star` is a single radius,
         # and only the mark–environment spokes are cut on it whatever N is.
-        nl3 = build_neighbor_list(crystal, spec.cutoff_star, MinimumImage();
+        nl_star = build_neighbor_list(crystal, spec.cutoff_star, MinimumImage();
                                   tol = tie_tol)
         for N = 3:spec.nbody
-            stars = _pointed_star_candidates(crystal, nl3, spec, N)
+            stars = _pointed_star_candidates(crystal, nl_star, spec, N)
             for (k, O) in enumerate(_orbits_from_members(crystal, sg, stars, N))
                 push!(orbits, (N, k, O))
             end
         end
-        dmin2_star = _dmin2_matrix(nl3, nat)
+        dmin2_star = _dmin2_matrix(nl_star, nat)
     end
 
     maxl = max(spec.lmax_mark, maximum(spec.lmax_env; init = 0))
@@ -404,11 +402,24 @@ function MomentBasis(crystal::Crystal, spec::MomentSpec;
     A = Matrix(crystal.lattice.vectors)
     fac = 1.0 + tie_tol
 
-    out = SALC[]
-    recs = NamedTuple[]
-    for (body, oid, O) in orbits
-        labels = _moment_labels(spec, body)
-        isempty(labels) && continue
+    # One label list per body order, not per orbit: it is a pure function of the spec
+    # and the recursion behind it is no longer the old straight-line branch.
+    labels_by_body = Dict(b => _moment_labels(spec, b) for b in 1:spec.nbody)
+
+    # Threaded over orbits, exactly as `build_salc_basis` threads the same work. Each
+    # task owns one orbit and writes only its own slot, `wcache` is built above and
+    # read-only, and the output is sorted by key below — so the result is identical at
+    # any thread count and any schedule.
+    parts = Vector{Vector{SALC}}(undef, length(orbits))
+    rec_parts = Vector{Vector{NamedTuple}}(undef, length(orbits))
+    Threads.@threads for w in eachindex(orbits)
+        body, oid, O = orbits[w]
+        labels = labels_by_body[body]
+        if isempty(labels)
+            parts[w] = SALC[]
+            rec_parts[w] = NamedTuple[]
+            continue
+        end
         rep = O.representative
         # representative-site cartesian positions (image shifts included) → edges
         pos = [SVector{3,Float64}(cart[:, rep.atoms[s]]) +
@@ -419,7 +430,7 @@ function MomentBasis(crystal::Crystal, spec::MomentSpec;
                 d = t[s]
                 if is_marked(d)
                     # the mark: any marked species, its own ê-rank cap, and — for
-                    # stars — every mark–env bond minimum-image within the radius
+                    # stars — every mark–env spoke minimum-image within the radius
                     spec.marked[O.species[s]] || return false
                     d.spin_l <= spec.lmax_mark || return false
                     if body >= 3
@@ -442,18 +453,39 @@ function MomentBasis(crystal::Crystal, spec::MomentSpec;
         end
         got = _orbit_salcs_decors(crystal, sg, body, oid, O, labels, wcache;
                                   isotropy = spec.isotropy, admit = admit)
-        for s in got
-            push!(out, s)
-            push!(recs, (; body = body, species = Tuple(O.species),
-                          edges = Tuple(sort([round(edges[a, b]; digits = 6)
-                                              for a = 1:body for b = (a + 1):body])),
-                          nmem = length(O.members)))
-        end
+        edgetuple = Tuple(sort([round(edges[a, b]; digits = 6)
+                                for a = 1:body for b = (a + 1):body]))
+        parts[w] = got
+        rec_parts[w] = [(; body = body, species = Tuple(O.species),
+                           edges = edgetuple, nmem = length(O.members)) for _ in got]
     end
+    out = reduce(vcat, parts; init = SALC[])
+    recs = reduce(vcat, rec_parts; init = NamedTuple[])
+
     isempty(out) &&
         throw(ArgumentError("the moment basis is empty: no pointed SALC survives " *
                             "the spec — check the cutoffs, lmax_mark / lmax_env, " *
                             "and that a marked species has admissible neighbors"))
+    # A requested body order that contributes NOTHING is a silent truncation: the user
+    # asked for a sector and got a basis without it. The usual cause is the label
+    # screen rather than the geometry: an N-body sector starts at `Σl = 2⌈(N−1)/2⌉`,
+    # so `lsum` or the `lmax` caps can put it out of reach while every cutoff is
+    # generous. Say which, and say what would fix it.
+    let have = Set(s.key.body for s in out)
+        for body = 1:spec.nbody
+            body in have && continue
+            floor_l = 2 * cld(body - 1, 2)
+            @warn "moment basis: body order $body contributes no SALC — the basis " *
+                  "does not carry that sector" *
+                  (isempty(_moment_labels(spec, body)) ?
+                   ". No label survives the screens: this sector starts at " *
+                   "Σl = $floor_l (every environment slot needs l ≥ 1 and time " *
+                   "reversal keeps only even Σl), so raise lsum / lmax_mark / " *
+                   "lmax_env to reach it" :
+                   ". Labels exist, so no cluster orbit admits them: check " *
+                   "cutoff_pair / cutoff_star and the marked and sampled species")
+        end
+    end
     perm = sortperm(out; by = s -> s.key)
     keyvec = [out[j].key for j in perm]
     allunique(keyvec) || error("duplicate pointed SALC keys — enumeration bug")
@@ -520,7 +552,11 @@ function _design_moment(mb::MomentBasis, configs::Vector{Matrix{Float64}},
         size(axes[ci]) == (3, nat) ||
             throw(ArgumentError("axes $ci is $(size(axes[ci])), expected (3, $nat)"))
     end
-    Threads.@threads for j = 1:length(sal)
+    # `:dynamic`: a 1-body intercept column and a 4-body star column differ by orders
+    # of magnitude in cost, and the columns are emitted in orbit order, so a static
+    # split lands the heavy ones together. Each `j` writes only column `j` and reduces
+    # serially, so no value depends on the schedule.
+    Threads.@threads :dynamic for j = 1:length(sal)
         scratch = SALCScratch()
         esub = Matrix{Float64}(undef, 3, nat)
         u = zeros(3, nat)
@@ -688,15 +724,24 @@ function _moment_resolvability(mb::MomentBasis, rtol::Float64)
             (sl.factor.channel == SPIN && sl.site != mark_site) || continue
             push!(env_atoms, mem.atoms[sl.site])
         end
-        allunique(env_atoms) ||
+        # The mark is excluded by SITE index above, so include its ATOM here: a star
+        # whose environment landed on a periodic image of the mark itself would read
+        # the substituted evaluation axis as if it were a spin, and the site-index
+        # exclusion cannot see that. (The enumeration cannot build one — a minimum-image
+        # neighbor list has no self-pairs — so this is a second lock on the same door.)
+        allunique(vcat(env_atoms, mem.atoms[mark_site])) ||
             throw(UnclassifiableBasis("pointed SALC $j (key $(s.key)) has a member " *
-                                      "with two environment spin factors on one " *
-                                      "reference-cell atom (two periodic images of " *
-                                      "one neighbor): the symbolic signature cannot " *
-                                      "classify harmonic products on a single " *
-                                      "sphere, so the gate refuses rather than " *
-                                      "overcounting the rank. Use a reference cell " *
-                                      "in which the images are distinct atoms"))
+                                      "with two spin factors on one reference-cell " *
+                                      "atom (two periodic images of one neighbor, or " *
+                                      "an environment on an image of the mark): the " *
+                                      "symbolic signature cannot classify harmonic " *
+                                      "products on a single sphere, so the gate " *
+                                      "refuses rather than overcounting the rank. " *
+                                      "Reduce cutoff_star below the tied shell, step " *
+                                      "nbody back (the tie multiplicity grows as " *
+                                      "(tie)^(N-1), so a higher body order refuses " *
+                                      "where a lower one passed), or use a reference " *
+                                      "cell in which the images are distinct atoms"))
     end
     # The signature block S (rows = distinct signature keys, columns = pointed
     # SALCs) is never formed densely: on a supercell its row count scales as
@@ -805,26 +850,27 @@ function _moment_resolvability(mb::MomentBasis, rtol::Float64)
     end
     # census: per cluster orbit (body, orbit_id), the stabilizer-inequivalent
     # admissible mark placements of the representative
-    seen = Set{Tuple{Int,Int}}()
-    census = NamedTuple[]
+    # Reconstruct each orbit's mark classes from the SALCs sharing the orbit: every
+    # member's marked atom, folded under "same reference-cell atom". ONE pass, grouping
+    # by orbit key — the obvious nested form is orbits × columns × members, which is
+    # quadratic in the column count on exactly the many-orbit bases the pointed channel
+    # is used on. `order` keeps first appearance, so the census order is unchanged.
+    marks_by_key = Dict{Tuple{Int,Int},Set{Int}}()
+    order = Tuple{Int,Int}[]
     for s in sal
         key = (s.key.body, s.key.orbit_id)
-        key in seen && continue
-        push!(seen, key)
-        # reconstruct the orbit's mark classes from the SALCs sharing the orbit:
-        # each member's marked atom, folded under "same reference-cell atom"
-        marks = Set{Int}()
-        for s2 in sal
-            (s2.key.body, s2.key.orbit_id) == key || continue
-            for mem in s2.members, t in mem.terms
-                for sl in t.slots
-                    sl.factor.channel == DISP || continue
-                    push!(marks, mem.atoms[sl.site])
-                end
+        marks = get!(marks_by_key, key) do
+            push!(order, key)
+            Set{Int}()
+        end
+        for mem in s.members, t in mem.terms
+            for sl in t.slots
+                sl.factor.channel == DISP || continue
+                push!(marks, mem.atoms[sl.site])
             end
         end
-        push!(census, (; body = key[1], orbit_id = key[2],
-                        n_mark_atoms = length(marks)))
     end
+    census = NamedTuple[(; body = k[1], orbit_id = k[2],
+                          n_mark_atoms = length(marks_by_key[k])) for k in order]
     return (; vanishing, rank, kept, null_combinations, census)
 end

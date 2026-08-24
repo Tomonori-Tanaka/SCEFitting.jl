@@ -290,10 +290,12 @@ estimator shrinks ``\mu^{(0)}`` like any other column — choose it deliberately
    *mark–environment* spokes only; the environment–environment edges are free. Applying
    the energy side's all-edge compact-cluster rule at the same radius keeps 3 of the 15
    nearest-neighbour star pairs of FeGe and costs 20–32 % in ``\sigma`` (measured). The
-   asymmetry is not a relaxation: a star has a distinguished centre, so each environment
-   site is fixed by the mark's cell plus its own minimum-image spoke, and two orbits
-   cannot carry the same monomial. The energy side needs the compact rule precisely
-   because its clusters have no centre.
+   asymmetry is not a relaxation: a star has a distinguished centre, so — as long as
+   every spoke has a unique minimum image — each environment site is fixed by the
+   mark's cell plus its own spoke, and two orbits cannot carry the same monomial. The
+   energy side needs the compact rule precisely because its clusters have no centre.
+   Under a Wigner–Seitz tie that uniqueness fails, and ``moment\_resolvability`` is
+   what catches the resulting degeneracy.
 
 ## Relation to the energy expansion
 
@@ -411,9 +413,11 @@ With the addition theorem
   even ``\sum l``, so an ``N``-body sector starts at ``\sum l = 2\lceil (N-1)/2 \rceil``
   and the four-body one begins at ``\sum l = 4``. The naive lowest member, a rank-0 mark
   with three ``l = 1`` environments, is therefore absent — consistently, the only
-  rotational invariant of three vectors is the pseudoscalar triple product
+  rotational invariant of three vectors is the triple product
   ``\boldsymbol e_j \cdot (\boldsymbol e_k \times \boldsymbol e_l)``, which is odd
-  under time reversal. What survives at ``\sum l = 4`` with ``l_{\mathrm{mark}} = 0`` is
+  under ``\boldsymbol e \to -\boldsymbol e``. (It is a pseudoscalar, but that is not
+  the reason it is absent — in a chiral crystal a pseudoscalar is allowed by the space
+  group. The screen here is time reversal.) What survives at ``\sum l = 4`` with ``l_{\mathrm{mark}} = 0`` is
   the environment triple ``(1, 1, 2)``, whose unique ``L_S = 0`` invariant is the same
   quadrupolar contraction as the star ``(2, 1, 1)`` with the rank-2 factor moved onto an
   environment site,
