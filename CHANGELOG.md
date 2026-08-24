@@ -6,6 +6,27 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — effective dof with unpenalized columns (2026-08-24)
+
+- `_edof` (behind `effective_dof` / `gcv` / the `select_fit` GCV
+  path) now handles a penalty diagonal with **exact zeros**, i.e. columns the
+  estimator does not penalize. The previous code formed `X·D^{-1/2}` unconditionally
+  and, on the cached-Gram path a λ sweep takes, divided the Gram by zero — producing
+  a non-finite score rather than an error. The split is now taken before the `XtX`
+  keyword is consulted.
+- With `X = [X_F X_P]` (unpenalized / penalized) the effective dof is
+  `rank(X_F) + Σᵢ sᵢ/(sᵢ + λ)` over the eigenvalues of
+  `W^{-1/2}(X_P'(I − P_F)X_P)W^{-1/2}`, so an unpenalized column always costs its
+  full degree of freedom and `df → rank(X_F)` as `λ → ∞`. The projector is applied
+  through a thin QR of `X_F`, never formed `n × n`, and the eigenproblem still runs
+  on the smaller of the primal and dual sides.
+- A rank-deficient unpenalized block is **refused by name**: `A = X'X + λD` is
+  positive definite exactly when `X_F` has full column rank, so a dependent
+  unpenalized column leaves the fit unidentified and any finite dof reported for it
+  would be meaningless.
+- No behavior change for a fully penalized diagonal (every current in-tree
+  estimator): that branch is untouched and byte-identical.
+
 ### Fixed — a self-image (`AllImages`) basis can no longer be fitted silently (2026-08-24)
 
 - `SCEDataset` now refuses a basis whose SALCs carry a member using one

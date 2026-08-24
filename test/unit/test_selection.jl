@@ -264,6 +264,49 @@ end
         @test isfinite(gcv(fo))
     end
 
+    @testset "_edof with unpenalized columns (dense hat reference)" begin
+        rng = MersenneTwister(4127)
+        # Independent oracle: the dense hat matrix of the penalized normal equations,
+        # `tr(X(X'X + λD)⁻¹X')`, formed here without any of `_edof`'s machinery.
+        dense_df(X, lam, d) = tr(X * ((X' * X + lam * Diagonal(d)) \ X'))
+
+        lam = 0.37
+        # (a) overdetermined: no / one / several unpenalized columns, and the cached
+        #     Gram keyword (whose `D^{-1/2}` form is the one that divides by zero)
+        n, p = 40, 12
+        X = randn(rng, n, p)
+        base = 0.3 .+ rand(rng, p)
+        for free in (Int[], [3], [1, 7, 12])
+            d = copy(base)
+            d[free] .= 0.0
+            @test SCEFitting._edof(X, lam, d) ≈ dense_df(X, lam, d) rtol = 1e-9
+            @test SCEFitting._edof(X, lam, d; XtX = X' * X) ≈
+                  dense_df(X, lam, d) rtol = 1e-9
+        end
+
+        # (b) underdetermined: the dual side, with the unpenalized block still thin
+        n2, p2 = 9, 25
+        X2 = randn(rng, n2, p2)
+        d2 = 0.3 .+ rand(rng, p2)
+        d2[[2, 5]] .= 0.0
+        @test SCEFitting._edof(X2, lam, d2) ≈ dense_df(X2, lam, d2) rtol = 1e-9
+
+        # (c) λ → ∞ leaves exactly the unpenalized degrees of freedom, and an
+        #     all-unpenalized diagonal is the plain design rank
+        d3 = copy(base)
+        d3[[2, 4, 9]] .= 0.0
+        @test SCEFitting._edof(X, 1e12, d3) ≈ 3.0 rtol = 1e-6
+        @test SCEFitting._edof(X, lam, zeros(p)) == Float64(p)
+
+        # (d) a rank-deficient unpenalized block leaves the fit unidentified: refuse
+        #     by name rather than report a finite dof for it
+        Xd = copy(X)
+        Xd[:, 5] = Xd[:, 3]
+        dd = copy(base)
+        dd[[3, 5]] .= 0.0
+        @test_throws ArgumentError SCEFitting._edof(Xd, lam, dd)
+    end
+
     @testset "gcv in the underdetermined regime and guards" begin
         rng = MersenneTwister(31)
         nconf = 12

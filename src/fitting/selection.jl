@@ -211,8 +211,13 @@ end
 # `X̃ = X·D^{-1/2}` — always an eigenproblem on the smaller side, never an `n × p` SVD.
 # A λ-path caller passes its cached `XtX` so the `p ≤ n` branch touches only `p × p`
 # data per λ. Tiny negative eigenvalues from roundoff are clamped out.
+#
+# `w[j] == 0` marks column `j` as UNPENALIZED. `X̃` is then undefined — and the cached
+# `XtX` form divides by zero without so much as an `Inf` in the trace — so the split is
+# taken FIRST, before the `XtX` keyword is consulted.
 function _edof(X::Matrix{Float64}, lambda::Float64, w::Vector{Float64};
                XtX::Union{Nothing,Matrix{Float64}} = nothing)::Float64
+    any(iszero, w) && return _edof_free(X, lambda, w)
     n, p = size(X)
     M = if p <= n
         if XtX === nothing
@@ -228,6 +233,51 @@ function _edof(X::Matrix{Float64}, lambda::Float64, w::Vector{Float64};
     end
     df = 0.0
     for s in eigvals(M)
+        s > 0.0 || continue
+        df += s / (s + lambda)
+    end
+    return df
+end
+
+# `_edof` when part of the penalty diagonal is exactly zero. Split the design as
+# `X = [X_F X_P]` (unpenalized / penalized), `D = diag(0, W)`, `A = X'X + λD`:
+#
+#   tr(H) = tr(A⁻¹X'X) = p − λ·tr((A⁻¹)_PP W),   (A⁻¹)_PP = (X_P'M X_P + λW)⁻¹
+#
+# with `M = I − X_F(X_F'X_F)⁻¹X_F'` the projector off the unpenalized columns, so
+#
+#   tr(H) = p_F + Σᵢ sᵢ/(sᵢ + λ),   sᵢ = eig(W^{-1/2}(X_P'M X_P)W^{-1/2}),
+#
+# recovering the penalized form at `p_F = 0` and giving `df → p_F` as `λ → ∞` (an
+# unpenalized column always costs its full degree of freedom). Preconditions: `λ > 0`,
+# and `X_F` of full column rank — `v'Av = ‖Xv‖² + λΣ_P w_j v_j²` vanishes only for
+# `v_P = 0` and `X_F v_F = 0`, so `A ≻ 0` is exactly a rank condition on `X_F` and the
+# penalized block is safe for any `W ≻ 0`. A rank-deficient `X_F` is refused by name:
+# the model is not identified and any finite dof reported for it would be meaningless.
+#
+# `M` is never formed `n × n`. With `Q` the thin-QR basis of `X_F`, the matrix
+# `B = X̃_P − Q(Q'X̃_P)` has the same nonzero singular values as `M X_P W^{-1/2}`, and
+# the eigenproblem is taken on the smaller of `B'B` (`p_P × p_P`) and `BB'` (`n × n`).
+# A cached `XtX` is deliberately unused: this branch runs once per diagnostic, not once
+# per point of a λ path.
+function _edof_free(X::Matrix{Float64}, lambda::Float64, w::Vector{Float64})::Float64
+    free = findall(iszero, w)
+    pen = findall(!iszero, w)
+    XF = X[:, free]
+    p_F = _rank_df(XF)
+    p_F == length(free) || throw(ArgumentError(
+        "effective dof with unpenalized columns: the unpenalized block must have " *
+        "full column rank, but columns $(free) have numerical rank $(Int(p_F)) < " *
+        "$(length(free)). The penalized least-squares problem is then singular and " *
+        "its hat matrix undefined — drop the dependent columns, or penalize them, " *
+        "rather than reporting a finite dof for a model that is not identified"))
+    isempty(pen) && return p_F
+    Xp = X[:, pen] ./ sqrt.(w[pen])'
+    Q = Matrix(qr(XF).Q)
+    B = Xp .- Q * (Q' * Xp)
+    G = length(pen) <= size(X, 1) ? Symmetric(B' * B) : Symmetric(B * B')
+    df = p_F
+    for s in eigvals(G)
         s > 0.0 || continue
         df += s / (s + lambda)
     end
