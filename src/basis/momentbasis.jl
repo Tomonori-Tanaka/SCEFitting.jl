@@ -54,6 +54,10 @@ the gate refuses rather than reports. Two gates raise it:
   building such a basis as a tiling template stays legal.
 
 (Upstream SLCE.jl defines the same exception for its energy-side gate.)
+
+!!! note "What is and is not public here"
+    The **type** and the doors that raise it are public API: catch it by type. The
+    **`reason` text is not** — never classify a failure by matching the message.
 """
 struct UnclassifiableBasis <: Exception
     reason::String

@@ -29,7 +29,9 @@ release, so everything lives under *Unreleased*.
   nearest-neighbor channel.
 - That second contract is now documented where it is chosen: the `AllImages`
   docstring, the basis guide, `SPEC.md`, and `UnclassifiableBasis` (which now names
-  both gates that raise it).
+  both gates that raise it, and states the boundary of its contract: the **type** and
+  the raising doors are public API, the **`reason` text is not** — never classify a
+  failure by matching the message).
 
 ### Added — `[moment]` section in the TOML setup file (2026-08-24)
 
