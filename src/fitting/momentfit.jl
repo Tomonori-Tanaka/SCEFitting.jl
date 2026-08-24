@@ -697,7 +697,7 @@ function _intercept_columns(mb::MomentBasis)::Vector{Int}
 end
 
 """
-    penalty_metric(mb::MomentBasis; free_intercepts = true, nconfig = 8192, seed = 1)
+    penalty_metric(mb::MomentBasis; free_intercepts = true, nconfig = 2048, seed = 1)
         -> Vector{Float64}
 
 The per-column penalty scale of a pointed moment basis, in design-column order — the
@@ -734,7 +734,7 @@ therefore not comparable across datasets of different row count, where the energ
 channel's `√(1/n_E)` makes it so.
 """
 function penalty_metric(mb::MomentBasis; free_intercepts::Bool = true,
-                        nconfig::Integer = 8192, seed::Integer = 1)::Vector{Float64}
+                        nconfig::Integer = 2048, seed::Integer = 1)::Vector{Float64}
     # The structural exemptions come FIRST: `moment_resolvability` is also the
     # `UnclassifiableBasis` door, so on a basis this cell cannot resolve the user should
     # not first pay a full reference-ensemble evaluation inside a constructor. The
@@ -780,10 +780,13 @@ function penalty_metric(mb::MomentBasis; free_intercepts::Bool = true,
     return m
 end
 
-# Resolve the `metric` keyword of a pointed basis-aware constructor. Mirror of the
-# energy-side `_basis_metric`.
-function _basis_metric(mb::MomentBasis, metric, free_intercepts::Bool,
-                       nconfig::Integer, seed::Integer)
+# Resolve the `metric` keyword of a pointed basis-aware constructor. A separate name
+# from the energy side's `_basis_metric` on purpose: the two would otherwise carry
+# different meanings in the same positional slot (`torque_weight` there,
+# `free_intercepts` here), which is the readability trap the divergence ledger's first
+# row exists for, reintroduced inside the package.
+function _pointed_metric(mb::MomentBasis, metric, free_intercepts::Bool,
+                         nconfig::Integer, seed::Integer)
     metric === :basis || return (_checked_metric_keyword(metric), nothing)
     m = penalty_metric(mb; free_intercepts = free_intercepts, nconfig = nconfig,
                        seed = seed)
@@ -794,7 +797,7 @@ end
 """
     GroupAdaptiveRidge(mb::MomentBasis; lambda, epsilon = 1e-8, max_iter = 50,
                        tol = 1e-6, metric = :basis, free_intercepts = true,
-                       metric_nconfig = 8192, metric_seed = 1)
+                       metric_nconfig = 2048, metric_seed = 1)
 
 Penalized group estimator for a pointed basis, carrying
 [`penalty_metric`](@ref)`(mb; free_intercepts, ...)` by default. The group form uses
@@ -810,9 +813,9 @@ a vector of your own.
 function GroupAdaptiveRidge(mb::MomentBasis; lambda::Real, epsilon::Real = 1e-8,
                             max_iter::Integer = 50, tol::Real = 1e-6,
                             metric = :basis, free_intercepts::Bool = true,
-                            metric_nconfig::Integer = 8192, metric_seed::Integer = 1)
+                            metric_nconfig::Integer = 2048, metric_seed::Integer = 1)
     cg = salc_groups(mb)
-    m, pv = _basis_metric(mb, metric, free_intercepts, metric_nconfig, metric_seed)
+    m, pv = _pointed_metric(mb, metric, free_intercepts, metric_nconfig, metric_seed)
     return GroupAdaptiveRidge(cg, ones(maximum(cg)); lambda = lambda,
                               epsilon = epsilon, max_iter = max_iter, tol = tol,
                               metric = m, metric_provenance = pv)
@@ -820,7 +823,7 @@ end
 
 """
     Ridge(mb::MomentBasis; lambda, metric = :basis, free_intercepts = true,
-          metric_nconfig = 8192, metric_seed = 1)
+          metric_nconfig = 2048, metric_seed = 1)
 
 Ridge for a pointed basis, carrying [`penalty_metric`](@ref)`(mb; free_intercepts,
 ...)`. That metric is what keeps the μ₀ intercept columns out of the penalty; see
@@ -828,15 +831,15 @@ Ridge for a pointed basis, carrying [`penalty_metric`](@ref)`(mb; free_intercept
 than a group weight.
 """
 function Ridge(mb::MomentBasis; lambda::Real, metric = :basis,
-               free_intercepts::Bool = true, metric_nconfig::Integer = 8192,
+               free_intercepts::Bool = true, metric_nconfig::Integer = 2048,
                metric_seed::Integer = 1)
-    m, pv = _basis_metric(mb, metric, free_intercepts, metric_nconfig, metric_seed)
+    m, pv = _pointed_metric(mb, metric, free_intercepts, metric_nconfig, metric_seed)
     return Ridge(lambda, m, pv)
 end
 
 """
     AdaptiveRidge(mb::MomentBasis; lambda, epsilon = 1e-8, max_iter = 50, tol = 1e-6,
-                  metric = :basis, free_intercepts = true, metric_nconfig = 8192,
+                  metric = :basis, free_intercepts = true, metric_nconfig = 2048,
                   metric_seed = 1)
 
 The per-coefficient adaptive ridge for a pointed basis. Keyword semantics as in
@@ -844,9 +847,9 @@ The per-coefficient adaptive ridge for a pointed basis. Keyword semantics as in
 """
 function AdaptiveRidge(mb::MomentBasis; lambda::Real, epsilon::Real = 1e-8,
                        max_iter::Integer = 50, tol::Real = 1e-6, metric = :basis,
-                       free_intercepts::Bool = true, metric_nconfig::Integer = 8192,
+                       free_intercepts::Bool = true, metric_nconfig::Integer = 2048,
                        metric_seed::Integer = 1)
-    m, pv = _basis_metric(mb, metric, free_intercepts, metric_nconfig, metric_seed)
+    m, pv = _pointed_metric(mb, metric, free_intercepts, metric_nconfig, metric_seed)
     return AdaptiveRidge(; lambda = lambda, epsilon = epsilon, max_iter = max_iter,
                          tol = tol, metric = m, metric_provenance = pv)
 end

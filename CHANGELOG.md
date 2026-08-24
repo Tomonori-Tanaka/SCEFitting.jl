@@ -87,10 +87,12 @@ release, so everything lives under *Unreleased*.
   `show` renders it. The free-block conditioning guard now cuts where its message says
   it does (`κ(X_free) ≲ 6.7e7`, on the Gram), and the metric machinery moved to
   `src/fitting/metric.jl`.
-- The default `nconfig` is 8192, sized from measurement rather than guessed: the
-  relative standard error of `mⱼ` over eight independent seeds is 1.6 % median / 2.8 %
-  worst column there, against 3.3 % / 5.3 % at 2000 (bcc Fe 2×2×2, `lmax = 2`, 2- and
-  3-body columns; body order barely moves it).
+- The default `nconfig` is 2048, sized from measurement rather than guessed. The
+  relative standard error of `mⱼ` over eight independent seeds is 3.3 % median / 5.3 %
+  worst column there, 6.0 % / 9.7 % at 512 and 1.6 % / 2.8 % at 8192 (bcc Fe 2×2×2,
+  `lmax = 2`; body order barely moves it); the cost on bcc Fe 3×3×3 is 0.56 s there and
+  5 s at 8192, linear in both `nconfig` and the column count. What is left is a wobble
+  on the prior, an order of magnitude below the systematic factor the metric removes.
 - **Breaking**: every penalized fit changes. `OLS` and `lambda = 0` are untouched
   (bitwise), as is any estimator constructed without a metric. λ recorded against
   an earlier penalized fit no longer means the same thing — bcc Fe `l02`…`l044` and

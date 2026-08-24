@@ -37,15 +37,16 @@ end
 # `@allocated` reports CUMULATIVE allocation, dominated by the evaluation kernel's churn
 # rather than by anything this function holds.
 
-bench_header("penalty_metric — reference ensemble (bcc Fe 2x2x2, lmax = 2)")
+bench_header("penalty_metric — reference ensemble (bcc Fe 3x3x3, lmax = 2)")
 
 let
-    cr = bcc_fe(2)
+    cr = bcc_fe(3)
     b = SCEBasis(cr, basis_spec(; nbody = 2, cutoff = 4.1, lmax = 2);
                  backend = SpglibBackend())
     println("atoms = $(n_atoms(cr))   n_salcs = $(n_salcs(b))")
-    for K in (500, 2000), w in (0.0, 1.0)
-        t = @belapsed penalty_metric($b; torque_weight = $w, nconfig = $K) samples = 3 evals = 1
+    for K in (2048, 8192), w in (0.0, 1.0)
+        t = @belapsed penalty_metric($b; torque_weight = $w,
+                                    nconfig = $K) samples = 3 evals = 1
         mem = @allocated penalty_metric(b; torque_weight = w, nconfig = K)
         @printf("K=%-5d w=%.1f   %9.1f ms   %8.1f MiB\n", K, w, 1e3 * t, mem / 2^20)
     end
@@ -59,16 +60,16 @@ end
 bench_header("select_fit — λ path, uniform vs basis metric")
 
 let
-    cr = bcc_fe(2)
+    cr = bcc_fe(3)
     b = SCEBasis(cr, basis_spec(; nbody = 2, cutoff = 4.1, lmax = 2);
                  backend = SpglibBackend())
     rng = MersenneTwister(7)
-    cfgs = rand_configs(cr, 60)
-    ds = SCEDataset(b, cfgs, randn(rng, 60))
-    lams = 10.0 .^ range(-1, -7; length = 12)
+    cfgs = rand_configs(cr, 400)
+    ds = SCEDataset(b, cfgs, randn(rng, 400))
+    lams = 10.0 .^ range(-1, -7; length = 25)
     lw = SCEFitting.cost_weights(b; theta = 1.0)
     est_u = GroupAdaptiveRidge(lw.labels, lw.weights; lambda = 1.0)
-    est_m = GroupAdaptiveRidge(b; lambda = 1.0, theta = 1.0, metric_nconfig = 500)
+    est_m = GroupAdaptiveRidge(b; lambda = 1.0, theta = 1.0, metric_nconfig = 2048)
     t_u = @belapsed select_fit($ds, $est_u; lambdas = $lams) samples = 3 evals = 1
     t_m = @belapsed select_fit($ds, $est_m; lambdas = $lams) samples = 3 evals = 1
     @printf("uniform=%8.1f ms   metric=%8.1f ms   ratio=%.2f\n",

@@ -408,8 +408,9 @@ capability consumed by both the introspection and the Sunny interop.
   nconfig, seed)` = `E[Φⱼ²]`, both over uniform-random reference configurations drawn by
   an in-package generator (SplitMix64 + the Archimedes construction; `Random`'s stream
   carries no cross-version guarantee and this quantity enters every penalized
-  coefficient). `nconfig = 8192` by default, sized from the measured relative standard
-  error (1.6 % median / 2.8 % worst column; `1/√nconfig`). Carried on `Ridge` /
+  coefficient). `nconfig = 2048` by default, sized from the measured relative standard
+  error (3.3 % median / 5.3 % worst column; `1/√nconfig`) against the measured
+  construction cost (0.56 s on bcc Fe 3×3×3, linear in `nconfig` and column count). Carried on `Ridge` /
   `AdaptiveRidge` / `GroupAdaptiveRidge` as `metric` (`nothing` = uniform) with a
   validating `MetricProvenance` (channel, `torque_weight`, `nconfig`, `seed`, basis
   fingerprint) the `fit` / `refit` / `select_fit` / `cross_validate` doors check;

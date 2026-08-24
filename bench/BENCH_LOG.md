@@ -25,10 +25,11 @@ Entries are append-only history — keep them after merging.
 ## Penalty metric: construction cost and λ-path neutrality — 2026-08-24
 
 **Context**: 2026-08-24 · `main` · local macOS (darwin 24.6, aarch64) · julia 1.12.7 ·
-**threads = 4** · `bench/bench_solver.jl` (new sections) · fixture: bcc Fe 2×2×2
-(16 atoms), `nbody = 2`, `cutoff = 4.1`, `lmax = 2`, Spglib backend → **18 SALCs**.
+**threads = 4** · `bench/bench_solver.jl` (new sections) · fixture: bcc Fe 3×3×3
+(54 atoms), `nbody = 2`, `cutoff = 4.1`, `lmax = 2`, Spglib backend → **21 SALCs**;
+the λ path on 400 configurations over 25 λ.
 
-Not a before/after: `penalty_metric` is new, and the question it has to answer is
+Not a before/after: `penalty_metric` is new, and the questions it has to answer are
 whether attaching it by default in `Ridge(basis; ...)` / `GroupAdaptiveRidge(basis; ...)`
 is affordable, and whether it slows the λ path down.
 
@@ -36,38 +37,55 @@ is affordable, and whether it slows the λ path down.
 
 | `nconfig` | `torque_weight` | time | allocated |
 |---|---|---|---|
-| 500 | 0.0 | 33.2 ms | 48.1 MiB |
-| 500 | 1.0 | 102.9 ms | 86.2 MiB |
-| 2000 | 0.0 | 130.9 ms | 192.5 MiB |
-| 2000 | 1.0 | 439.6 ms | 344.9 MiB |
+| 2048 | 0.0 | 0.56 s | 814 MiB |
+| 2048 | 1.0 | 1.25 s | 651 MiB |
+| 8192 | 0.0 | 2.36 s | 3256 MiB |
+| 8192 | 1.0 | 5.29 s | 2603 MiB |
 
-Linear in `nconfig`, as it must be. The torque form costs ~3.4× the energy form (it adds
-a gradient evaluation and an `n_atoms` loop per configuration). At the default
-`nconfig = 2000` this is a **0.1–0.4 s one-off** on this basis; it scales with the column
-count, so budget proportionally for a production basis (108 columns at 3×3×3 bcc Fe).
+Linear in `nconfig`, as it must be, and linear in the column count. The torque form
+costs ~2.2× the energy form (it adds a gradient evaluation and an `n_atoms` loop per
+configuration). `@allocated` is CUMULATIVE allocation, dominated by the evaluation
+kernel's per-call churn — the same churn `_design_energy` pays — not by anything the
+function holds; the loop never materializes the `nconfig · 3 · n_atoms × p` torque
+design, which would be 280 MiB of live memory here.
 
-`@allocated` is CUMULATIVE allocation, dominated by the evaluation kernel's per-call
-churn — the same churn `_design_energy` pays — not by anything the function holds. The
-accumulation that matters for memory (never materializing the
-`nconfig · 3 · n_atoms × p` torque design, 280 MiB at 3×3×3 bcc Fe) is invisible on a
-fixture this small; it is a structural property of the loop, not a measured one here.
+**This table set the default.** Paired with the accuracy measurement below, 2048 is
+where cost and noise meet: 8192 would be a 5 s constructor on a 21-column basis and
+proportionally worse on a production one, for a factor-2 reduction in a noise that is
+already an order of magnitude below the systematic factor the metric removes.
+
+### Accuracy of the estimate (relative standard error of `mⱼ` over 8 seeds)
+
+Measured separately, on bcc Fe 2×2×2 with `lmax = 2` at `nbody = 2` (18 columns) and
+`nbody = 3` (82 columns), as the across-seed spread divided by the across-seed mean:
+
+| `nconfig` | 2-body median / max | 3-body median / max |
+|---|---|---|
+| 256 | 8.5 % / 16.0 % | 9.4 % / 16.4 % |
+| 512 | 6.0 % / 9.7 % | 6.3 % / 11.2 % |
+| 2048 | 3.3 % / 5.3 % | 3.3 % / 6.0 % |
+| 8192 | 1.6 % / 2.8 % | 1.6 % / 2.8 % |
+
+`1/√nconfig` throughout, and **body order barely moves it** — the concern that
+higher-body columns have heavier-tailed `Φ²` and would need a larger ensemble is not
+borne out at these orders.
 
 ### λ path
 
 | | time |
 |---|---|
-| `select_fit`, uniform penalty | 0.7 ms |
-| `select_fit`, basis metric | 0.7 ms |
+| `select_fit`, uniform penalty | 2.5 ms |
+| `select_fit`, basis metric | 2.5 ms |
 
-Ratio 0.95 — no measurable difference, which is the expected result: the metric is one
-extra multiply per column per IRLS step and changes no loop structure. The cost of the
-metric is entirely in its construction, and a caller who wants to avoid it can pass
-`metric = nothing` or reuse a vector across estimators.
+Ratio 1.01 — no difference, which is the expected result: the metric is one extra
+multiply per column per IRLS step and changes no loop structure. The cost of the metric
+is entirely in its construction, which is why `SCEFitting.with_lambda` exists (move one
+estimator along the path rather than rebuilding it per point).
 
-**Follow-up**: the moment channel has no benchmark script at all
-(`bench/` covers clusters, design matrices, SALC build, the solver, and two end-to-end
-fixtures), so `penalty_metric(::MomentBasis)` is unmeasured. Worth adding alongside a
-`bench_moment.jl`.
+**Follow-up**: the moment channel has no benchmark script at all (`bench/` covers
+clusters, design matrices, SALC build, the solver, and two end-to-end fixtures), so
+`penalty_metric(::MomentBasis)` — the chunked path, whose chunk size is a byte budget —
+is unmeasured. Worth adding alongside a `bench_moment.jl`.
 
 ---
 

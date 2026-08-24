@@ -155,10 +155,10 @@ rebuild (`GroupAdaptiveRidge(est.column_groups, est.group_weights; lambda = l)`)
 silently drops the metric, and a dropped metric is indistinguishable from a deliberate
 uniform one — no door will complain. Rebuilding through the basis-aware constructor
 instead re-runs `penalty_metric` at every point, which is the expensive half: the
-metric is a Monte-Carlo average, ~1.6 % relative standard error per column at the
-default `metric_nconfig = 8192` (2.8 % on the worst column, `1/√nconfig` from there),
-and a fraction of a second to seconds depending on the basis. The λ path itself is
-unaffected — the metric is one extra multiply per column per iteration.
+metric is a Monte-Carlo average — ~3.3 % relative standard error per column at the
+default `metric_nconfig = 2048` (5.3 % on the worst column, `1/√nconfig` from there),
+costing 0.56 s on a 54-atom, 21-column basis and rising linearly in both. The λ path
+itself is unaffected — the metric is one extra multiply per column per iteration.
 
 Three things follow from that definition and are worth knowing:
 

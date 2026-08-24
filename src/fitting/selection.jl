@@ -150,7 +150,7 @@ end
 """
     GroupAdaptiveRidge(basis::SCEBasis; lambda, theta = 1.0, epsilon = 1e-8,
                        max_iter = 50, tol = 1e-6, torque_weight = 0.0,
-                       metric = :basis, metric_nconfig = 8192, metric_seed = 1)
+                       metric = :basis, metric_nconfig = 2048, metric_seed = 1)
 
 Cost-weighted group estimator for `basis`: [`salc_groups`](@ref) column labels with the
 fixed [`cost_weights`](@ref)`(basis; theta)` weights, and by default the basis-intrinsic
@@ -165,7 +165,7 @@ mismatch. Pass `metric = nothing` for the unweighted penalty, or a vector of you
 function GroupAdaptiveRidge(basis::SCEBasis; lambda::Real, theta::Real = 1.0,
                             epsilon::Real = 1e-8, max_iter::Integer = 50,
                             tol::Real = 1e-6, torque_weight::Real = 0.0,
-                            metric = :basis, metric_nconfig::Integer = 8192,
+                            metric = :basis, metric_nconfig::Integer = 2048,
                             metric_seed::Integer = 1)
     lw = cost_weights(basis; theta = theta)
     m, pv = _basis_metric(basis, metric, torque_weight, metric_nconfig, metric_seed)
@@ -176,7 +176,7 @@ end
 
 """
     Ridge(basis::SCEBasis; lambda, torque_weight = 0.0, metric = :basis,
-          metric_nconfig = 8192, metric_seed = 1)
+          metric_nconfig = 2048, metric_seed = 1)
 
 Ridge for `basis`, carrying the basis-intrinsic
 [`penalty_metric`](@ref)`(basis; torque_weight, ...)` so that λ means the same thing
@@ -190,7 +190,7 @@ is taken as given; anything else is refused by name. Reuse one metric across a �
 with `SCEFitting.with_lambda` rather than rebuilding it per point.
 """
 function Ridge(basis::SCEBasis; lambda::Real, torque_weight::Real = 0.0,
-               metric = :basis, metric_nconfig::Integer = 8192,
+               metric = :basis, metric_nconfig::Integer = 2048,
                metric_seed::Integer = 1)
     m, pv = _basis_metric(basis, metric, torque_weight, metric_nconfig, metric_seed)
     return Ridge(lambda, m, pv)
@@ -198,7 +198,7 @@ end
 
 """
     AdaptiveRidge(basis::SCEBasis; lambda, epsilon = 1e-8, max_iter = 50, tol = 1e-6,
-                  torque_weight = 0.0, metric = :basis, metric_nconfig = 8192,
+                  torque_weight = 0.0, metric = :basis, metric_nconfig = 2048,
                   metric_seed = 1)
 
 The per-coefficient adaptive ridge for `basis`, carrying the basis-intrinsic
@@ -208,7 +208,7 @@ The per-coefficient adaptive ridge for `basis`, carrying the basis-intrinsic
 function AdaptiveRidge(basis::SCEBasis; lambda::Real, epsilon::Real = 1e-8,
                        max_iter::Integer = 50, tol::Real = 1e-6,
                        torque_weight::Real = 0.0, metric = :basis,
-                       metric_nconfig::Integer = 8192, metric_seed::Integer = 1)
+                       metric_nconfig::Integer = 2048, metric_seed::Integer = 1)
     m, pv = _basis_metric(basis, metric, torque_weight, metric_nconfig, metric_seed)
     return AdaptiveRidge(; lambda = lambda, epsilon = epsilon, max_iter = max_iter,
                          tol = tol, metric = m, metric_provenance = pv)
@@ -228,7 +228,7 @@ function _basis_metric(basis::SCEBasis, metric, torque_weight::Real, nconfig::In
 end
 
 """
-    penalty_metric(basis::SCEBasis; torque_weight = 0.0, nconfig = 8192, seed = 1)
+    penalty_metric(basis::SCEBasis; torque_weight = 0.0, nconfig = 2048, seed = 1)
         -> Vector{Float64}
 
 The per-column penalty scale of `basis`: one entry per SALC column, in design-column
@@ -269,7 +269,7 @@ Julia versions; the estimate converges as `1/√nconfig` to a closed-form expect
 The default is sized from that convergence, not guessed. Measured on bcc Fe 2×2×2
 (`lmax = 2`, 2- and 3-body columns) as the spread of `mⱼ` over eight independent
 seeds: the relative standard error is **1.6 % median / 2.8 % worst column at
-`nconfig = 8192`**, and 3.3 % / 5.3 % at 2000. Body order barely moves it (2-body and
+`nconfig = 2048`**, and 3.3 % / 5.3 % at 2000. Body order barely moves it (2-body and
 3-body columns agree within the spread), so `1/√nconfig` from these numbers sizes any
 basis. That residual is a seed-dependent wobble on the *prior*, an order of magnitude
 smaller than the systematic factor the metric removes — orbit size times the ordering
@@ -281,7 +281,7 @@ See also [`Ridge`](@ref)`(basis; ...)` and [`GroupAdaptiveRidge`](@ref)`(basis; 
 which attach the metric and its provenance for you.
 """
 function penalty_metric(basis::SCEBasis; torque_weight::Real = 0.0,
-                        nconfig::Integer = 8192, seed::Integer = 1)::Vector{Float64}
+                        nconfig::Integer = 2048, seed::Integer = 1)::Vector{Float64}
     w = Float64(torque_weight)
     (isfinite(w) && 0 <= w <= 1) ||
         throw(ArgumentError("torque_weight must be in [0, 1]; got $torque_weight"))
