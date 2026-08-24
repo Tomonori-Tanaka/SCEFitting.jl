@@ -7,10 +7,8 @@
 
 # SCOPE NOTE on body order: the acceptance cases pin `nbody = 3` (energy cases 2 or
 # 3), because their reference numbers were taken there. The pointed body-order DOOR is
-# covered separately by the `nbody = 4` case at the end of the FeGe block, added when
-# the generalization was ported upstream — without it the two engines could diverge at
-# N = 4 with this gate green, which is what the ledger's "Pointed body order" row used
-# to warn about.
+# covered separately by the `nbody = 4` case at the end of the FeGe block. Without it
+# the two engines can diverge at N = 4 with this gate green.
 
 
 using Test
@@ -262,6 +260,13 @@ _skip(msg) = (@warn msg; @test_skip false)
             # 3-body basis would satisfy every parity assertion below
             n4a = count(k -> k.body == 4, mb4a.salc_basis.keys)
             @test n4a == count(k -> k.body == 4, mb4b.salc_basis.keys) > 0
+            # The cross-package equalities are the oracle; the literals `43` and
+            # `[1, 24, 10, 8]` are a REGRESSION PIN — a change detector, not evidence
+            # of correctness (what makes the sector correct is the absolute
+            # normalization oracle in test/unit/test_momentbasis.jl). Captured
+            # 2026-08-25 on this fixture (FeGe B20 2x2x2, the spec above). Recapture
+            # only when the truncation deliberately changes; a move with the spec
+            # unchanged is the bug the pin exists to catch.
             @test SCEFitting.n_salcs(mb4a) == SLCE.n_salcs(mb4b) == 43
             @test [count(k -> k.body == b, mb4a.salc_basis.keys) for b = 1:4] ==
                   [count(k -> k.body == b, mb4b.salc_basis.keys) for b = 1:4] ==

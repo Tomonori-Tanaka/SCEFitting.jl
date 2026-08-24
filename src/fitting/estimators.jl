@@ -661,7 +661,9 @@ _estimator_provenance(e::AdaptiveLasso) = _estimator_provenance(e.pilot)
 
 `estimator` at a new penalty strength, with everything else carried forward — the
 group labels and weights, the IRLS controls, and, decisively, the **penalty metric and
-its provenance**.
+its provenance**. Defined for the three quadratic-penalty estimators (`Ridge`,
+`AdaptiveRidge`, `GroupAdaptiveRidge`); the GLMNet-backed ones select their own λ by
+cross-validation and have no single point to move.
 
 Rebuilding a penalized estimator by hand for a λ sweep (`GroupAdaptiveRidge(
 est.column_groups, est.group_weights; lambda = λ)`) silently drops the metric, and a

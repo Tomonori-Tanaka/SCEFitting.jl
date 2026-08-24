@@ -248,32 +248,29 @@ function _moment_cutoff_from_input(x, labels::Vector{String}, key::String)
     x isa AbstractDict ||
         throw(ArgumentError("$what must be a number or a species-pair table"))
     any(_is_bodykey, keys(x)) &&
-        throw(ArgumentError("$what: body-order keys are not accepted here — " *
-                            "`cutoff_pair` is one radius for the 2-body clusters, and " *
-                            "a per-order star table belongs directly under " *
-                            "`[moment.cutoff_star]`; give a scalar or a species-pair " *
-                            "table"))
+        throw(ArgumentError("$what: body-order keys are not accepted at this level. " *
+                            "`cutoff_pair` is one radius for the 2-body clusters; a " *
+                            "per-order star table belongs directly under " *
+                            "`[moment.cutoff_star]`, and each of ITS entries is a " *
+                            "scalar or a species-pair table"))
     return _resolve_pair_table(_pairtable_from_input(x, what), length(labels), labels, what)
 end
 
 # `cutoff_star` is the one pointed cutoff that IS per body order (a 4-body probe is
-# only affordable on a shell narrower than the 3-body one). Keys must cover exactly
-# `3:nbody`: an incomplete table would leave an order silently at the default, and the
-# vector handed to `MomentSpec` is positional.
-function _moment_star_cutoff_from_input(x, labels::Vector{String}, nbody::Int)
+# only affordable on a shell narrower than the 3-body one). A body-keyed table is
+# converted to the body-keyed PAIR form `MomentSpec` takes, so the "keys must cover
+# exactly 3:nbody" rule stays where every other range check is — in the constructor —
+# rather than being enforced twice with two messages. Syntax is this function's only
+# business: body keys must not be mixed with species-pair keys.
+function _moment_star_cutoff_from_input(x, labels::Vector{String})
     what = "[moment].cutoff_star"
     (x isa AbstractDict && any(_is_bodykey, keys(x))) ||
         return _moment_cutoff_from_input(x, labels, "cutoff_star")
     all(_is_bodykey, keys(x)) ||
         throw(ArgumentError("$what mixes body-order keys with species-pair keys"))
-    want = collect(3:nbody)
-    got = sort([parse(Int, String(k)) for k in keys(x)])
-    got == want || throw(ArgumentError(
-        "$what: body-order keys must be exactly $want for nbody = $nbody; got $got. " *
-        "Stars start at body order 3, and every order needs its own entry — a scalar " *
-        "or a species-pair table directly under `cutoff_star` applies to all of them"))
-    return Any[_moment_cutoff_from_input(x[string(N)], labels, "cutoff_star.$N")
-               for N in want]
+    ks = sort([parse(Int, String(k)) for k in keys(x)])
+    return [N => _moment_cutoff_from_input(x[string(N)], labels, "cutoff_star.$N")
+            for N in ks]
 end
 
 function _moment_scalar(d, key::String, ::Type{T}, kind::String, default) where {T}
@@ -311,7 +308,7 @@ function _moment_from_input(d, labels::Vector{String})::MomentSpec
                                             labels, "cutoff_pair")
     nbody = _moment_scalar(d, "nbody", Int, "an integer", 3)
     cutoff_star = haskey(d, "cutoff_star") ?
-        _moment_star_cutoff_from_input(d["cutoff_star"], labels, nbody) : nothing
+        _moment_star_cutoff_from_input(d["cutoff_star"], labels) : nothing
     lmax_mark = _moment_scalar(d, "lmax_mark", Int, "an integer", 2)
     lsum = _moment_lsum_from_input(d)
     isotropy = _moment_scalar(d, "isotropy", Bool, "a boolean", true)

@@ -23,7 +23,7 @@ julia --project=bench bench/bench_design_matrix.jl [n] [m] [lmax] [cutoff] # ene
 julia --project=bench bench/bench_solver.jl                               # OLS vs Ridge solve, size sweep
 julia --project=bench bench/bench_end_to_end.jl    [n] [m] [lmax] [cutoff] # SCEBasis build + fits
 julia --project=bench bench/bench_nd2fe14b.jl      [nbody] [m] [cutoff]   # realistic multi-species case
-julia --project=bench bench/bench_moment.jl   [n] [pair] [star3] [star4]  # pointed moment basis, per stage
+julia --project=bench bench/bench_moment.jl [n] [cutoff_pair] [star3] [star4]  # pointed moment basis, per stage
 ```
 
 Positional arguments are optional. **Defaults are the recorded stress baselines**

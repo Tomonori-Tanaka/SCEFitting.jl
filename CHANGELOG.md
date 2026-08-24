@@ -8,6 +8,14 @@ release, so everything lives under *Unreleased*.
 
 ### Added — the pointed moment basis takes four bodies (2026-08-25)
 
+- **`Threads.@threads :greedy`** on the `MomentBasis` orbit loop, the
+  `penalty_metric(::SCEBasis)` column loop and `_design_moment`'s column loop. All three
+  emit work in ascending body order, so the expensive items are contiguous at the END —
+  and the default schedule (and `:dynamic`, which differs only in thread affinity) cuts
+  the range into one contiguous chunk per thread, putting every high-body item in the
+  last chunk. Bitwise identical at any schedule; the 4-body build drops 5.73 s → 4.36 s
+  on the recorded fixture.
+
 - `MomentSpec(; nbody)` accepts 4. The enumeration, the labels and the star
   candidates were rewritten for general `N` first (no numerical change: the pointed
   pin's members, tensor entries and fit are bit-identical across that rewrite), and
@@ -63,7 +71,7 @@ release, so everything lives under *Unreleased*.
   member generation, orbit reduction, the whole build, the resolvability gate, and the
   two per-fit sweeps — plus TTFX from a cold child process. The wall turns out to be
   the SALC projection: enumeration is under 2 % of the build at either order, and
-  going from three bodies to four costs +3.7 s of projection for 12 extra columns
+  going from three bodies to four costs +2.2 s of projection for 12 extra columns
   (`bench/BENCH_LOG.md`).
 
 ### Added — λ selection for the moment channel (2026-08-24)

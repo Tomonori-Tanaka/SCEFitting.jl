@@ -790,7 +790,8 @@ function _pointed_metric(mb::MomentBasis, metric, free_intercepts::Bool,
     metric === :basis || return (_checked_metric_keyword(metric), nothing)
     m = penalty_metric(mb; free_intercepts = free_intercepts, nconfig = nconfig,
                        seed = seed)
-    pv = MetricProvenance(:moment, 0.0, nconfig, seed, mb.salc_basis.fingerprint)
+    pv = MetricProvenance(:moment, 0.0, free_intercepts, nconfig, seed,
+                          mb.salc_basis.fingerprint)
     return (m, pv)
 end
 

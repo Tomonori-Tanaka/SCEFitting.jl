@@ -202,14 +202,21 @@ time, which is usually the opposite of what a four-body probe wants, so the radi
 
 ```julia
 spec = MomentSpec(; lmax_env = [2], sampled = [true], nbody = 4,
-                  cutoff_pair = 4.1,
+                  cutoff_pair = 4.1, lsum = 4,
                   cutoff_star = [4.1, 2.5])   # 3-body to 3NN, 4-body to 1NN only
 ```
 
-On that same bcc Fe cell the second entry is the difference between a four-body
-sector of thousands of columns and one of tens, at 5,400 design rows. The star
-neighbour list is built once, at the elementwise envelope of the per-order radii;
-each order then filters on its own.
+(The body-keyed form `cutoff_star = [3 => 4.1, 4 => 2.5]`, or a `Dict`, says the same
+thing without asking you to get the offset right; it is what the TOML reader emits.)
+
+On that same 54-atom bcc Fe cell the second entry is what decides whether the
+four-body sector is reachable at all. At the first shell it is 72,576 star members
+reducing to 3 symmetry orbits and 12 columns; held at the 3NN radius the same sector
+is 2,774,736 members and 115,614 orbits — a column count in the tens of thousands
+against the 5,400 design rows a 100-configuration training set of this cell provides
+(100 configurations × 54 marked atoms), so it is out of reach on statistics before it
+is out of reach on memory. The star neighbour list is built once, at the elementwise
+envelope of the per-order radii; each order then filters on its own.
 
 ## Fitting and predicting
 

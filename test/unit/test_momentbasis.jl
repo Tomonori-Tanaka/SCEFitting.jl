@@ -674,7 +674,7 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
                          cutoff_pair = 1.8, cutoff_star = 1.1, lsum = 4,
                          isotropy = true)
         mb4c = MomentBasis(csc, sp4; backend = _MBFixedSG(sgc))
-        nl4 = SCEFitting.build_neighbor_list(csc, sp4.cutoff_star[2],
+        nl4 = SCEFitting.build_neighbor_list(csc, SCEFitting._star_cutoff(sp4, 4),
                                              SCEFitting.MinimumImage(); tol = 1e-8)
         @test length(SCEFitting._pointed_star_candidates(csc, nl4, sp4, 4)) ==
               L^3 * binomial(6, 3) * factorial(4)

@@ -26,7 +26,7 @@ the parent runs it if `bench/Manifest.toml` is missing. Never edit `src/`.
 | `make bench-solver` | OLS vs Ridge solve, size sweep (`fitting/estimators.jl`) | Estimator changes |
 | `make bench-end-to-end` | `SCEBasis` build + fits | Whole-pipeline regressions |
 | `make bench-nd2fe14b` | Realistic 68-atom, 9-species, low-symmetry case | The many-orbit / few-ops regime and the co-fit solve |
-| `make bench-moment` | Pointed `MomentBasis`, five stages split (`basis/momentbasis.jl`) | Body-order / `cutoff_star` changes, pointed projection cost, TTFX |
+| `make bench-moment` | Pointed `MomentBasis`, per-stage split (`basis/momentbasis.jl`) | Body-order / `cutoff_star` changes, pointed projection cost, TTFX |
 
 ### Direct script execution
 

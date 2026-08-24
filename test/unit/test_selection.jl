@@ -597,18 +597,27 @@ end
         bad_basis = GroupAdaptiveRidge(
             salc_groups(basis), ones(maximum(salc_groups(basis))); lambda = 1e-3,
             metric = good,
-            metric_provenance = MetricProvenance(:energy, 0.0, 2000, 1, fp + 0x1))
+            metric_provenance = MetricProvenance(:energy, 0.0, false, 2000, 1, fp + 0x1))
         @test_throws ArgumentError fit(SCEFit, ds_p, bad_basis)
         bad_channel = GroupAdaptiveRidge(
             salc_groups(basis), ones(maximum(salc_groups(basis))); lambda = 1e-3,
             metric = good,
-            metric_provenance = MetricProvenance(:moment, 0.0, 2000, 1, fp))
+            metric_provenance = MetricProvenance(:moment, 0.0, true, 2000, 1, fp))
         @test_throws ArgumentError fit(SCEFit, ds_p, bad_channel)
         # a metric taken at w = 0 is refused for a co-fit: the assembled design mixes
         # the two blocks by w, so the column scales move with it
         est_w0 = GroupAdaptiveRidge(basis; lambda = 1e-3, torque_weight = 0.0)
         @test_throws ArgumentError select_fit(ds_p, est_w0; lambdas = [1e-3],
                                               torque_weight = 0.5)
+        # a mistyped sentinel is refused BY NAME wherever a metric is validated —
+        # the plain keyword constructors included, which is where a user who read
+        # `Ridge(basis; ...)` first would reach for it. Falling through would die
+        # inside `Vector{Float64}(::Symbol)` with a bare MethodError.
+        for bad_sentinel in (:base, :Basis, :default)
+            @test_throws ArgumentError Ridge(; lambda = 1.0, metric = bad_sentinel)
+            @test_throws ArgumentError AdaptiveRidge(; lambda = 1.0,
+                                                     metric = bad_sentinel)
+        end
         # a hand-built metric with no provenance is the caller's business and passes
         hand = GroupAdaptiveRidge(salc_groups(basis),
                                   ones(maximum(salc_groups(basis))); lambda = 1e-3,

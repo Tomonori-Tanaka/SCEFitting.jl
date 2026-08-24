@@ -33,18 +33,46 @@ Not a before/after either: body order 4 did not exist before this spec, and **bo
 order 3 is unchanged bit-for-bit** (the pin tier holds that). The N = 3 column is the
 regression baseline for later work; the N = 4 column is what raising the door costs.
 
+Read the two columns carefully: rows **(a)** and **(b)** are that body order ALONE
+(the stage is called once per order), while **(c)**–**(f)** are the whole `nbody = N`
+build or the whole basis — so (c) at N = 4 contains the 3-body work of the N = 3 row.
+"(a)+(b) is 2 % of (c)" below uses that reading.
+
 | Stage | N = 3 (med) | N = 4 (med) | note |
 |---|---|---|---|
 | (a) star members | 12 ms / 38 MiB | 4 ms / 25 MiB | 76,788 vs 72,576 members |
 | (b) orbit reduction | 26 ms / 45 MiB | 14 ms / 25 MiB | 14 vs 3 orbits |
-| (c) whole `MomentBasis` | **2.07 s / 6.5 GiB** | **5.73 s / 13.3 GiB** | 83 vs 95 SALCs |
-| (d) `moment_resolvability` | 1.30 s / 1.9 GiB | 1.86 s / 2.6 GiB | uncached (see below) |
-| (e) `_design_moment`, 8 cfg | 65 ms / 61 MiB | 73 ms / 72 MiB | |
-| (e) `penalty_metric`, 256 cfg | 1.66 s / 1.9 GiB | 2.00 s / 2.2 GiB | |
-| (f) TTFX (cold process → first basis) | 12.1 s | 17.9 s | child process, `Val`-free path |
+| (c) whole `MomentBasis` | **2.15 s / 6.5 GiB** | **4.36 s / 13.3 GiB** | 83 vs 95 SALCs |
+| (d) `moment_resolvability` | 1.54 s / 1.9 GiB | 1.88 s / 2.6 GiB | uncached (see below) |
+| (e) `_design_moment`, 8 cfg | 63 ms / 61 MiB | 64 ms / 72 MiB | |
+| (e) `penalty_metric`, 256 cfg | 1.47 s / 1.9 GiB | 1.81 s / 2.2 GiB | |
+| (f) TTFX (cold process, start → exit) | 9.5 s | 13.0 s | child at 4 threads |
+
+### Before / after: `Threads.@threads :greedy` (review panel, same session)
+
+Three loops were on the default schedule, which cuts the index range into one
+**contiguous** chunk per thread — and in all three the expensive iterations are
+contiguous **at the end** (orbits and columns are emitted in ascending body order, and
+both projection and column evaluation grow steeply with it). So every high-body item
+landed in the last chunk and ran serially while the other threads idled. `:dynamic`
+would not have helped: it is the same chunking, differing only in thread affinity.
+`:greedy` hands out iterations individually. Each task writes only its own slot and the
+output is re-sorted by key, so the result is **bitwise identical at any schedule** —
+`make test-pin` is unchanged (104, no recapture) and the threaded ≡ serial gates stay
+green.
+
+| Loop | before | after |
+|---|---|---|
+| `MomentBasis` orbit loop → stage (c), N = 4 | 5.73 s | **4.36 s** (−24 %) |
+| `MomentBasis` orbit loop → stage (c), N = 3 | 2.07 s | 2.15 s (+4 %, within this stage's noise — 14 orbits over 4 threads is barely skewed, and the stage allocates 6.5 GiB) |
+| `penalty_metric(::SCEBasis)` column loop, N = 4 basis | 2.00 s | **1.81 s** (−10 %) |
+| `_design_moment` column loop (was `:dynamic`) | 73 ms | 64 ms (−12 %) |
+
+The N = 4 build is where it pays: 3 four-body orbits against 4 threads is the worst
+case for contiguous chunking. A basis with more, more uniform orbits will see less.
 
 **What the split says.** The wall is the **SALC projection**, not the enumeration:
-(a) + (b) is under 2 % of (c) at either order. Raising the door to 4 costs **+3.7 s of
+(a) + (b) is under 2 % of (c) at either order. Raising the door to 4 costs **+2.2 s of
 projection for 12 extra columns** — the Reynolds projector's `eigen(Symmetric(P))` runs
 on a per-block carrier of dimension `assignments × paths × (2L_f+1)`, and the 4-body
 label `(0; 1, 1, 2)` has three assignments where the 3-body ones have one. Design-matrix
@@ -63,10 +91,19 @@ the basis, so timing that call reports the cache (0.000 ms). Stage (d) passes
 `rtol = 1e-10` — the same value, explicitly — to take the same work uncached. Anyone
 re-running this must keep that, or the row silently becomes a cache-hit benchmark.
 
+**The first TTFX take (12.1 s / 17.9 s) was discarded, not carried forward.** It was
+invalid three ways, all in the child-process harness: `setenv` REPLACED the child's
+environment rather than extending it, so the Makefile's `JULIA_NUM_THREADS = 4` was
+dropped and `Base.julia_cmd()` does not carry `-t` — the child built single-threaded
+inside a 4-thread table; and the clock was started inside the child, after `using
+SCEFitting` and the Spglib extension load, so the window excluded exactly the package
+load TTFX is about. The harness now uses `addenv`, passes `-t` explicitly, and times
+the child from the parent. The 9.5 / 13.0 s in the table above are the corrected take,
+and they are not comparable to the discarded pair.
+
 **Follow-ups (not done here).** `_eval_term_mixed` is not `Val(D)`-specialized, and the
 `N!` re-anchoring expands every translation class instead of carrying a multiplicity
 weight; both were deliberately left alone because bit-identity at `N ≤ 3` came first.
-The TTFX gap (12.1 → 17.9 s) is the first place a `Val` barrier would show.
 
 ## Penalty metric: construction cost and λ-path neutrality — 2026-08-24
 

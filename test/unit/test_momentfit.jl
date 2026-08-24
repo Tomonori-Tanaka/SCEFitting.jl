@@ -1156,7 +1156,7 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         # a metric built for the energy channel is refused here
         bad = Ridge(; lambda = 1.0, metric = ones(size(ds.X, 2)),
                     metric_provenance = MetricProvenance(
-                        :energy, 0.0, 100, 1, mb.salc_basis.fingerprint))
+                        :energy, 0.0, false, 100, 1, mb.salc_basis.fingerprint))
         @test_throws ArgumentError cross_validate(ds, bad)
         @test_throws ArgumentError fit(MomentFit, ds, bad)
         # too few configurations for two folds
