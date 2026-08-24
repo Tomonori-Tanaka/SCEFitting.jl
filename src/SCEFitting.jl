@@ -11,7 +11,7 @@ diagnostics, persistence, Sunny export, introspection) is realized; see `SPEC.md
 module SCEFitting
 
 using LinearAlgebra: norm, det, I, eigen, eigvals, svdvals, svd, Symmetric, Diagonal,
-    dot, cross, qr, qr!, ColumnNorm
+    dot, cross, qr, qr!, ColumnNorm, cholesky, issuccess
 using StaticArrays
 using Statistics: mean, quantile, std
 using Random: AbstractRNG, default_rng
@@ -117,6 +117,7 @@ export coeftable, SCECoefficients
 # model selection: GCV / effective dof (linear estimators), the cost-aware λ path,
 # and the threshold-swept refit front
 export gcv, effective_dof, select_fit, SelectionPath, select_support, SupportPath
+export penalty_metric, MetricProvenance
 export cross_validate, CVResult
 export to_sunny
 # Fitted-model introspection: a code-neutral view of the multipole / bilinear terms of a

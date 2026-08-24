@@ -149,18 +149,212 @@ end
 
 """
     GroupAdaptiveRidge(basis::SCEBasis; lambda, theta = 1.0, epsilon = 1e-8,
-                       max_iter = 50, tol = 1e-6)
+                       max_iter = 50, tol = 1e-6, torque_weight = 0.0,
+                       metric = :basis, metric_nconfig = 2000, metric_seed = 1)
 
 Cost-weighted group estimator for `basis`: [`salc_groups`](@ref) column labels with the
-fixed [`cost_weights`](@ref)`(basis; theta)` weights. See the primary
-[`GroupAdaptiveRidge`](@ref) constructor for the estimator itself.
+fixed [`cost_weights`](@ref)`(basis; theta)` weights, and by default the basis-intrinsic
+[`penalty_metric`](@ref)`(basis; torque_weight, ...)`. See the primary
+[`GroupAdaptiveRidge`](@ref) constructor for the estimator itself, and
+[`penalty_metric`](@ref) for what the metric does and why it is on by default.
+
+`torque_weight` must be the weight the fit will run at — the metric is a property of
+the assembled design, which mixes the two blocks by it, and the fitting doors refuse a
+mismatch. Pass `metric = nothing` for the unweighted penalty, or a vector of your own.
 """
 function GroupAdaptiveRidge(basis::SCEBasis; lambda::Real, theta::Real = 1.0,
                             epsilon::Real = 1e-8, max_iter::Integer = 50,
-                            tol::Real = 1e-6)
+                            tol::Real = 1e-6, torque_weight::Real = 0.0,
+                            metric = :basis, metric_nconfig::Integer = 2000,
+                            metric_seed::Integer = 1)
     lw = cost_weights(basis; theta = theta)
+    m, pv = _basis_metric(basis, metric, torque_weight, metric_nconfig, metric_seed)
     return GroupAdaptiveRidge(lw.labels, lw.weights; lambda = lambda, epsilon = epsilon,
-                              max_iter = max_iter, tol = tol)
+                              max_iter = max_iter, tol = tol, metric = m,
+                              metric_provenance = pv)
+end
+
+"""
+    Ridge(basis::SCEBasis; lambda, torque_weight = 0.0, metric = :basis,
+          metric_nconfig = 2000, metric_seed = 1)
+    AdaptiveRidge(basis::SCEBasis; lambda, epsilon = 1e-8, max_iter = 50, tol = 1e-6,
+                  torque_weight = 0.0, metric = :basis, metric_nconfig = 2000,
+                  metric_seed = 1)
+
+The plain and per-coefficient adaptive ridge carrying the basis-intrinsic
+[`penalty_metric`](@ref)`(basis; torque_weight, ...)`, so that λ means the same thing
+across the three penalized estimators. `torque_weight` must match the fit's.
+"""
+function Ridge(basis::SCEBasis; lambda::Real, torque_weight::Real = 0.0,
+               metric = :basis, metric_nconfig::Integer = 2000,
+               metric_seed::Integer = 1)
+    m, pv = _basis_metric(basis, metric, torque_weight, metric_nconfig, metric_seed)
+    return Ridge(lambda, m, pv)
+end
+
+function AdaptiveRidge(basis::SCEBasis; lambda::Real, epsilon::Real = 1e-8,
+                       max_iter::Integer = 50, tol::Real = 1e-6,
+                       torque_weight::Real = 0.0, metric = :basis,
+                       metric_nconfig::Integer = 2000, metric_seed::Integer = 1)
+    m, pv = _basis_metric(basis, metric, torque_weight, metric_nconfig, metric_seed)
+    return AdaptiveRidge(; lambda = lambda, epsilon = epsilon, max_iter = max_iter,
+                         tol = tol, metric = m, metric_provenance = pv)
+end
+
+# Resolve the `metric` keyword of a basis-aware constructor: `:basis` builds the
+# reference metric and stamps its provenance, anything else is taken as given (and
+# carries no provenance — the caller owns it).
+function _basis_metric(basis::SCEBasis, metric, torque_weight::Real, nconfig::Integer,
+                       seed::Integer)
+    metric === :basis || return (metric, nothing)
+    m = penalty_metric(basis; torque_weight = torque_weight, nconfig = nconfig,
+                       seed = seed)
+    pv = MetricProvenance((:energy, Float64(torque_weight), Int(nconfig), Int(seed),
+                           basis.salc_basis.fingerprint))
+    return (m, pv)
+end
+
+# --- the penalty metric -----------------------------------------------------------
+
+# SplitMix64 (Steele, Lea & Flood 2014), the reference-ensemble generator. Julia's
+# `MersenneTwister` stream carries no cross-version stability guarantee, and this
+# metric enters EVERY penalized coefficient — a stream that drifted between Julia
+# releases would silently move every recorded penalized fit and every regression pin
+# without a line of this package changing. SplitMix64 is fully specified by the four
+# constants below, so the sequence is fixed for good.
+@inline function _splitmix64(state::UInt64)::Tuple{UInt64,UInt64}
+    s = state + 0x9e3779b97f4a7c15
+    z = s
+    z = (z ⊻ (z >> 30)) * 0xbf58476d1ce4e5b9
+    z = (z ⊻ (z >> 27)) * 0x94d049bb133111eb
+    return s, z ⊻ (z >> 31)
+end
+
+# `nconfig` uniform-random spin configurations on `nat` atoms — the reference ensemble
+# the penalty metric averages over. Uniformity on the sphere is exact rather than
+# approximate: `cosθ` uniform on [−1, 1) with `φ` uniform on [0, 2π) is the Archimedes
+# construction, so there is no rejection loop and no normal deviate (either would make
+# the stream depend on library internals the constants above are chosen to avoid).
+function _reference_configs(nat::Int, nconfig::Int, seed::Int)::Vector{Matrix{Float64}}
+    nat >= 1 || throw(ArgumentError("nat must be ≥ 1; got $nat"))
+    nconfig >= 2 || throw(ArgumentError(
+        "the reference ensemble needs ≥ 2 configurations to carry a variance; got " *
+        "$nconfig"))
+    seed >= 0 || throw(ArgumentError("seed must be ≥ 0; got $seed"))
+    state = UInt64(seed)
+    cfgs = Vector{Matrix{Float64}}(undef, nconfig)
+    for c = 1:nconfig
+        e = Matrix{Float64}(undef, 3, nat)
+        for a = 1:nat
+            state, z1 = _splitmix64(state)
+            state, z2 = _splitmix64(state)
+            ez = 2.0 * (Float64(z1 >> 11) * 0x1p-53) - 1.0
+            phi = 2π * (Float64(z2 >> 11) * 0x1p-53)
+            r = sqrt(max(0.0, 1.0 - ez * ez))
+            e[1, a] = r * cos(phi)
+            e[2, a] = r * sin(phi)
+            e[3, a] = ez
+        end
+        cfgs[c] = e
+    end
+    return cfgs
+end
+
+# An accidental zero in a metric would silently unpenalize a column. Zero is reserved
+# for a STRUCTURAL exemption (an intercept, an identically vanishing column), so a
+# numerically-zero estimate is refused rather than floored.
+function _refuse_zero_metric(m::Vector{Float64}, what::AbstractString)
+    z = findall(iszero, m)
+    isempty(z) && return nothing
+    throw(ArgumentError(
+        "$what: columns $z have zero reference norm. Zero marks an unpenalized " *
+        "column, so it is reserved for a structural exemption and never inferred " *
+        "from a sample. A column that is identically zero on the reference ensemble " *
+        "carries no information and should be removed from the basis."))
+end
+
+"""
+    penalty_metric(basis::SCEBasis; torque_weight = 0.0, nconfig = 2000, seed = 1)
+        -> Vector{Float64}
+
+The per-column penalty scale of `basis`: one entry per SALC column, in design-column
+(`SALCKey`) order, for the `metric` field of [`Ridge`](@ref) / [`AdaptiveRidge`](@ref) /
+[`GroupAdaptiveRidge`](@ref).
+
+`λ·Σⱼβⱼ²` is not invariant under rescaling a design column, and SALC column norms are
+set by basis conventions — an orbit's member count, and the ordering multiplicity the
+member fold absorbs — rather than by physics. A larger column norm means a smaller
+fitted coefficient at the same physical effect, hence *less* shrinkage: the plain
+penalty carries an accidental prior in favour of large orbits and high body order.
+Weighting the penalty by `mⱼ` removes it, leaving whatever prior the caller states
+deliberately (the `theta` of [`cost_weights`](@ref)).
+
+The scale is the reference norm of the column **as the estimator sees it** — the
+assembled, centered / whitened design of `_assemble_problem` at this `torque_weight`:
+
+    mⱼ(w) = (1 − w)·Var[Φⱼ] + w·(1 / 3n_atoms)·E[ Σ_a ‖(∂Φⱼ/∂e_a) × e_a‖² ]
+
+with both moments taken over `nconfig` independent uniform-random spin configurations.
+The torque term's `1/(3·n_atoms)` is the per-row average the assembly's `√(w/n_T)`
+already applies (`n_T = n_E·3·n_atoms`); dropping it would misscale the two blocks
+against each other by the atom count.
+
+The metric is a property of the **basis**, not of the training data — deliberately, so
+that λ can be compared between cells, so that cross-validation needs no per-fold
+recomputation to stay leak-free, and so the prior sits on the function space rather
+than on how strongly a particular training set happened to excite each column. The
+price is that a column the reference ensemble excites weakly but the training data
+drives hard is effectively under-penalized; `nothing` (uniform) remains available, and
+the ratio `mⱼ / Var_train[Φⱼ]` is worth looking at when the training set is far from
+uniform (near-collinear low-temperature configurations, say).
+
+`nconfig` / `seed` control the reference ensemble. The generator is specified inside
+this package rather than taken from `Random`, so the sequence does not move between
+Julia versions; the estimate converges as `1/√nconfig` to a closed-form expectation.
+
+See also [`Ridge`](@ref)`(basis; ...)` and [`GroupAdaptiveRidge`](@ref)`(basis; ...)`,
+which attach the metric and its provenance for you.
+"""
+function penalty_metric(basis::SCEBasis; torque_weight::Real = 0.0,
+                        nconfig::Integer = 2000, seed::Integer = 1)::Vector{Float64}
+    w = Float64(torque_weight)
+    (isfinite(w) && 0 <= w <= 1) ||
+        throw(ArgumentError("torque_weight must be in [0, 1]; got $torque_weight"))
+    nat = n_atoms(basis.crystal)
+    cfgs = _reference_configs(nat, Int(nconfig), Int(seed))
+    sal = basis.salc_basis.salcs
+    p = length(sal)
+    K = length(cfgs)
+    m = Vector{Float64}(undef, p)
+    # Columns are independent and each task owns one, so the result is identical at
+    # any thread count. The torque block is accumulated, never materialized: the full
+    # `K·3·n_atoms × p` design would be hundreds of MB for a supercell basis.
+    Threads.@threads for j = 1:p
+        scratch = SALCScratch()
+        G = Matrix{Float64}(undef, 3, nat)
+        s1 = 0.0
+        s2 = 0.0
+        st = 0.0
+        @inbounds for c in cfgs
+            phi = evaluate_salc(sal[j], c, scratch)
+            s1 += phi
+            s2 += phi * phi
+            w == 0.0 && continue
+            fill!(G, 0.0)
+            accumulate_grad!(G, sal[j], c, 1.0, scratch)
+            for a = 1:nat
+                ea = SVector{3,Float64}(c[1, a], c[2, a], c[3, a])
+                ga = SVector{3,Float64}(G[1, a], G[2, a], G[3, a])
+                st += sum(abs2, cross(ga, ea))
+            end
+        end
+        # Clamped: the two-pass identity is exact in real arithmetic, and a column
+        # whose variance is genuinely zero can land at −1e-30 here.
+        varj = max(0.0, s2 / K - (s1 / K)^2)
+        m[j] = (1 - w) * varj + w * (st / K) / (3 * nat)
+    end
+    _refuse_zero_metric(m, "penalty_metric(::SCEBasis)")
+    return m
 end
 
 # --- GCV / effective degrees of freedom -------------------------------------------
@@ -174,22 +368,24 @@ end
 _penalty_diagonal(::OLS, beta::Vector{Float64}) = (0.0, nothing)
 function _penalty_diagonal(est::Ridge, beta::Vector{Float64})
     est.lambda == 0.0 && return (0.0, nothing)
-    return (est.lambda, ones(Float64, length(beta)))
+    return (est.lambda, _metric_vector(est.metric, length(beta), "Ridge"))
 end
 function _penalty_diagonal(est::AdaptiveRidge, beta::Vector{Float64})
     est.lambda == 0.0 && return (0.0, nothing)
-    return (est.lambda, @.(1.0 / (beta^2 + est.epsilon)))
+    m = _metric_vector(est.metric, length(beta), "AdaptiveRidge")
+    return (est.lambda, @.(m / (m * beta^2 + est.epsilon)))
 end
 function _penalty_diagonal(est::GroupAdaptiveRidge, beta::Vector{Float64})
     est.lambda == 0.0 && return (0.0, nothing)
     length(beta) == length(est.column_groups) || throw(DimensionMismatch(
         "coefficient length $(length(beta)) ≠ column_groups length " *
         "$(length(est.column_groups))"))
-    w = Vector{Float64}(undef, length(beta))
+    m = _metric_vector(est.metric, length(beta), "GroupAdaptiveRidge")
+    D = Vector{Float64}(undef, length(beta))
     normsq = Vector{Float64}(undef, length(est.group_weights))
-    _gar_weights!(w, beta, est.column_groups, est.group_weights, est.group_sizes,
+    _gar_weights!(D, beta, est.column_groups, est.group_weights, est.group_sizes, m,
                   est.epsilon, normsq)
-    return (est.lambda, w)
+    return (est.lambda, D)
 end
 _penalty_diagonal(est::AbstractEstimator, beta::Vector{Float64}) =
     throw(ArgumentError("gcv/effective_dof require a linear estimator " *
@@ -561,6 +757,7 @@ function select_fit(dataset::SCEDataset, est::GroupAdaptiveRidge;
     if w > 0 && !has_torque(dataset)
         throw(ArgumentError("torque_weight = $w but the dataset has no torque data"))
     end
+    _check_metric_provenance(est, :energy, dataset.basis.salc_basis.fingerprint, w)
     isempty(lambdas) && throw(ArgumentError("lambdas must be nonempty"))
     all(l -> isfinite(l) && l >= 0, lambdas) ||
         throw(ArgumentError("lambdas must be finite and ≥ 0"))
@@ -587,6 +784,11 @@ function select_fit(dataset::SCEDataset, est::GroupAdaptiveRidge;
     XtX = Matrix{Float64}(X' * X)
     Xty = Vector{Float64}(X' * y)
     colnorms = [norm(view(X, :, j)) for j = 1:size(X, 2)]
+    # The penalty metric, resolved once for the whole path: every solve, every GCV
+    # weight, the per-fold solves, and the cold re-solve of the selected point must see
+    # the SAME diagonal, or the returned fit and the score attached to it would
+    # describe different estimators.
+    metric = _metric_vector(est.metric, size(X, 2), "GroupAdaptiveRidge")
 
     # Warm-started descending path: each IRLS is seeded with the previous (more
     # regularized, already group-sparse) λ's solution.
@@ -595,7 +797,7 @@ function select_fit(dataset::SCEDataset, est::GroupAdaptiveRidge;
     for i = 1:nl
         b = lams[i] == 0.0 ? (X \ y) :
             _solve_gar(XtX, Xty, lams[i], est.column_groups, est.group_weights,
-                       est.group_sizes, est.epsilon, est.max_iter, est.tol;
+                       est.group_sizes, metric, est.epsilon, est.max_iter, est.tol;
                        beta0 = prev)
         betas[i] = b
         prev = b
@@ -645,7 +847,7 @@ function select_fit(dataset::SCEDataset, est::GroupAdaptiveRidge;
                                                n_eff = neff, intercept = icpt)
             else
                 _gar_weights!(wv, betas[i], est.column_groups, est.group_weights,
-                              est.group_sizes, est.epsilon, normsq)
+                              est.group_sizes, metric, est.epsilon, normsq)
                 score[i], edof[i] = _gcv_score(X, y, betas[i], lams[i], wv;
                                                XtX = XtX, n_eff = neff,
                                                intercept = icpt)
@@ -677,8 +879,8 @@ function select_fit(dataset::SCEDataset, est::GroupAdaptiveRidge;
                     X[tr_rows, :] \ y[tr_rows]
                 else
                     _solve_gar(XtX_tr, Xty_tr, lams[i], est.column_groups,
-                               est.group_weights, est.group_sizes, est.epsilon,
-                               est.max_iter, est.tol; beta0 = prevf)
+                               est.group_weights, est.group_sizes, metric,
+                               est.epsilon, est.max_iter, est.tol; beta0 = prevf)
                 end
                 prevf = bf
                 sse[i] += sum(abs2, yho .- Xho * bf)
@@ -693,7 +895,8 @@ function select_fit(dataset::SCEDataset, est::GroupAdaptiveRidge;
 
     sel = _select_pareto(score, cost, Float64(delta))
     est_sel = GroupAdaptiveRidge(lams[sel], est.column_groups, est.group_weights,
-                                 est.epsilon, est.max_iter, est.tol)
+                                 est.epsilon, est.max_iter, est.tol, est.metric,
+                                 est.metric_provenance)
     fsel = fit(SCEFit, dataset, est_sel; torque_weight = w)
     # Re-derive the selected row from the cold re-solve, so `fit` / `threshold` /
     # `n_alive[selected]` / `cost[selected]` are mutually consistent (warm and cold
@@ -710,7 +913,7 @@ function select_fit(dataset::SCEDataset, est::GroupAdaptiveRidge;
             wv = Vector{Float64}(undef, length(Xty))
             normsq = Vector{Float64}(undef, G)
             _gar_weights!(wv, fsel.jphi, est.column_groups, est.group_weights,
-                          est.group_sizes, est.epsilon, normsq)
+                          est.group_sizes, metric, est.epsilon, normsq)
             score[sel], edof[sel] = _gcv_score(X, y, fsel.jphi, lams[sel], wv;
                                                XtX = XtX, n_eff = neff,
                                                intercept = icpt)
@@ -999,6 +1202,8 @@ function cross_validate(dataset::SCEDataset, estimator::AbstractEstimator;
     if w > 0 && !has_torque(dataset)
         throw(ArgumentError("torque_weight = $w but the dataset has no torque data"))
     end
+    _check_metric_provenance(estimator, :energy,
+                             dataset.basis.salc_basis.fingerprint, w)
     nfolds >= 2 || throw(ArgumentError("nfolds must be ≥ 2; got $nfolds"))
     if _carries_precomputed_pilot(estimator)
         throw(ArgumentError("cross_validate does not accept a PrecomputedPilot (or " *

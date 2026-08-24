@@ -106,6 +106,126 @@ end
         @test norm(b_hi[7:9]) < norm(b_lo[7:9])
     end
 
+    # --- the penalty metric ---------------------------------------------------------
+    @testset "penalty metric: unpenalized columns are exactly OLS" begin
+        # Orthogonal design ⇒ `X'X + λD` is diagonal ⇒ every coefficient is
+        # `x_j'y / (‖x_j‖² + λ·D_j)` in closed form, so a column with `D_j = 0` must
+        # equal its OLS value for ANY λ and any weight map. Analytic oracle.
+        rng = MersenneTwister(9001)
+        n, p = 30, 6
+        Q = Matrix(qr(randn(rng, n, p)).Q)
+        scales = [0.4, 1.0, 2.5, 7.0, 0.9, 3.3]
+        X = Q .* scales'
+        y = randn(rng, n)
+        m = [0.0, 1.3, 0.7, 0.0, 2.0, 0.5]          # two unpenalized columns
+        free = [1, 4]
+        ols = [dot(view(X, :, j), y) / sum(abs2, view(X, :, j)) for j = 1:p]
+        for lam in (1e-3, 1.0, 1e4)
+            for est in (Ridge(; lambda = lam, metric = m),
+                        AdaptiveRidge(; lambda = lam, metric = m),
+                        GroupAdaptiveRidge([1, 1, 2, 2, 3, 3], ones(3);
+                                           lambda = lam, metric = m))
+                b = solve_coefficients(est, X, y)
+                @test b[free] ≈ ols[free] rtol = 1e-13
+                # and the penalized ones did move
+                @test all(abs.(b[[2, 3, 5, 6]]) .< abs.(ols[[2, 3, 5, 6]]))
+            end
+        end
+    end
+
+    @testset "penalty metric: the penalized fit is scale invariant" begin
+        # Rescaling column j by c_j and the metric by c_j² leaves the penalty
+        # `λ Σ m_j β_j²` unchanged, so the FITTED FUNCTION `Xβ̂` must not move. This is
+        # the property the metric exists for; the uniform-metric control shows the
+        # gate has teeth.
+        rng = MersenneTwister(9002)
+        n, p = 60, 8
+        X = randn(rng, n, p)
+        y = randn(rng, n)
+        m = 0.3 .+ 2 .* rand(rng, p)
+        groups = [1, 1, 1, 2, 2, 3, 3, 3]
+        # deliberately INHOMOGENEOUS within each group: a group-uniform rescaling
+        # would not separate "metric in the denominator" from "metric outside it"
+        C = exp.(range(-1.5, 1.5; length = p))
+        X2 = X .* C'
+        m2 = m .* C .^ 2
+        for (e1, e2) in ((Ridge(; lambda = 0.7, metric = m),
+                          Ridge(; lambda = 0.7, metric = m2)),
+                         (AdaptiveRidge(; lambda = 0.05, metric = m),
+                          AdaptiveRidge(; lambda = 0.05, metric = m2)),
+                         (GroupAdaptiveRidge(groups, [1.0, 2.0, 0.5]; lambda = 0.05,
+                                             metric = m),
+                          GroupAdaptiveRidge(groups, [1.0, 2.0, 0.5]; lambda = 0.05,
+                                             metric = m2)))
+            b1 = solve_coefficients(e1, X, y)
+            b2 = solve_coefficients(e2, X2, y)
+            @test X2 * b2 ≈ X * b1 rtol = 1e-7
+            @test b2 ≈ b1 ./ C rtol = 1e-7
+        end
+        # control: without a metric the same rescaling moves the fit
+        bu1 = solve_coefficients(Ridge(; lambda = 0.7), X, y)
+        bu2 = solve_coefficients(Ridge(; lambda = 0.7), X2, y)
+        @test !isapprox(X2 * bu2, X * bu1; rtol = 1e-3)
+    end
+
+    @testset "penalty metric: the group-L0 fixed point survives" begin
+        # `docs/design-notes.md` derives the fixed-point property that makes v_g a
+        # group-L0 weight: the converged penalty contribution of an ALIVE group,
+        # `Σ_{j∈g} D_j·β_j²`, tends to `v_g` once its metric-weighted norm dominates
+        # `p_g·ε`. Placing the metric anywhere but the denominator would leave
+        # `v_g·⟨m⟩_g` here instead.
+        rng = MersenneTwister(9003)
+        n, p = 80, 6
+        X = randn(rng, n, p)
+        btrue = [1.0, -0.8, 0.6, 0.0, 0.0, 0.0]
+        y = X * btrue .+ 0.001 .* randn(rng, n)
+        groups = [1, 1, 1, 2, 2, 2]
+        vg = [1.0, 3.0]
+        m = [0.2, 5.0, 1.0, 0.7, 2.0, 0.3]          # strongly non-uniform within group 1
+        est = GroupAdaptiveRidge(groups, vg; lambda = 1e-4, metric = m)
+        b = solve_coefficients(est, X, y)
+        _, D = SCEFitting._penalty_diagonal(est, b)
+        contrib1 = sum(D[j] * b[j]^2 for j = 1:3)
+        @test contrib1 ≈ vg[1] rtol = 1e-6         # alive group: → v_g, not v_g·⟨m⟩
+        @test sum(m[j] * b[j]^2 for j = 1:3) > 1e3 * 3 * est.epsilon
+    end
+
+    @testset "penalty metric: refusals" begin
+        rng = MersenneTwister(9004)
+        X = randn(rng, 20, 4)
+        y = randn(rng, 20)
+        @test_throws ArgumentError Ridge(; lambda = 1.0, metric = zeros(4))
+        @test_throws ArgumentError Ridge(; lambda = 1.0, metric = [1.0, -1.0, 1.0, 1.0])
+        @test_throws ArgumentError Ridge(; lambda = 1.0, metric = [1.0, NaN, 1.0, 1.0])
+        # length is checked against the DESIGN, at the solve door
+        @test_throws DimensionMismatch solve_coefficients(
+            Ridge(; lambda = 1.0, metric = ones(3)), X, y)
+        # a rank-deficient unpenalized block leaves the fit unidentified
+        Xd = copy(X)
+        Xd[:, 2] = Xd[:, 1]
+        @test_throws ArgumentError solve_coefficients(
+            Ridge(; lambda = 1.0, metric = [0.0, 0.0, 1.0, 1.0]), Xd, y)
+        # `nothing` (uniform) reproduces the unweighted penalty exactly
+        @test solve_coefficients(Ridge(; lambda = 0.3, metric = ones(4)), X, y) ==
+              solve_coefficients(Ridge(; lambda = 0.3), X, y)
+        @test solve_coefficients(AdaptiveRidge(; lambda = 0.3, metric = ones(4)), X, y) ==
+              solve_coefficients(AdaptiveRidge(; lambda = 0.3), X, y)
+    end
+
+    @testset "OLS ignores the metric (normal equations, not a captured value)" begin
+        rng = MersenneTwister(9005)
+        X = randn(rng, 25, 5)
+        y = randn(rng, 25)
+        b = solve_coefficients(OLS(), X, y)
+        @test norm(X' * (y .- X * b)) <= 1e-10 * norm(X' * y)
+        C = exp.(range(-1.0, 1.0; length = 5))
+        b2 = solve_coefficients(OLS(), X .* C', y)
+        @test (X .* C') * b2 ≈ X * b rtol = 1e-10
+        # lambda = 0 routes to OLS whatever the metric says
+        @test solve_coefficients(Ridge(; lambda = 0.0, metric = 0.1 .+ rand(rng, 5)),
+                                 X, y) == b
+    end
+
     # --- basis-driven helpers -------------------------------------------------------
     lat = Lattice(Matrix(3.0 * I(3)))
     crystal = Crystal(lat, [0.2 -0.2; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
@@ -115,6 +235,38 @@ end
                                         isotropy = false))
     small = SCEBasis(crystal, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [1],
                                         isotropy = true))
+
+    @testset "penalty_metric: closed-form reference norms" begin
+        # `small` carries exactly one SALC: the isotropic 2-body l = 1 pair, whose
+        # normalization is derived by hand in test_normalization.jl ("O1"),
+        #   Φ(e) = 2√3·(e₁·e₂).
+        # For independent uniform directions u = e₁·e₂ is uniform on [−1, 1], so
+        #   E[Φ] = 0 and Var[Φ] = 12·E[u²] = 12/3 = 4.
+        @test n_salcs(small) == 1
+        K = 20000
+        m0 = penalty_metric(small; nconfig = K, seed = 7)
+        sig = 12 * sqrt((4 / 45) / K)          # Var(u²) = 1/5 − 1/9 = 4/45
+        @test abs(m0[1] - 4.0) < 5 * sig
+        # Headroom: 5σ is ~3.2 % of the expected 4.0, while the errors this gate is
+        # for are gross — dropping the ordering fold would be a factor of 4, and
+        # dropping the torque row average below a factor of 3·n_atoms.
+        @test 5 * sig / 4.0 < 0.05
+        # Torque block: ∂Φ/∂e₁ = 2√3·e₂, so ‖τ₁‖² = 12(1 − u²) and likewise for atom 2,
+        #   m(w = 1) = E[Σ_a ‖τ_a‖²] / (3·n_atoms) = 2·12·(1 − 1/3) / 6 = 8/3.
+        m1 = penalty_metric(small; torque_weight = 1.0, nconfig = K, seed = 7)
+        sigt = 4 * sqrt((4 / 45) / K)          # the per-config quantity is 4(1 − u²)
+        @test abs(m1[1] - 8 / 3) < 5 * sigt
+        # a co-fit metric is the convex combination of the two blocks at the same seed
+        mh = penalty_metric(small; torque_weight = 0.25, nconfig = K, seed = 7)
+        @test mh[1] ≈ 0.75 * m0[1] + 0.25 * m1[1] rtol = 1e-12
+        # the generator is internal to the package, so the ensemble is reproducible
+        @test penalty_metric(small; nconfig = 512, seed = 3) ==
+              penalty_metric(small; nconfig = 512, seed = 3)
+        @test penalty_metric(small; nconfig = 512, seed = 3) !=
+              penalty_metric(small; nconfig = 512, seed = 4)
+        @test_throws ArgumentError penalty_metric(small; nconfig = 1)
+        @test_throws ArgumentError penalty_metric(small; torque_weight = 1.5)
+    end
 
     @testset "salc_groups: contiguous labels matching (body, orbit_id, ls) runs" begin
         ks = basis.salc_basis.keys
@@ -435,6 +587,31 @@ end
     ds_p = SCEDataset(basis, configs_p, energies_p)
     est_p = GroupAdaptiveRidge(basis; lambda = 1.0)   # template λ is ignored
 
+    @testset "penalty-metric provenance is checked at the fitting doors" begin
+        good = GroupAdaptiveRidge(basis; lambda = 1e-3).metric
+        fp = basis.salc_basis.fingerprint
+        bad_basis = GroupAdaptiveRidge(
+            salc_groups(basis), ones(maximum(salc_groups(basis))); lambda = 1e-3,
+            metric = good,
+            metric_provenance = MetricProvenance((:energy, 0.0, 2000, 1, fp + 0x1)))
+        @test_throws ArgumentError fit(SCEFit, ds_p, bad_basis)
+        bad_channel = GroupAdaptiveRidge(
+            salc_groups(basis), ones(maximum(salc_groups(basis))); lambda = 1e-3,
+            metric = good,
+            metric_provenance = MetricProvenance((:moment, 0.0, 2000, 1, fp)))
+        @test_throws ArgumentError fit(SCEFit, ds_p, bad_channel)
+        # a metric taken at w = 0 is refused for a co-fit: the assembled design mixes
+        # the two blocks by w, so the column scales move with it
+        est_w0 = GroupAdaptiveRidge(basis; lambda = 1e-3, torque_weight = 0.0)
+        @test_throws ArgumentError select_fit(ds_p, est_w0; lambdas = [1e-3],
+                                              torque_weight = 0.5)
+        # a hand-built metric with no provenance is the caller's business and passes
+        hand = GroupAdaptiveRidge(salc_groups(basis),
+                                  ones(maximum(salc_groups(basis))); lambda = 1e-3,
+                                  metric = good)
+        @test fit(SCEFit, ds_p, hand) isa SCEFit
+    end
+
     @testset "select_fit: warm-started path matches cold fits" begin
         # ÷ nconf_p: the energy-only branch now whitens by 1/√n_E (the objective is
         # the MSE at every weight), so a λ that used to act on the SSE Gram acts
@@ -446,21 +623,34 @@ end
         # warm-started path entries reproduce cold single-λ fits: both converge to the
         # same fixed point but stop within the IRLS tol (1e-6 on coefficients), so the
         # scores agree to a few multiples of that tolerance, not exactly
+        # the rebuilt estimator must carry est_p's METRIC too: a metric-free rebuild
+        # is a different estimator, and comparing against it would hide exactly the
+        # bug this gate is for (a path that solves with the metric and returns a fit
+        # without it)
         for i in (2, 4)
             est_i = GroupAdaptiveRidge(est_p.column_groups, est_p.group_weights;
-                                       lambda = path.lambda[i])
+                                       lambda = path.lambda[i],
+                                       metric = est_p.metric,
+                                       metric_provenance = est_p.metric_provenance)
             fc = fit(SCEFit, ds_p, est_i)
             @test isapprox(path.score[i], gcv(fc); rtol = 1e-4)
             @test isapprox(path.edof[i], effective_dof(fc); rtol = 1e-4)
         end
         # the selected fit is the cold fit at the selected λ, byte-for-byte
         est_s = GroupAdaptiveRidge(est_p.column_groups, est_p.group_weights;
-                                   lambda = path.lambda[path.selected])
+                                   lambda = path.lambda[path.selected],
+                                   metric = est_p.metric,
+                                   metric_provenance = est_p.metric_provenance)
         @test path.fit.jphi == fit(SCEFit, ds_p, est_s).jphi
         # the selected row's score/edof are re-derived from that cold fit, so the
         # displayed row is self-consistent (not the warm path value)
         @test path.score[path.selected] ≈ gcv(path.fit) rtol = 1e-12
         @test path.edof[path.selected] ≈ effective_dof(path.fit) rtol = 1e-12
+        # the returned fit carries the path's metric: the cold re-solve at the
+        # selected λ rebuilds the estimator, and dropping the metric there would
+        # leave the path solved one way and the returned model another
+        @test path.fit.estimator.metric == est_p.metric
+        @test path.fit.estimator.metric_provenance === est_p.metric_provenance
         # alive count grows (weakly) as λ decreases along the descending path
         @test all(diff(path.n_alive) .>= 0)
     end

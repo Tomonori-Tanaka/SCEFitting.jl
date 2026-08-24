@@ -87,6 +87,7 @@ function fit(::Type{SCEFit}, dataset::SCEDataset, estimator::AbstractEstimator;
         throw(ArgumentError("torque_weight = $w but the dataset has no torque data; " *
                             "build it with SCEDataset(basis, configs, energies, torques)"))
     end
+    _check_metric_provenance(estimator, :energy, dataset.basis.salc_basis.fingerprint, w)
     X, y, xbar, ybar, groups = _assemble_problem(dataset, w)
     jphi = solve_coefficients(estimator, X, y; groups = groups)
     j0 = ybar - dot(xbar, jphi)
@@ -177,8 +178,14 @@ function refit(f::SCEFit, estimator::AbstractEstimator = OLS();
               "scaled-magnitude threshold. Returning an all-zero jϕ; " *
               "j0 falls back to mean(y_E)." threshold
     else
-        jphi[support] .= solve_coefficients(estimator, view(X, :, support), y;
-                                            groups = groups)
+        # A penalty metric is per-column data, so it has to be cut down to the chosen
+        # support with the design — otherwise the solve dies on a length check whose
+        # message blames a basis mismatch that did not happen. `_reduce_to_active` is
+        # a no-op for an estimator without one.
+        active = falses(length(jphi_in))
+        active[support] .= true
+        jphi[support] .= solve_coefficients(_reduce_to_active(estimator, active),
+                                            view(X, :, support), y; groups = groups)
     end
     j0 = ybar - dot(xbar, jphi)
     residuals = dataset.y_E .- (j0 .+ dataset.X_E * jphi)

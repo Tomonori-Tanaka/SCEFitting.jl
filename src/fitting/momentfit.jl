@@ -406,6 +406,7 @@ end
 function fit(::Type{MomentFit}, ds::MomentDataset,
              estimator::AbstractEstimator = OLS())::MomentFit
     any(ds.keep) || throw(ArgumentError("no rows survive the gate"))
+    _check_metric_provenance(estimator, :moment, ds.basis.salc_basis.fingerprint, 0.0)
     p = size(ds.X, 2)
     active = trues(p)
     active[ds.vanishing] .= false
@@ -668,54 +669,152 @@ function salc_groups(mb::MomentBasis)::Vector{Int}
     return labels
 end
 
+# ── the penalty metric of the pointed channel ──────────────────────────────────────
+
+"""
+    _intercept_columns(mb::MomentBasis) -> Vector{Int}
+
+The μ₀ columns of the pointed design: the 1-body pointed SALCs whose single site is
+the mark with `spin_l = 0`, i.e. the constant `Φ = 1` per mark class. They set the
+reference moment magnitude, so shrinking them toward zero has no physical meaning —
+[`penalty_metric`](@ref)`(mb)` exempts them by setting their scale to exactly `0`.
+
+The discriminant cannot misfire: a `SiteDecor` with `spin_l == 0` must carry a
+displacement factor (its inner constructor refuses a bare `l = 0` spin decor), and in
+a pointed label the displacement factor **is** the mark, so `body == 1` with a single
+`spin_l == 0` decor is exactly the marked constant.
+"""
+function _intercept_columns(mb::MomentBasis)::Vector{Int}
+    out = Int[]
+    for (j, s) in enumerate(salcs(mb))
+        s.key.body == 1 && length(s.key.decors) == 1 || continue
+        d = s.key.decors[1]
+        (d.spin_l == 0 && is_marked(d)) && push!(out, j)
+    end
+    return out
+end
+
+"""
+    penalty_metric(mb::MomentBasis; free_intercepts = true, nconfig = 2000, seed = 1)
+        -> Vector{Float64}
+
+The per-column penalty scale of a pointed moment basis, in design-column order — the
+moment channel's counterpart of [`penalty_metric`](@ref)`(::SCEBasis)`, and the same
+argument for it: `λ·Σⱼβⱼ²` is not invariant under rescaling a column, and pointed SALC
+column norms are set by the star's member count and the ordering multiplicity the
+member fold absorbs, so the plain penalty prefers large orbits and high body order for
+reasons that are conventions rather than physics.
+
+    mⱼ = E[Φⱼ²]
+
+over `nconfig` independent uniform-random spin configurations, evaluated on the pointed
+design rows (one per marked reference-cell atom per configuration) with the
+identity-substituted evaluation axis. Not centered, unlike the energy channel: the
+moment design has no column centering to match — its rows carry the intercept columns
+explicitly.
+
+Two families of column get an exact `0`, which the estimators read as **unpenalized**:
+
+- the μ₀ intercepts (`_intercept_columns`), unless `free_intercepts = false`. Shrinking
+  the reference moment magnitude toward zero is not a modelling choice anyone wants;
+  `false` exists only to make the comparison measurable.
+- the columns [`moment_resolvability`](@ref) reports as identically vanishing on this
+  cell. They are frozen out of the solve anyway; a zero scale keeps the metric
+  consistent with the design the solver actually sees.
+
+Any OTHER zero is refused: zero means a structural exemption, so it is never inferred
+from a sample.
+"""
+function penalty_metric(mb::MomentBasis; free_intercepts::Bool = true,
+                        nconfig::Integer = 2000, seed::Integer = 1)::Vector{Float64}
+    nat = n_atoms(mb.crystal)
+    cfgs = _reference_configs(nat, Int(nconfig), Int(seed))
+    p = n_salcs(mb)
+    nmark = length(mb.marked_atoms)
+    # Accumulate over configuration chunks rather than building the whole reference
+    # design: `nconfig · n_marked × p` is ~100 MB for a 3x3x3 supercell basis, and this
+    # runs in a constructor.
+    chunk = max(1, cld(4096, max(1, nmark)))
+    acc = zeros(Float64, p)
+    nrow = 0
+    for lo = 1:chunk:length(cfgs)
+        sub = cfgs[lo:min(lo + chunk - 1, length(cfgs))]
+        X = _design_moment(mb, sub, sub)          # identity axes: the mode-4 rule
+        nrow += size(X, 1)
+        for j = 1:p
+            acc[j] += sum(abs2, view(X, :, j))
+        end
+    end
+    m = acc ./ nrow
+    structural = Int[]
+    res = moment_resolvability(mb)
+    append!(structural, res.vanishing)
+    free_intercepts && append!(structural, _intercept_columns(mb))
+    sort!(unique!(structural))
+    keep = trues(p)
+    keep[structural] .= false
+    _refuse_zero_metric(m[keep], "penalty_metric(::MomentBasis)")
+    m[structural] .= 0.0
+    return m
+end
+
+# Resolve the `metric` keyword of a pointed basis-aware constructor. Mirror of the
+# energy-side `_basis_metric`.
+function _basis_metric(mb::MomentBasis, metric, free_intercepts::Bool,
+                       nconfig::Integer, seed::Integer)
+    metric === :basis || return (metric, nothing)
+    m = penalty_metric(mb; free_intercepts = free_intercepts, nconfig = nconfig,
+                       seed = seed)
+    pv = MetricProvenance((:moment, 0.0, Int(nconfig), Int(seed),
+                           mb.salc_basis.fingerprint))
+    return (m, pv)
+end
+
 """
     GroupAdaptiveRidge(mb::MomentBasis; lambda, epsilon = 1e-8, max_iter = 50,
-                       tol = 1e-6)
+                       tol = 1e-6, metric = :basis, free_intercepts = true,
+                       metric_nconfig = 2000, metric_seed = 1)
+    Ridge(mb::MomentBasis; lambda, metric = :basis, ...)
+    AdaptiveRidge(mb::MomentBasis; lambda, epsilon = 1e-8, ..., metric = :basis, ...)
 
-Group-adaptive estimator for a pointed basis: [`salc_groups`](@ref)`(mb)` labels
-with UNIT weights (the moment channel has no MC contraction cost; the energy-side
-`cost_weights` story does not apply). See the primary [`GroupAdaptiveRidge`](@ref)
-constructor for the estimator itself. Note the ridge-family caveat of
-[`fit`](@ref)`(MomentFit, ...)`: the penalty also shrinks the μ₀ intercept columns.
+Penalized estimators for a pointed basis, carrying
+[`penalty_metric`](@ref)`(mb; free_intercepts, ...)` by default. The group form uses
+[`salc_groups`](@ref)`(mb)` labels with UNIT weights (the moment channel has no MC
+contraction cost; the energy-side `cost_weights` story does not apply).
+
+The metric is what keeps the μ₀ intercept columns **out** of the penalty, and it does
+so identically for all three estimators — a group weight could only have done it for
+the group form, leaving `fit(MomentFit, ds, Ridge(λ))` quietly shrinking the reference
+moment. Pass `metric = nothing` for the unweighted penalty (which does shrink μ₀), or
+a vector of your own.
 """
 function GroupAdaptiveRidge(mb::MomentBasis; lambda::Real, epsilon::Real = 1e-8,
-                            max_iter::Integer = 50, tol::Real = 1e-6)
+                            max_iter::Integer = 50, tol::Real = 1e-6,
+                            metric = :basis, free_intercepts::Bool = true,
+                            metric_nconfig::Integer = 2000, metric_seed::Integer = 1)
     cg = salc_groups(mb)
+    m, pv = _basis_metric(mb, metric, free_intercepts, metric_nconfig, metric_seed)
     return GroupAdaptiveRidge(cg, ones(maximum(cg)); lambda = lambda,
-                              epsilon = epsilon, max_iter = max_iter, tol = tol)
+                              epsilon = epsilon, max_iter = max_iter, tol = tol,
+                              metric = m, metric_provenance = pv)
 end
 
-# Column-structured estimators must follow fit's vanishing-column reduction: the
-# frozen columns are removed from the solve, so per-column metadata has to shrink
-# with them. For GroupAdaptiveRidge the reduction preserves every group NORM
-# exactly (frozen coefficients are exact zeros), but the group SIZE p_g drops by
-# the frozen count, so the weight w_g = v_g/(‖β_g‖² + p_g·ε) moves at O(ε) —
-# material only for a group already at the ε floor, and defensible there: ε is
-# documented as a per-coefficient floor and a frozen column carries no
-# coefficient. Note the deliberate divergence from the energy side, where
-# ASR-frozen columns STAY in column_groups and keep their p_g contribution
-# (upstream SLCE.jl; this package's energy side has no frozen columns at all).
-# Groups emptied by the reduction are relabeled away (the estimator's
-# every-label-present contract). Every other estimator passes through unchanged.
-_reduce_to_active(estimator::AbstractEstimator, ::BitVector) = estimator
-function _reduce_to_active(estimator::GroupAdaptiveRidge,
-                           active::BitVector)::GroupAdaptiveRidge
-    all(active) && return estimator
-    length(estimator.column_groups) == length(active) || throw(DimensionMismatch(
-        "GroupAdaptiveRidge column_groups length $(length(estimator.column_groups)) " *
-        "does not match the pointed design column count $(length(active)); build " *
-        "the labels on THIS basis (salc_groups(mb))"))
-    sub = estimator.column_groups[findall(active)]
-    remap = Dict{Int,Int}()
-    labels = [get!(remap, g, length(remap) + 1) for g in sub]
-    old = Vector{Int}(undef, length(remap))
-    for (g, n) in remap
-        old[n] = g
-    end
-    return GroupAdaptiveRidge(labels, estimator.group_weights[old];
-                              lambda = estimator.lambda, epsilon = estimator.epsilon,
-                              max_iter = estimator.max_iter, tol = estimator.tol)
+function Ridge(mb::MomentBasis; lambda::Real, metric = :basis,
+               free_intercepts::Bool = true, metric_nconfig::Integer = 2000,
+               metric_seed::Integer = 1)
+    m, pv = _basis_metric(mb, metric, free_intercepts, metric_nconfig, metric_seed)
+    return Ridge(lambda, m, pv)
 end
+
+function AdaptiveRidge(mb::MomentBasis; lambda::Real, epsilon::Real = 1e-8,
+                       max_iter::Integer = 50, tol::Real = 1e-6, metric = :basis,
+                       free_intercepts::Bool = true, metric_nconfig::Integer = 2000,
+                       metric_seed::Integer = 1)
+    m, pv = _basis_metric(mb, metric, free_intercepts, metric_nconfig, metric_seed)
+    return AdaptiveRidge(; lambda = lambda, epsilon = epsilon, max_iter = max_iter,
+                         tol = tol, metric = m, metric_provenance = pv)
+end
+
 
 # ── local-field diagnostics + the simple-feature nested floor ──────────────────────
 

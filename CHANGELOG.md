@@ -6,6 +6,59 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — **BREAKING**: a basis-intrinsic penalty metric (2026-08-24)
+
+- `Ridge`, `AdaptiveRidge` and `GroupAdaptiveRidge` take a `metric`: a per-column
+  penalty scale `m`, with `metric_provenance` recording what it was built from.
+  `λ·Σⱼβⱼ²` is not invariant under rescaling a design column, and SALC column norms
+  are set by basis conventions — an orbit's member count, and the ordering
+  multiplicity `_canonicalize_members` folds into the tensor — rather than by
+  physics. A larger column norm means a smaller coefficient at the same physical
+  effect, hence *less* shrinkage, so the plain penalty carried an accidental prior
+  in favour of large orbits and high body order, on top of the deliberate one
+  `cost_weights` states through `theta`.
+- `penalty_metric(basis; torque_weight, nconfig, seed)` builds it as the reference
+  norm of the column **as the estimator sees it** — the assembled, centered /
+  whitened design at that `torque_weight`:
+  `mⱼ(w) = (1 − w)·Var[Φⱼ] + w·(1/3n_atoms)·E[Σ_a ‖(∂Φⱼ/∂e_a) × e_a‖²]`, over
+  uniform-random spin configurations. The `1/(3·n_atoms)` is the per-row average
+  the assembly's `√(w/n_T)` already applies. `penalty_metric(mb)` is the pointed
+  channel's `E[Φⱼ²]`.
+- The metric sits in the **denominator** of the adaptive weight maps —
+  `wⱼ = mⱼ/(mⱼβⱼ² + ε)`, `v_g/(Σ_{k∈g} m_kβ_k² + p_g·ε)`, penalty diagonal
+  `Dⱼ = mⱼwⱼ`. Outside it, the adaptive estimators would not be scale invariant
+  (their weight map would see `βⱼ²/cⱼ²`), and the group-L0 fixed point would become
+  `λ·v_g·⟨m⟩_g`, so `v_g` would stop being the group-L0 weight the `select_fit`
+  Pareto front is built on. Invariance of the objective is not enough for a
+  non-convex surrogate, so the IRLS cold starts are built from the metric too and
+  the stopping rule is measured in metric coordinates `√mⱼ·βⱼ`, restricted to the
+  penalized columns.
+- An entry of exactly `0` marks a column **unpenalized**, and that is how the
+  moment channel's μ₀ intercepts stop being shrunk — identically for all three
+  estimators. A group weight could only have done it for the group form, leaving
+  `fit(MomentFit, ds, Ridge(λ))` quietly shrinking the reference moment. Zero is
+  reserved for a structural exemption (an intercept, an identically vanishing
+  column); a numerically-zero estimate is refused, never floored.
+- The unpenalized block must be well conditioned or the solve is refused by name:
+  `X'X + λD` is positive definite exactly when it is, and a `Symmetric` solve on a
+  singular matrix returns garbage rather than throwing.
+- The reference ensemble uses a generator specified inside this package
+  (SplitMix64 + the Archimedes sphere construction) rather than `Random`: the
+  metric enters every penalized coefficient, so a stream that drifted between Julia
+  releases would silently move every recorded penalized fit.
+- Basis-aware constructors `Ridge(basis; ...)` / `AdaptiveRidge(basis; ...)` /
+  `GroupAdaptiveRidge(basis; ...)` (and the `MomentBasis` forms) attach the metric
+  **by default**, and the fitting doors refuse a metric whose provenance does not
+  match the fit (wrong channel, wrong basis fingerprint, wrong `torque_weight`) —
+  a mismatch is invisible to every numerical gate, since scale invariance holds for
+  any `m ∝ c²`, right or wrong.
+- **Breaking**: every penalized fit changes. `OLS` and `lambda = 0` are untouched
+  (bitwise), as is any estimator constructed without a metric. λ recorded against
+  an earlier penalized fit no longer means the same thing — bcc Fe `l02`…`l044` and
+  the `m_*` moment fits, FeRh, and the KLM series need re-selecting, and
+  `AdaptiveLasso(pilot = Ridge(...))` moves through its pilot. Same class of change
+  as the `torque_weight = 0` assembly fix.
+
 ### Fixed — effective dof with unpenalized columns (2026-08-24)
 
 - `_edof` (behind `effective_dof` / `gcv` / the `select_fit` GCV
