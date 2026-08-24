@@ -118,7 +118,7 @@ export coeftable, SCECoefficients
 # and the threshold-swept refit front
 export gcv, effective_dof, select_fit, SelectionPath, select_support, SupportPath
 export penalty_metric, MetricProvenance
-export cross_validate, CVResult
+export cross_validate, CVResult, MomentCVResult
 export to_sunny
 # Fitted-model introspection: a code-neutral view of the multipole / bilinear terms of a
 # fitted SCE, the stable contract downstream packages (e.g. the SCETools.jl mean-field

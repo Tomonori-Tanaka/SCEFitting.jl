@@ -6,6 +6,29 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — λ selection for the moment channel (2026-08-24)
+
+- `cross_validate(::MomentDataset, estimator; nfolds, seed)` returns a
+  `MomentCVResult`: configuration-grouped K-fold cross-validation of the pointed
+  channel, the honest criterion for choosing λ now that the moment fit has a
+  penalty worth tuning. Folds are assigned by configuration, so the rows of one
+  configuration — one per marked atom, sharing its directions — never split across
+  the train/holdout boundary, and each fold re-solves with the same frozen column
+  set as the full dataset so the folds compare like for like.
+- A fold whose training rows miss a marked orbit entirely is refused by name: that
+  orbit's μ₀ intercept would be unidentified on the fold rather than merely
+  under-determined. A `PrecomputedPilot` is refused for the usual leak reason.
+- Training and scoring run on the gate-kept rows — the decomposability gate says
+  where the pointed model is defined, not how well it generalizes — with
+  `score_defined` reporting the rejected rows separately, as disclosure.
+- `effective_dof(::MomentFit)` and `gcv(::MomentFit)` complete the fast pair. Both
+  reconstruct the design the fit actually **solved** (gate-kept rows, vanishing
+  columns frozen out, estimator reduced to match) rather than the full `ds.X`;
+  reconstructing the full design would pass every length check and still charge
+  degrees of freedom to columns the solve froze. There is no `+1` intercept term:
+  the pointed design carries its μ₀ columns explicitly, and being unpenalized they
+  each cost a full degree of freedom through `tr(H)`.
+
 ### Changed — **BREAKING**: a basis-intrinsic penalty metric (2026-08-24)
 
 - `Ridge`, `AdaptiveRidge` and `GroupAdaptiveRidge` take a `metric`: a per-column

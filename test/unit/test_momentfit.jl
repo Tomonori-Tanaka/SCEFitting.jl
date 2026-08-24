@@ -32,6 +32,7 @@ using Random
 using Statistics: quantile, std
 using StaticArrays
 using SCEFitting: _assemble_spacegroup
+import Tables
 
 isdefined(@__MODULE__, :_mb_fege) || include("test_momentbasis.jl")
 
@@ -1078,6 +1079,86 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         # the control: no metric ⇒ the same λ crushes μ₀ too
         fu = fit(MomentFit, ds, Ridge(mb; lambda = 1e12, metric = nothing))
         @test maximum(abs, coef(fu)[ic]) < 1e-6 * maximum(abs, means)
+    end
+
+    @testset "moment cross-validation: fold properties and the pooled identity" begin
+        data = _mf_data(30)
+        ds = _mf_ds(mb, data; gate_eps = 1e-8)
+        nf = 5
+        fold = SCEFitting._grouped_folds(ds.row_config, nf, 1)
+        # (a) every row lands in exactly one of the nf folds
+        @test sort(unique(fold)) == collect(1:nf)
+        @test length(fold) == size(ds.X, 1)
+        # (b) the rows of one configuration never split across the boundary
+        for c in unique(ds.row_config)
+            @test length(unique(fold[ds.row_config .== c])) == 1
+        end
+        # (c) every fold's TRAINING side still covers every marked orbit — otherwise
+        # that orbit's μ₀ intercept is unidentified on the fold, not just noisy
+        orbits = sort!(unique(ds.orbit_rep[ds.keep]))
+        for k = 1:nf
+            @test sort!(unique(ds.orbit_rep[(fold .!= k) .& ds.keep])) == orbits
+        end
+
+        cv = cross_validate(ds, OLS(); nfolds = nf, seed = 1)
+        @test cv.nfolds == nf && cv.seed == 1
+        @test sum(cv.n_holdout) == count(ds.keep)
+        # the pooled score aggregates the out-of-fold residuals, so it is the
+        # holdout-count-weighted mean of the per-fold scores — an exact identity
+        @test cv.pooled_score ≈
+              sum(cv.n_holdout .* cv.score) / sum(cv.n_holdout) rtol = 1e-12
+        @test cv.rmse_moment ≈ sqrt.(cv.score) rtol = 1e-12
+        @test cv.pooled_rmse_moment ≈ sqrt(cv.pooled_score) rtol = 1e-12
+        # the data are exactly in the model's span, so out-of-fold prediction is exact
+        @test cv.pooled_score < 1e-16
+        # a Tables source with one row per fold
+        @test length(Tables.columns(cv).fold) == nf
+
+        # a strongly penalized fit does worse out of fold than the unpenalized one
+        cv_pen = cross_validate(ds, Ridge(mb; lambda = 1e3, metric_nconfig = 256);
+                                nfolds = nf, seed = 1)
+        @test cv_pen.pooled_score > cv.pooled_score
+    end
+
+    @testset "moment cross-validation: leak guard and fold-count guards" begin
+        data = _mf_data(30)
+        ds = _mf_ds(mb, data; gate_eps = 1e-8)
+        @test_throws ArgumentError cross_validate(
+            ds, PrecomputedPilot(zeros(size(ds.X, 2))))
+        @test_throws ArgumentError cross_validate(ds, OLS(); nfolds = 1)
+        # a metric built for the energy channel is refused here
+        bad = Ridge(; lambda = 1.0, metric = ones(size(ds.X, 2)),
+                    metric_provenance = MetricProvenance(
+                        (:energy, 0.0, 100, 1, mb.salc_basis.fingerprint)))
+        @test_throws ArgumentError cross_validate(ds, bad)
+        @test_throws ArgumentError fit(MomentFit, ds, bad)
+        # too few configurations for two folds
+        ds_small = _mf_ds(mb, _mf_data(4); gate_eps = 1e-8)
+        @test_throws ArgumentError cross_validate(ds_small, OLS(); nfolds = 5)
+    end
+
+    @testset "moment gcv / effective_dof describe the design that was solved" begin
+        data = _mf_data(30)
+        ds = _mf_ds(mb, data; gate_eps = 1e-8)
+        est = Ridge(mb; lambda = 1e-3, metric_nconfig = 256)
+        f = fit(MomentFit, ds, est)
+        Xr, yr, beta, estr = SCEFitting._moment_diag_problem(f)
+        lam, D = SCEFitting._penalty_diagonal(estr, beta)
+        # dense hat matrix of the REDUCED problem, formed independently here
+        H = Xr * ((Xr' * Xr + lam * Diagonal(D)) \ Xr')
+        @test effective_dof(f) ≈ tr(H) rtol = 1e-8
+        n = count(ds.keep)
+        @test gcv(f) ≈ n * sum(abs2, yr .- Xr * beta) / (n - tr(H))^2 rtol = 1e-8
+        # no `+1`: the μ₀ intercepts are columns of this design, and being unpenalized
+        # they each cost a full degree of freedom
+        @test effective_dof(f) >= length(SCEFitting._intercept_columns(mb)) - 1e-8
+        # OLS is the design rank
+        fo = fit(MomentFit, ds, OLS())
+        Xo, = SCEFitting._moment_diag_problem(fo)
+        @test effective_dof(fo) ≈ rank(Xo)
+        # non-linear estimators are refused
+        @test_throws ArgumentError gcv(fit(MomentFit, ds,
+                                           PrecomputedPilot(zeros(size(ds.X, 2)))))
     end
 
     @testset "penalty metric: the freeze reduction covers every estimator" begin

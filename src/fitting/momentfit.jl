@@ -816,6 +816,210 @@ function AdaptiveRidge(mb::MomentBasis; lambda::Real, epsilon::Real = 1e-8,
 end
 
 
+# ── model selection on the pointed channel ─────────────────────────────────────────
+
+# The design the pointed fit actually SOLVED: gate-kept rows, vanishing columns frozen
+# out, coefficients and estimator cut down to match. `fit(MomentFit, ...)` solves the
+# reduced problem but stores the full-length coefficients and the UN-reduced estimator,
+# so a diagnostic that reconstructed `ds.X` naively would pass every length check and
+# still describe a different model: it would charge degrees of freedom to columns the
+# solve froze, and build the group penalty from group sizes the solver never used.
+# That is the failure `_refuse_refit_diagnostic` names on the energy side, measured
+# upstream at df 40.0 where ≈ 5 was honest.
+function _moment_diag_problem(f::MomentFit)
+    ds = f.dataset
+    p = size(ds.X, 2)
+    active = trues(p)
+    active[ds.vanishing] .= false
+    return (ds.X[ds.keep, active], ds.y[ds.keep], f.coeffs[active],
+            _reduce_to_active(f.estimator, active))
+end
+
+# The informative row count: the gate-kept rows are the ones the fit was solved on.
+_gcv_neff(f::MomentFit)::Int = count(f.dataset.keep)
+
+"""
+    effective_dof(f::MomentFit) -> Float64
+
+Effective degrees of freedom of a linear-estimator pointed fit: `tr(H)` with
+`H = X(X'X + λ·Diagonal(D))⁻¹X'` over the gate-kept rows and the unfrozen columns, the
+penalty diagonal frozen at the fitted coefficients. Unlike the energy channel there is
+no `+1`: the moment design carries its μ₀ intercepts as columns, so `tr(H)` already
+charges them — fully, when [`penalty_metric`](@ref) has exempted them from the penalty.
+
+The adaptive caveat of the energy-side [`effective_dof`](@ref)`(::SCEFit)` applies here
+too: with a data-dependent weight map the frozen diagonal makes this a lower bound, and
+a [`gcv`](@ref) built on it correspondingly optimistic. [`cross_validate`](@ref) on the
+dataset is the honest criterion.
+"""
+function effective_dof(f::MomentFit)::Float64
+    islinear(f.estimator) || throw(ArgumentError(
+        "effective_dof requires a linear estimator (`islinear`); " *
+        "got $(typeof(f.estimator))"))
+    X, _, beta, est = _moment_diag_problem(f)
+    lambda, D = _penalty_diagonal(est, beta)
+    return D === nothing ? _rank_df(X) : _edof(X, lambda, D)
+end
+
+"""
+    gcv(f::MomentFit) -> Float64
+
+Generalized cross-validation score of a linear-estimator pointed fit,
+`n·RSS/(n − df)²` over the gate-kept rows with `df =` [`effective_dof`](@ref).
+Returns `Inf` in the near-interpolating regime `df → n`.
+
+!!! warning "Rows of one configuration are correlated"
+    The rows of a configuration — one per marked atom — share its spin directions, so
+    GCV's exchangeable-row assumption does not hold and the score is optimistic. Use
+    [`cross_validate`](@ref)`(::MomentDataset, ...)`, whose folds are grouped by
+    configuration, when the difference matters; this is the fast reference.
+"""
+function gcv(f::MomentFit)::Float64
+    islinear(f.estimator) || throw(ArgumentError(
+        "gcv requires a linear estimator (`islinear`); got $(typeof(f.estimator))"))
+    X, y, beta, est = _moment_diag_problem(f)
+    lambda, D = _penalty_diagonal(est, beta)
+    return first(_gcv_score(X, y, beta, lambda, D; n_eff = _gcv_neff(f),
+                            intercept = 0.0))
+end
+
+"""
+    MomentCVResult
+
+Result of [`cross_validate`](@ref)`(::MomentDataset, ...)`: per-fold holdout scores of
+the pointed channel plus the pooled out-of-fold error. The natural error axis is a
+single one — the RMSE of `y = ê·M` in μ_B — so this is a type of its own rather than a
+reuse of [`CVResult`](@ref), which reports the energy/torque pair.
+
+`score` is the held-out mean squared error per fold on the **gate-kept** rows, and
+`pooled_score` aggregates the out-of-fold residuals of all folds (every configuration
+is held out exactly once, so it is a whole-dataset number, not the mean of the column).
+`score_defined` is the same quantity over the rows the gate REJECTED but the mode rule
+still defines — disclosure, not a selection criterion: those rows carry a transverse
+moment the pointed model does not claim to fit, so scoring on them measures the gate,
+not the model. `NaN` when a fold holds out no rejected row.
+
+A Tables.jl source with one row per fold (`fold`, `n_holdout`, `score`,
+`score_defined`, `rmse_moment`).
+"""
+struct MomentCVResult
+    nfolds::Int
+    seed::Int
+    n_holdout::Vector{Int}         # gate-kept held-out ROWS per fold
+    score::Vector{Float64}
+    score_defined::Vector{Float64} # NaN where a fold holds out no rejected row
+    rmse_moment::Vector{Float64}
+    pooled_score::Float64
+    pooled_rmse_moment::Float64
+end
+
+Tables.istable(::Type{MomentCVResult}) = true
+Tables.columnaccess(::Type{MomentCVResult}) = true
+Tables.columns(r::MomentCVResult) =
+    (; fold = collect(eachindex(r.score)), n_holdout = r.n_holdout, score = r.score,
+       score_defined = r.score_defined, rmse_moment = r.rmse_moment)
+
+function Base.show(io::IO, ::MIME"text/plain", r::MomentCVResult)
+    print(io, "MomentCVResult (", r.nfolds, " folds, seed = ", r.seed, "):")
+    for k in eachindex(r.score)
+        print(io, "\n  fold ", k, ": n = ", r.n_holdout[k],
+              "  score = ", round(r.score[k]; sigdigits = 5),
+              "  rmse = ", round(r.rmse_moment[k]; sigdigits = 5), " μB")
+        isnan(r.score_defined[k]) ||
+            print(io, "  (rejected rows: ",
+                  round(r.score_defined[k]; sigdigits = 5), ")")
+    end
+    print(io, "\n  pooled: score = ", round(r.pooled_score; sigdigits = 5),
+          "  rmse = ", round(r.pooled_rmse_moment; sigdigits = 5), " μB")
+end
+
+"""
+    cross_validate(ds::MomentDataset, estimator = OLS(); nfolds = 5, seed = 1)
+        -> MomentCVResult
+
+Configuration-grouped K-fold cross-validation of the pointed channel — the honest way
+to choose λ for a penalized moment fit, and the counterpart of
+[`cross_validate`](@ref)`(::SCEDataset, ...)`.
+
+Folds are assigned by **configuration**, so the rows of one configuration (one per
+marked atom, sharing its spin directions) never split across the train/holdout
+boundary. Training and scoring both run on the gate-kept rows: the decomposability gate
+is a statement about where the pointed model is defined, not about generalization, and
+a rejected row's target carries a transverse component no coefficient can fit.
+`score_defined` reports the rejected rows separately, as disclosure.
+
+Each fold re-solves on its training rows with the SAME frozen column set as the full
+dataset (`ds.vanishing`), so the folds compare like for like. A fold whose training
+rows miss a marked orbit entirely is refused by name: that orbit's μ₀ intercept would
+be unidentified rather than merely poorly determined.
+
+A `PrecomputedPilot` (or an `AdaptiveLasso` carrying one) is refused: its fixed
+full-data coefficients do not depend on the training fold, so the holdout score leaks.
+"""
+function cross_validate(ds::MomentDataset, estimator::AbstractEstimator = OLS();
+                        nfolds::Integer = 5, seed::Integer = 1)::MomentCVResult
+    _check_metric_provenance(estimator, :moment, ds.basis.salc_basis.fingerprint, 0.0)
+    if _carries_precomputed_pilot(estimator)
+        throw(ArgumentError("cross_validate does not accept a PrecomputedPilot (or " *
+            "an AdaptiveLasso carrying one): its fixed full-data coefficient vector " *
+            "does not depend on the training fold, so the holdout score would leak. " *
+            "Pass the estimator that produced the pilot instead."))
+    end
+    nfolds >= 2 || throw(ArgumentError("nfolds must be ≥ 2; got $nfolds"))
+    any(ds.keep) || throw(ArgumentError("no rows survive the gate"))
+    p = size(ds.X, 2)
+    active = trues(p)
+    active[ds.vanishing] .= false
+    any(active) || throw(ArgumentError("every pointed column vanishes on this cell"))
+    est = _reduce_to_active(estimator, active)
+
+    cfgs = unique(ds.row_config[ds.keep])
+    nc = length(cfgs)
+    nf = min(Int(nfolds), div(nc, 3))
+    nf >= 2 || throw(ArgumentError(
+        "cross-validation needs at least 6 configurations with a kept row for ≥ 2 " *
+        "folds; got $nc"))
+    nf < Int(nfolds) &&
+        @warn "cross_validate: reducing CV folds so every fold keeps ≥ 3 " *
+              "configurations" requested = Int(nfolds) effective = nf configs = nc
+    fold = _grouped_folds(ds.row_config, nf, Int(seed))
+    orbits = sort!(unique(ds.orbit_rep[ds.keep]))
+
+    n_holdout = Vector{Int}(undef, nf)
+    score = Vector{Float64}(undef, nf)
+    score_def = fill(NaN, nf)
+    rmse = Vector{Float64}(undef, nf)
+    sse = 0.0
+    nrow = 0
+    for k = 1:nf
+        train = (fold .!= k) .& ds.keep
+        ho = (fold .== k) .& ds.keep
+        any(ho) || throw(ArgumentError(
+            "fold $k holds out no gate-kept row; the fold assignment and the gate " *
+            "disagree on this dataset"))
+        missing_orbits = setdiff(orbits, unique(ds.orbit_rep[train]))
+        isempty(missing_orbits) || throw(ArgumentError(
+            "fold $k trains on no row of marked orbit(s) $missing_orbits, so their " *
+            "μ₀ intercepts are unidentified on that fold rather than merely " *
+            "under-determined. Use fewer folds, or more configurations."))
+        beta = solve_coefficients(est, ds.X[train, active], ds.y[train];
+                                  groups = ds.row_config[train])
+        resid = ds.y[ho] .- ds.X[ho, active] * beta
+        n_holdout[k] = count(ho)
+        score[k] = mean(abs2, resid)
+        rmse[k] = sqrt(score[k])
+        sse += sum(abs2, resid)
+        nrow += length(resid)
+        rej = (fold .== k) .& ds.defined .& .!ds.keep
+        if any(rej)
+            score_def[k] = mean(abs2, ds.y[rej] .- ds.X[rej, active] * beta)
+        end
+    end
+    pooled = sse / nrow
+    return MomentCVResult(nf, Int(seed), n_holdout, score, score_def, rmse, pooled,
+                          sqrt(pooled))
+end
+
 # ── local-field diagnostics + the simple-feature nested floor ──────────────────────
 
 # The pair-consistent neighbor sets of the marked atoms: for each marked atom, the
