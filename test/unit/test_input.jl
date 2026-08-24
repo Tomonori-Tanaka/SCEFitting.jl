@@ -300,7 +300,7 @@ _ferh_toml(moment::String) = _writetoml(_INPUT_FERH * "\n" * moment)
         bad(_MOMENT_MINIMAL * "lsum = 4.0\n")
         bad(replace(_MOMENT_MINIMAL, "[1, 0]" => "[true, false]"))
         bad(replace(_MOMENT_MINIMAL, "cutoff_pair = 3.1" => "cutoff_pair = true"))
-        bad(_MOMENT_MINIMAL * "nbody = 4\n")        # MomentSpec range rule
+        bad(_MOMENT_MINIMAL * "nbody = 5\n")        # MomentSpec range rule
         # a setup with all_images builds (minimum-image) but warns
         ai_setup = replace(_INPUT_FERH, "nbody = 2" => "nbody = 2\nimages = \"all_images\"")
         ai = _writetoml(ai_setup * "\n" * _MOMENT_MINIMAL)

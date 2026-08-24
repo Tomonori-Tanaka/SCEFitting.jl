@@ -95,13 +95,23 @@ be written as the `[moment]` section of a TOML setup file ([`read_setup`](@ref),
   environment content).
 - `marked::Vector{Bool}` — which species' site moments the basis expands
   (default: every species).
-- `nbody` — 1, 2, or 3 (1-body = the per-orbit intercepts μ₀ plus even-rank
-  single-site ê invariants).
+- `nbody` — 1 to 4 (1-body = the per-orbit intercepts μ₀ plus even-rank single-site
+  ê invariants; 3 and up are pointed stars). The enumeration is general in `N`; the
+  cap is where the test oracles stop, not where the code does. Each body order starts
+  at total spin rank `Σl = 2⌈(N−1)/2⌉` — every environment slot needs `l ≥ 1` and
+  time reversal keeps only even `Σl` — so the 4-body sector begins at `Σl = 4`, and
+  its naive lowest member (a rank-0 mark with three `l = 1` environments) is absent:
+  the only `L_S = 0` invariant of three vectors is the pseudoscalar triple product.
 - `cutoff_pair` — mark–environment bond radius (Å) for 2-body clusters: a scalar
   or a symmetric per-species-pair matrix.
-- `cutoff_star` — mark–environment bond radius for 3-body stars (default:
-  `cutoff_pair`). Only the two mark bonds are constrained; the
-  environment–environment edge is free.
+- `cutoff_star` — mark–environment bond radius for stars (`nbody ≥ 3`; default:
+  `cutoff_pair`). Only the `N−1` mark–environment spokes are constrained; the
+  environment–environment edges are free. That asymmetry with the energy side's
+  compact-cluster rule is deliberate: a star has a distinguished centre, so each
+  environment site is pinned by its own spoke and two orbits cannot carry the same
+  monomial. Where a spoke has several minimum images (a Wigner–Seitz tie), the
+  tie-induced member multiplicity grows as `(tie)^(N−1)`; `moment_resolvability` is
+  what catches the resulting degeneracy.
 - `lsum` — optional cap on the total spin rank of a label (`nothing` = uncapped).
 - `isotropy` — keep only the `L_S = 0` blocks (default `true`: the adiabatic map
   is treated as spin-rotation covariant, exactly like an `isotropy = true` energy
@@ -134,7 +144,10 @@ function MomentSpec(; lmax_env::AbstractVector{<:Integer},
     all(l -> l >= 0, lmax_env) ||
         throw(ArgumentError("lmax_env entries must be ≥ 0; got $lmax_env"))
     lmax_mark >= 0 || throw(ArgumentError("lmax_mark must be ≥ 0; got $lmax_mark"))
-    1 <= nbody <= 3 || throw(ArgumentError("nbody must be 1, 2, or 3; got $nbody"))
+    1 <= nbody <= 4 || throw(ArgumentError(
+        "nbody must be in 1:4; got $nbody. The enumeration and the SALC projection " *
+        "are written for general N, but only N ≤ 4 is covered by the test oracles — " *
+        "raising the cap without extending them would promise an unverified region."))
     length(sampled) == nkd ||
         throw(ArgumentError("sampled has $(length(sampled)) entries for $nkd species"))
     for s = 1:nkd
@@ -207,10 +220,10 @@ function _moment_labels(spec::MomentSpec, N::Int)::Vector{Vector{SiteDecor}}
     return labs
 end
 
-# ── pointed 3-body star candidates ─────────────────────────────────────────────────
+# ── pointed star candidates (N ≥ 3) ────────────────────────────────────────────────
 
-# Star clusters {mark, env₁, env₂}: both mark–environment bonds are minimum-image
-# neighbor pairs within the mark–env star radius for their species pair; the
+# Star clusters {mark, env₁, …, env_{N−1}}: every mark–environment spoke is a
+# minimum-image neighbor pair within the mark–env star radius for its species pair; the
 # environment–environment edge is FREE (the triangle is pinned by the two mark
 # bonds, so no periodic alias hides there — M2-5). The candidate set is closed
 # under the space group by construction (species and minimum-image distances are
@@ -358,7 +371,9 @@ function MomentBasis(crystal::Crystal, spec::MomentSpec;
         throw(ArgumentError("no atom of a marked species in the reference cell"))
 
     # clusters: bodies 1–2 from the ordinary enumeration at the pair radii (the
-    # single edge IS the mark–env bond), 3-body stars from the pointed enumeration
+    # single edge IS the mark–env bond), bodies 3 and up from the pointed star
+    # enumeration. The two are NOT merged: the candidate sources differ and so do
+    # their multiplicity conventions.
     nl2 = build_neighbor_list(crystal, spec.cutoff_pair, MinimumImage();
                               tol = tie_tol)
     cs = build_clusters(crystal, nl2, sg; nbody = min(spec.nbody, 2))

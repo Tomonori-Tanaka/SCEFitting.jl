@@ -65,12 +65,12 @@ goes through `TaskCreate` in-session.
 
 ### M3 — 門を 4 に開ける（`feat(basis): allow nbody = 4 in the pointed moment basis`）
 
-- [ ] 門 `1 ≤ nbody ≤ 4` + 理由入りメッセージ。`test_input.jl` を `nbody = 5` に。
-- [ ] N=4 ゲート 2–7, 9（独立ブルートフォース / 絶対正規化オラクル / 回転共変 /
+- [x] 門 `1 ≤ nbody ≤ 4` + 理由入りメッセージ。`test_input.jl` を `nbody = 5` に。
+- [x] N=4 ゲート 2–7, 9（独立ブルートフォース / 絶対正規化オラクル / 回転共変 /
       TR bitwise / resolvability / 4 体が生えている / 門）。
-- [ ] `make test-all` 緑。
+- [x] `make test-all` 緑。
 
-- [ ] **Exit**: `make test-all` 緑、N=4 ゲートが全て通る。
+- [x] **Exit**: `make test-all` 緑、N=4 ゲートが全て通る。
 
 ### M4 — SLCE.jl へ同時移植（`refactor(basis): …` + `feat(basis): …`）
 

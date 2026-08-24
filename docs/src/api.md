@@ -332,8 +332,8 @@ marked reference-cell atom the design row is the SALC vector with the spin matri
 marked column substituted by the evaluation axis (identity for a direction-pinning
 datum, the constraint axis for a transverse-penalty one). The truncation is
 mark-aware: the mark's `ê` rank is allowed for any species, environment spins only
-for species the consumer samples; 3-body stars are cut on the two mark–environment
-bonds, the environment–environment edge free. `isotropy = true` (the default) keeps
+for species the consumer samples; stars (`nbody ≥ 3`) are cut on their mark–environment
+spokes, the environment–environment edges free. `isotropy = true` (the default) keeps
 the `L_S = 0` blocks only — this package's spelling of upstream SLCE.jl's
 `soc = false`.
 

@@ -6,6 +6,35 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — the pointed moment basis takes four bodies (2026-08-25)
+
+- `MomentSpec(; nbody)` accepts 4. The enumeration, the labels and the star
+  candidates were rewritten for general `N` first (no numerical change: the pointed
+  pin's members, tensor entries and fit are bit-identical across that rewrite), and
+  the cap now sits where the test oracles stop rather than where the code did.
+- One of the three hard-coded spots was silent: the constructor's star block was a
+  single `if spec.nbody >= 3` that built body order 3 and nothing else, so a raised
+  cap alone would have returned the 3-body basis without a word.
+- A body order starts at `Σl = 2⌈(N−1)/2⌉` — every environment slot needs `l ≥ 1` and
+  time reversal keeps only even `Σl` — so the 4-body sector begins at `Σl = 4` and its
+  naive lowest member (a rank-0 mark with three `l = 1` environments) is absent: the
+  only rotational invariant of three vectors is the pseudoscalar triple product, which
+  is time-reversal odd.
+- Oracles for the new sector: the star candidates match an independent brute force
+  written from the definition (four cells including Wigner–Seitz ties, three cutoffs,
+  `N = 3` and `4`), with the `N!` ordering multiplicity read off the production set;
+  the absolute column normalization is derived rather than captured —
+  `4!·(4π)^{3/2}·(1/√5)·(3/4π)·√(15/8π) = 24·3√(3/2)` against the closed-form
+  invariant `(eⱼ·e_l)(e_k·e_l) − ⅓(eⱼ·e_k)` on a P1 fixture chosen so the Reynolds
+  projector acts on one dimension; covariance under an arbitrary `SO(3)` rotation of
+  spins and axes together; bitwise time reversal; and the resolvability gate at `N = 4`
+  on a 27-atom supercell against the numerical rank of a random design.
+- The star cutoff rule is unchanged at higher `N`: only the `N−1` mark–environment
+  spokes are cut, the environment–environment edges stay free. A star has a
+  distinguished centre, so each environment site is fixed by its own spoke and two
+  orbits cannot carry the same monomial — the energy side needs its compact-cluster
+  rule precisely because its clusters have no centre.
+
 ### Added — λ selection for the moment channel (2026-08-24)
 
 - `cross_validate(::MomentDataset, estimator; nfolds, seed)` returns a

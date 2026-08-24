@@ -286,10 +286,14 @@ estimator shrinks ``\mu^{(0)}`` like any other column — choose it deliberately
    time), so `lmax_env` must be 0 for it. A *mark* may sit on any species — the induced
    moment of a species that never appears in the energy model is exactly what the channel is
    for (`marked`, default: every species).
-5. **Mark-aware cutoffs.** A three-body star is cut on its two *mark–environment* bonds
-   only; the environment–environment edge is free. Applying the energy side's all-edge
-   compact-cluster rule at the same radius keeps 3 of the 15 nearest-neighbour star pairs of
-   FeGe and costs 20–32 % in ``\sigma`` (measured).
+5. **Mark-aware cutoffs.** An ``N``-body star is cut on its ``N-1``
+   *mark–environment* spokes only; the environment–environment edges are free. Applying
+   the energy side's all-edge compact-cluster rule at the same radius keeps 3 of the 15
+   nearest-neighbour star pairs of FeGe and costs 20–32 % in ``\sigma`` (measured). The
+   asymmetry is not a relaxation: a star has a distinguished centre, so each environment
+   site is fixed by the mark's cell plus its own minimum-image spoke, and two orbits
+   cannot carry the same monomial. The energy side needs the compact rule precisely
+   because its clusters have no centre.
 
 ## Relation to the energy expansion
 
@@ -378,7 +382,7 @@ environment-only local Stoner condition) matters more than the
 | Design-matrix row | configuration ``c`` | (configuration ``c``, marked atom ``i``) |
 | Target | ``E^{(c)}`` | ``y_{c,i} = \hat{\boldsymbol e}_i \cdot \boldsymbol M_i`` |
 | Intercept | ``j_0``, a separate parameter | the one-body ``l_{\mathrm{mark}} = 0`` column, per Wyckoff orbit |
-| Cutoff | all edges compact | mark–environment bonds only (3-body) |
+| Cutoff | all edges compact | mark–environment spokes only (``N \ge 3``) |
 | Sharing | — | symmetry-equivalent sites share one coefficient |
 
 ### Explicit low-order forms (no spin–orbit)
@@ -403,6 +407,19 @@ With the addition theorem
   has exactly this form.
 - **Star ``(2, 1, 1)``.**
   ``\Psi^{(i)} \propto \sum_{(j,k)}\bigl[(\hat{\boldsymbol e}_i \cdot \boldsymbol e_j)(\hat{\boldsymbol e}_i \cdot \boldsymbol e_k) - \frac13\, \boldsymbol e_j \cdot \boldsymbol e_k\bigr]``.
+- **Four-body.** Every environment slot needs ``l \ge 1`` and time reversal keeps only
+  even ``\sum l``, so an ``N``-body sector starts at ``\sum l = 2\lceil (N-1)/2 \rceil``
+  and the four-body one begins at ``\sum l = 4``. The naive lowest member, a rank-0 mark
+  with three ``l = 1`` environments, is therefore absent — consistently, the only
+  rotational invariant of three vectors is the pseudoscalar triple product
+  ``\boldsymbol e_j \cdot (\boldsymbol e_k \times \boldsymbol e_l)``, which is odd
+  under time reversal. What survives at ``\sum l = 4`` with ``l_{\mathrm{mark}} = 0`` is
+  the environment triple ``(1, 1, 2)``, whose unique ``L_S = 0`` invariant is the same
+  quadrupolar contraction as the star ``(2, 1, 1)`` with the rank-2 factor moved onto an
+  environment site,
+  ``\Psi^{(i)} \propto \sum_{(j,k,l)}\bigl[(\boldsymbol e_j \cdot \boldsymbol e_l)(\boldsymbol e_k \cdot \boldsymbol e_l) - \frac13\, \boldsymbol e_j \cdot \boldsymbol e_k\bigr]``;
+  with ``l_{\mathrm{mark}} = 1`` the environment triple ``(1, 1, 1)`` gives the
+  three-dimensional space of four-vector invariants ``\sum (\boldsymbol a \cdot \boldsymbol b)(\boldsymbol c \cdot \boldsymbol d)``.
 
 ## The regression
 

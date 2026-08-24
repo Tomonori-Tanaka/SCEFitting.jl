@@ -53,7 +53,7 @@ are load-bearing:
   act as environment for others.
 
 The cutoffs are **mark-aware**: `cutoff_pair` bounds the mark–environment bond of a
-2-body cluster, `cutoff_star` the two mark bonds of a 3-body star, and the
+2-body cluster, `cutoff_star` the mark bonds of a star (`nbody ≥ 3`), and the
 environment–environment edge of a star is free. `isotropy = true` (the default)
 keeps the `L_S = 0` blocks only — the adiabatic map is taken to be spin-rotation
 covariant, exactly like an `isotropy = true` energy basis.

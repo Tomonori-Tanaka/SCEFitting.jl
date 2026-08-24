@@ -51,7 +51,7 @@ Schema:
     tol     = 1.0e-5                                       # optional, default 1e-5
 
     [moment]                      # optional section: the pointed site-moment basis
-    nbody       = 3           # optional, default 3 (1, 2, or 3)
+    nbody       = 3           # optional, default 3 (1 to 4)
     lmax_mark   = 2           # optional, default 2: cap on the marked site's own ê factor
     lmax_env    = [2]         # per species (index order), or a label table (below)
     sampled     = ["Fe"]      # REQUIRED: species the downstream consumer samples —
@@ -60,7 +60,7 @@ Schema:
     cutoff_pair = 4.1         # REQUIRED: mark–environment bond radius (Å) of 2-body
                               #   clusters — scalar (`inf` = whole WS cell) or pair table
     cutoff_star = 4.1         # optional, default = cutoff_pair: the two mark bonds of
-                              #   3-body stars (the environment–environment edge is free)
+                              #   stars, nbody >= 3 (the env-env edges are free)
     lsum        = 4           # optional, default uncapped: total spin rank per label
     isotropy    = true        # optional, default true (L_S = 0 only) — NOTE the default
                               #   differs from [interaction].isotropy (false)

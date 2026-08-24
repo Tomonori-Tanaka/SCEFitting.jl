@@ -96,7 +96,7 @@ bases from one setup:
 
 ```toml
 [moment]
-nbody       = 3            # optional, default 3 (1, 2, or 3)
+nbody       = 3            # optional, default 3 (1 to 4)
 lmax_mark   = 2            # optional, default 2: the marked site's own ê factor
 lmax_env    = [2]          # per species (index order), or a label table
 sampled     = ["Fe"]       # REQUIRED: species the consumer samples (labels, ["*"], or booleans)

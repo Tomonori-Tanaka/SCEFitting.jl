@@ -77,7 +77,11 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
         @test_throws ArgumentError MomentSpec(; lmax_env = [2], sampled = [true],
                                               cutoff_pair = 3.0, lmax_mark = -1)
         @test_throws ArgumentError MomentSpec(; lmax_env = [2], sampled = [true],
-                                              cutoff_pair = 3.0, nbody = 4)
+                                              cutoff_pair = 3.0, nbody = 5)
+        # 4 is inside the door: the enumeration is general in N, the cap is where the
+        # oracles stop
+        @test MomentSpec(; lmax_env = [2], sampled = [true], cutoff_pair = 3.0,
+                         nbody = 4).nbody == 4
         @test_throws ArgumentError MomentSpec(; lmax_env = [2], sampled = [true],
                                               cutoff_pair = 3.0,
                                               marked = [false])
@@ -229,6 +233,20 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
             end
         end
         @test dev < 1e-12
+        # An ARBITRARY rotation, not just a space-group operation: an L_S = 0 column is
+        # an isotropic invariant, so it survives any R ∈ SO(3) applied to the spins AND
+        # the axes together. Rotating only the spins leaves the mark axis behind, and
+        # this basis's mark carries rank up to 2, so the columns then move — that
+        # asymmetry is the whole content of the marked-column substitution.
+        let iso = findall(k -> k.L_S == 0, mb.salc_basis.keys)
+            q = qr(randn(rng, 3, 3))
+            R = Matrix(q.Q) * (det(Matrix(q.Q)) < 0 ? Diagonal([-1.0, 1, 1]) : I)
+            @test det(R) ≈ 1.0 rtol = 1e-12
+            @test _design_moment(mb, [R * e], [R * axr])[:, iso] ≈
+                  Xr[:, iso] rtol = 1e-12
+            @test !isapprox(_design_moment(mb, [R * e], [axr])[:, iso], Xr[:, iso];
+                            rtol = 1e-6)
+        end
         # time reversal is bitwise (every label has even total spin rank)
         @test _design_moment(mb, [-e], [-axr]) == Xr
         # marked-column substitution locality: changing the axis of atom b changes
@@ -300,6 +318,14 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
         # into a single environment sphere — the gate must refuse loudly, exactly
         # like upstream's energy-side UnclassifiableBasis, never overcount
         @test_throws UnclassifiableBasis moment_resolvability(mb)
+        # a fourth spoke cannot help: with three environment sites drawn from the same
+        # tied neighbour shell, two of them landing on one reference-cell atom is only
+        # more likely, so the primitive cell refuses at N = 4 as well
+        mb4f = MomentBasis(xt, MomentSpec(; lmax_env = [2, 2], sampled = [true, true],
+                                          lmax_mark = 2, nbody = 4, cutoff_pair = 3.3,
+                                          cutoff_star = 3.3, lsum = 4); backend = bk)
+        @test any(k -> k.body == 4, mb4f.salc_basis.keys)
+        @test_throws UnclassifiableBasis moment_resolvability(mb4f)
         @test occursin("UnclassifiableBasis", sprint(showerror,
                                                      UnclassifiableBasis("x")))
         # ... and the star basis really carries the repeated-image member shape
@@ -460,6 +486,99 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
                   if c.body == 3 && any(j -> (kch[j].body, kch[j].orbit_id) ==
                                              (c.body, c.orbit_id), jt))
     end
+    @testset "N = 4 pointed stars" begin
+        # A P1 cell with a trivial site stabilizer, so the Reynolds projector acts on a
+        # ONE-dimensional space per block and the absolute constant closes by hand. The
+        # crystal and the whole `MomentSpec` are load-bearing: they are what makes
+        # `D = 1`, and the constant below is wrong for any fixture whose stabilizer is
+        # not trivial (the FeGe star at line 200 carries an extra 1/√3 for exactly that
+        # reason).
+        L4 = 12.0
+        cr4 = Crystal(Lattice(Matrix(L4 * I(3))),
+                      [0.0 0.20 0.0 0.0; 0.0 0.0 0.24 0.0; 0.0 0.0 0.0 0.28],
+                      [1, 2, 2, 2], ["Fe", "X"])
+        sg4 = _assemble_spacegroup(cr4, [SMatrix{3,3,Float64}(Matrix(1.0I(3)))],
+                                   [SVector{3,Float64}(0, 0, 0)], "P1", 1; tol = 1e-5)
+        spec4 = MomentSpec(; lmax_env = [0, 2], sampled = [true, true], lmax_mark = 0,
+                           marked = [true, false], nbody = 4, cutoff_pair = 4.0,
+                           cutoff_star = 4.0, lsum = 4, isotropy = true)
+        mb4 = MomentBasis(cr4, spec4; backend = _MBFixedSG(sg4))
+        keys4 = mb4.salc_basis.keys
+        b4 = findall(k -> k.body == 4, keys4)
+
+        # -- the labels. `Σl = 2⌈(N−1)/2⌉` puts the 4-body sector at Σl = 4, and with
+        #    `lmax_mark = 0` / `lmax_env = 2` / `lsum = 4` exactly one label survives:
+        #    mark l = 0 with environment (1, 1, 2). Its naive partner, mark l = 0 with
+        #    (1, 1, 1), has Σl = 3 and dies on the time-reversal screen — the unique
+        #    L_S = 0 invariant of three vectors is the pseudoscalar triple product.
+        @test !isempty(b4)
+        @test all(j -> sort([d.spin_l for d in keys4[j].decors]) == [0, 1, 1, 2], b4)
+        @test all(j -> sum(d.spin_l for d in keys4[j].decors) == 4, b4)
+        # one star, three blocks: which environment site carries the l = 2 factor
+        @test length(b4) == 3
+        @test length(unique(keys4[j].orbit_id for j in b4)) == 1
+        @test sort([keys4[j].block for j in b4]) == [1, 2, 3]
+        # the N! ordering expansion folds to ONE member carrying ONE term
+        for j in b4
+            @test length(mb4.salc_basis.salcs[j].members) == 1
+            @test length(mb4.salc_basis.salcs[j].members[1].terms) == 1
+        end
+
+        # -- the absolute normalization, derived rather than captured.
+        #    Geometry: the unique L_S = 0 invariant of ranks (1, 1, 2) is
+        #      êⱼ·Q(ê_l)·ê_k = (êⱼ·ê_l)(ê_k·ê_l) − (1/3)(êⱼ·ê_k),   Q(ê) = êêᵀ − I/3
+        #    (the same invariant the theory page publishes for the star (2, 1, 1)).
+        #    Constant: N! from the ordering convention, times 1/√D = 1 here, times
+        #      κ = (4π)^{n_spin/2} · (1/√5) · (3/4π) · √(15/8π) = 3√(3/2)
+        #    with n_spin = 3 (the rank-0 mark contributes no spin factor, so the scale
+        #    is NOT (4π)^{N/2}), 1/√5 the unit-Frobenius normalization of the (1,1,2)→0
+        #    tensor (‖T‖² = Σ_r ‖Q_r‖_F² = 5), and the two tesseral constants of
+        #    Z_{1m} and Z_{2m}. A uniform loss of orderings — emitting 12 of the 24, say
+        #    — leaves every RATIO unchanged and moves this constant, which is why the
+        #    gate is absolute and not a ratio.
+        C4 = 24 * (4π)^(3 / 2) * (1 / sqrt(5)) * (3 / (4π)) * sqrt(15 / (8π))
+        @test C4 ≈ 24 * 3 * sqrt(3 / 2) rtol = 1e-14
+        inv112(e, j, k, l) = dot(e[:, j], e[:, l]) * dot(e[:, k], e[:, l]) -
+                             dot(e[:, j], e[:, k]) / 3
+        rng4 = MersenneTwister(20260824)
+        for _ = 1:3
+            e4 = _mb_unit(rng4, 4)
+            X4 = _design_moment(mb4, [e4], [e4])
+            ref = [C4 * inv112(e4, setdiff([2, 3, 4], [l])..., l) for l in (2, 3, 4)]
+            got = X4[1, b4]
+            # the block index is gauge, so compare the multiset and the sum, not the
+            # per-block pairing
+            @test sort(got) ≈ sort(ref) rtol = 1e-12
+            @test sum(got) ≈ sum(ref) rtol = 1e-12
+        end
+
+        # -- covariance under an ARBITRARY rotation, not just a space-group operation.
+        #    The mark axis has to turn with the spins; rotating only the spins leaves it
+        #    behind, and an L_S = 0 column would then move.
+        for _ = 1:2
+            e4 = _mb_unit(rng4, 4)
+            X4 = _design_moment(mb4, [e4], [e4])
+            q = qr(randn(rng4, 3, 3))
+            R = Matrix(q.Q) * (det(Matrix(q.Q)) < 0 ? Diagonal([-1.0, 1, 1]) : I)
+            @test _design_moment(mb4, [R * e4], [R * e4]) ≈ X4 rtol = 1e-12
+            # this fixture's mark has rank 0, so its ê factor is the constant |u|²R₀₀
+            # and the evaluation axis is never read — the axes argument is inert here,
+            # which is why the "rotate the spins but not the axes" control lives on a
+            # rank-1 mark instead (the covariance testset above)
+            @test _design_moment(mb4, [e4], [_mb_unit(rng4, 4)]) == X4
+            # time reversal is bitwise: every label has even total spin rank
+            @test _design_moment(mb4, [-e4], [-e4]) == X4
+        end
+
+        # -- opening the door adds columns rather than replacing them
+        spec3 = MomentSpec(; lmax_env = [0, 2], sampled = [true, true], lmax_mark = 0,
+                           marked = [true, false], nbody = 3, cutoff_pair = 4.0,
+                           cutoff_star = 4.0, lsum = 4, isotropy = true)
+        mb3 = MomentBasis(cr4, spec3; backend = _MBFixedSG(sg4))
+        @test n_salcs(mb3) == n_salcs(mb4) - length(b4)
+        @test [k for k in keys4 if k.body <= 3] == mb3.salc_basis.keys
+    end
+
     @testset "resolvability gate streams per marked atom (27-atom supercell)" begin
         # The gate used to assemble the signature expansion as ONE dense block
         # (rows = every distinct signature key on the cell) and was killed by
@@ -502,5 +621,26 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
             @test norm(Xc * v) < 1e-10 * norm(Xc) * norm(v)
         end
         @test all(c -> c.n_mark_atoms >= 2, resc.census)
+
+        # the same gate at body order 4. `cutoff_star = 1.1` admits the six nearest
+        # neighbours only, so the star count is C(6,3) = 20 per marked atom and the
+        # member count is 27 · 20 · 4! — the N! ordering expansion, checked against the
+        # closed form rather than assumed.
+        sp4 = MomentSpec(; lmax_env = [2], sampled = [true], lmax_mark = 2, nbody = 4,
+                         cutoff_pair = 1.8, cutoff_star = 1.1, lsum = 4,
+                         isotropy = true)
+        mb4c = MomentBasis(csc, sp4; backend = _MBFixedSG(sgc))
+        nl4 = SCEFitting.build_neighbor_list(csc, sp4.cutoff_star,
+                                             SCEFitting.MinimumImage(); tol = 1e-8)
+        @test length(SCEFitting._pointed_star_candidates(csc, nl4, sp4, 4)) ==
+              L^3 * binomial(6, 3) * factorial(4)
+        @test any(k -> k.body == 4, mb4c.salc_basis.keys)
+        res4 = moment_resolvability(mb4c)
+        X4c = _design_moment(mb4c, cfgc, cfgc)
+        sv4 = svd(X4c).S
+        @test count(>(1e-9 * sv4[1]), sv4) == res4.rank
+        @test res4.rank == length(sv4) || sv4[res4.rank] / sv4[res4.rank + 1] > 1e3
+        @test isempty(res4.vanishing)        # this cell resolves the 4-body sector
+        @test length(res4.null_combinations) == length(res4.kept) - res4.rank
     end
 end

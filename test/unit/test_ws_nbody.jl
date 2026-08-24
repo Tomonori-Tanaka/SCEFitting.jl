@@ -63,6 +63,84 @@ function _wsnb_brute(cr, cutoff, N; rtol = 1e-8, box = 3)
     return out
 end
 
+# Independent brute-force POINTED STAR enumeration: every anchored (shifts[1] = 0),
+# ordered N-tuple whose first site is a marked-species atom and whose N−1 spokes from
+# it each sit at the atom-pair minimum-image distance (within rtol) and within
+# `cutoff_star` for that species pair. The environment-environment edges are FREE —
+# a pointed star is pinned by its spokes, and it has a distinguished centre, so the
+# compact-cluster rule the energy side needs does not apply.
+#
+# Two rules are deliberately NOT inherited from `_wsnb_brute`: the "distinct atoms"
+# filter (a pointed star keeps two different minimum IMAGES of one neighbour and only
+# drops an exact `(atom, shift)` repeat), and the anchor loop over every atom (only a
+# marked species can carry the mark). Written as the definition, so the N! multiplicity
+# falls out of "ordered tuple" rather than being asserted.
+function _ptstar_brute(cr, spec, N; rtol = 1e-8, box = 2)
+    A = SMatrix{3,3,Float64}(cr.lattice.vectors)
+    nat = n_atoms(cr)
+    cart = cartesian_positions(cr)
+    shifts = SVector{3,Int}[]
+    for n1 = -box:box, n2 = -box:box, n3 = -box:box
+        push!(shifts, SVector{3,Int}(n1, n2, n3))
+    end
+    z = SVector{3,Int}(0, 0, 0)
+    pos(b, R) = SVector{3,Float64}(cart[1, b], cart[2, b], cart[3, b]) +
+                A * SVector{3,Float64}(R[1], R[2], R[3])
+    dmin = fill(Inf, nat, nat)
+    for i = 1:nat, j = 1:nat, R in shifts
+        (i == j && R == z) && continue
+        d = norm(pos(j, R) - pos(i, z))
+        d < dmin[i, j] && (dmin[i, j] = d)
+    end
+    sp = cr.species
+    spoke_ok(a, b, R) = begin
+        d = norm(pos(b, R) - pos(a, z))
+        d <= dmin[a, b] * (1 + rtol) &&
+            d <= spec.cutoff_star[sp[a], sp[b]] * (1 + rtol)
+    end
+    out = Set{Tuple}()
+    member(sites) = (Tuple(s[1] for s in sites),
+                     Tuple((s[2][1], s[2][2], s[2][3]) for s in sites))
+    # every ordered N-tuple: the mark may sit at any position, and the whole tuple is
+    # re-anchored so that its FIRST site is at the origin (the production convention)
+    function emit!(a, env)
+        sites = vcat([(a, z)], env)
+        for p in permutations_of(N)
+            s1 = sites[p[1]][2]
+            push!(out, member([(sites[q][1], sites[q][2] - s1) for q in p]))
+        end
+    end
+    function extend!(a, env)
+        if length(env) == N - 1
+            emit!(a, env)
+            return
+        end
+        for b = 1:nat, R in shifts
+            # only an EXACT (atom, shift) repeat is excluded — two different minimum
+            # images of one neighbour are distinct environment sites. The mark's own
+            # site is not a neighbour of itself.
+            (b, R) == (a, z) && continue
+            any(s -> s == (b, R), env) && continue
+            spoke_ok(a, b, R) && extend!(a, vcat(env, [(b, R)]))
+        end
+    end
+    for a = 1:nat
+        spec.marked[sp[a]] || continue
+        extend!(a, Tuple{Int,SVector{3,Int}}[])
+    end
+    return out
+end
+
+# all permutations of 1:n, written out rather than borrowed from the code under test
+function permutations_of(n)
+    n == 1 && return [[1]]
+    out = Vector{Int}[]
+    for p in permutations_of(n - 1), i = 1:n
+        push!(out, vcat(p[1:(i - 1)], [n], p[i:end]))
+    end
+    return out
+end
+
 # production candidate members → the same comparable representation
 _wsnb_prodset(ms) =
     Set((Tuple(m.atoms), Tuple((s[1], s[2], s[3]) for s in m.shifts)) for m in ms)
@@ -137,6 +215,37 @@ _wsnb_siteset(m) = sort([(m.atoms[k], m.shifts[k][1], m.shifts[k][2], m.shifts[k
                 prod = get(cand, N, ClusterMember[])
                 @test _wsnb_prodset(prod) == _wsnb_brute(cr, cutoff, N)   # exact counting
                 @test _wsnb_edges_minimage(cr, prod)                     # no spurious edges
+            end
+        end
+    end
+
+    @testset "pointed star candidates == independent brute force (N = 3, 4)" begin
+        # The same discipline as the compact-cluster gate above, for the OTHER
+        # enumeration in the package. The cells carry Wigner-Seitz ties on purpose:
+        # a pointed star keeps two different minimum images of one neighbour, and a
+        # brute force that copied the energy side's distinct-atom rule would go red
+        # here — which is the point of writing it from the definition instead.
+        cases = [("faces", faces), ("fcc", fcc), ("generic", generic), ("hex", hex)]
+        for (nm, cr) in cases, cut in (2.0, 1.6, 1.3)
+            spec = MomentSpec(; lmax_env = [1], sampled = [true], lmax_mark = 1,
+                              nbody = 4, cutoff_pair = cut, cutoff_star = cut,
+                              lsum = 4)
+            nl = build_neighbor_list(cr, cut, MinimumImage())
+            for N = 3:4
+                prod = SCEFitting._pointed_star_candidates(cr, nl, spec, N)
+                @test _wsnb_prodset(prod) == _ptstar_brute(cr, spec, N)
+                # the N! ordering convention, read off the production set: every
+                # member's site multiset appears exactly N! times (the translation
+                # classes are distinct, so no two classes share one)
+                counts = Dict{Any,Int}()
+                for m in prod
+                    sites = sort([(m.atoms[i], Tuple(m.shifts[i]))
+                                  for i in eachindex(m.atoms)])
+                    R0 = sites[1][2]           # anchor on the SORTED first site, so
+                    k = [(a, s .- R0) for (a, s) in sites]   # the key is ordering-free
+                    counts[k] = get(counts, k, 0) + 1
+                end
+                @test isempty(counts) || all(==(factorial(N)), values(counts))
             end
         end
     end
