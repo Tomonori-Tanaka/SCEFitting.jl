@@ -6,6 +6,31 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — a self-image (`AllImages`) basis can no longer be fitted silently (2026-08-24)
+
+- `SCEDataset` now refuses a basis whose SALCs carry a member using one
+  reference-cell atom twice (an `AllImages` self-image pair `(a, 0)-(a, R)`) with
+  `UnclassifiableBasis`, naming the offending keys and the way out. Both ends of
+  such a pair carry the same spin on the reference cell, so the function collapses
+  to a single-site one (a constant for `Lf = 0`); the per-orbit function-space
+  reduction cannot see the collapse — its aggregate key treats the two factors as
+  living on separate spheres — so the columns survived the build and the design lost
+  rank silently. Measured on a one-atom cubic cell (a = 3.0, nbody = 2, lmax = 1,
+  cutoff = 3.2): 27 SALCs, 9 columns identically zero and 3 constant, rank 5 of 27
+  after centering, **no build warning**, and at solve time only the generic `OLS`
+  rank warning (silent under a regularized estimator).
+- The refusal sits at the dataset door, not the build: an `AllImages` basis is also
+  the **tiling template** a downstream consumer expands onto a supercell, where the
+  images become distinct sites and each self-image pair becomes a genuine bond
+  (SCEMonteCarlo's cubic-Heisenberg tutorial). Building, `SCEPredictor`,
+  introspection and export stay legal; only fitting on the reference cell is
+  refused. To fit the same model, build on a supercell with `MinimumImage` — for a
+  monatomic cubic cell, 3x3x3 with the same spec gives the same isotropic
+  nearest-neighbor channel.
+- That second contract is now documented where it is chosen: the `AllImages`
+  docstring, the basis guide, `SPEC.md`, and `UnclassifiableBasis` (which now names
+  both gates that raise it).
+
 ### Added — `[moment]` section in the TOML setup file (2026-08-24)
 
 - `input.toml` takes an optional `[moment]` section (`nbody`, `lmax_mark`,

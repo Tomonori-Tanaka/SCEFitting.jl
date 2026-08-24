@@ -443,9 +443,50 @@ function _refuse_empty_basis(basis::SCEBasis)
     return nothing
 end
 
+# A member that uses one reference-cell atom twice — an `AllImages` self-image pair
+# `(a, 0)-(a, R)` — is not a pair function of THIS cell: under plain periodic boundary
+# conditions both ends carry the same spin `e_a`, so the SALC collapses to a
+# single-site function (a constant for `Lf = 0`, a 1-body alias otherwise). The
+# per-orbit function-space reduction cannot see that collapse — its aggregate key
+# treats the two factors as living on separate spheres (see `_function_vector`) — so
+# the columns survive the build and the design silently loses rank. Measured on a
+# one-atom cubic cell (a = 3.0, nbody = 2, lmax = 1, cutoff = 3.2, `AllImages`): 27
+# SALCs, 9 of the columns identically zero and 3 constant, rank 5 of 27 after
+# centering, no build warning, and at solve time only the generic `OLS` rank warning
+# (silent under a regularized estimator).
+#
+# The refusal sits at the DATASET door rather than the build because the same
+# construction has a second, legitimate consumer: on a cell whose own periodic images
+# are the neighbors, an `AllImages` basis is the compact way to WRITE a model that a
+# tiling consumer expands onto a supercell, where the images become distinct sites and
+# each self-image pair becomes a genuine bond. That use sets the coefficients by hand,
+# so building, `SCEPredictor`, introspection, and export stay legal; only fitting ON
+# the reference cell — where the collapse is real — is refused.
+function _refuse_self_image_basis(basis::SCEBasis)
+    bad = SALCKey[s.key for s in salcs(basis) if any(m -> !allunique(m.atoms), s.members)]
+    isempty(bad) && return nothing
+    detail = join(("$(k.body)-body orbit $(k.orbit_id), ls = $(spin_ls(k)), Lf = $(k.Lf)"
+                   for k in Iterators.take(bad, 4)), "; ")
+    length(bad) > 4 && (detail *= "; ...")
+    throw(UnclassifiableBasis(
+        "$(length(bad)) of $(n_salcs(basis)) SALC(s) have a member that uses one " *
+        "reference-cell atom twice (an AllImages self-image pair): $detail. Both ends " *
+        "of such a pair carry the same spin on this cell, so the function collapses " *
+        "to a single-site one (a constant for Lf = 0) and the design matrix is rank " *
+        "deficient by construction: the fit would return one arbitrary representative " *
+        "of a non-unique solution, and so would every bond-resolved readout taken " *
+        "from it. To FIT this model, build the basis on a supercell with " *
+        "MinimumImage, where the neighbors are distinct atoms (for a monatomic cubic " *
+        "cell, 3x3x3 with the same spec gives the same isotropic nearest-neighbor " *
+        "channel). To use the basis as a TILING TEMPLATE, keep it and set the " *
+        "coefficients yourself (SCEPredictor): building, predicting, introspection " *
+        "and export are not refused, only fitting on the reference cell"))
+end
+
 function SCEDataset(basis::SCEBasis, configs::AbstractVector, energies::AbstractVector;
                    atol::Real = _DIRECTION_ATOL)::SCEDataset
     _refuse_empty_basis(basis)
+    _refuse_self_image_basis(basis)
     length(configs) == length(energies) ||
         throw(DimensionMismatch("got $(length(configs)) configs but $(length(energies)) energies"))
     cfgs = [Matrix{Float64}(c) for c in configs]
@@ -458,6 +499,7 @@ end
 function SCEDataset(basis::SCEBasis, configs::AbstractVector, energies::AbstractVector,
                    torques::AbstractVector; atol::Real = _DIRECTION_ATOL)::SCEDataset
     _refuse_empty_basis(basis)
+    _refuse_self_image_basis(basis)
     length(configs) == length(energies) ||
         throw(DimensionMismatch("got $(length(configs)) configs but $(length(energies)) energies"))
     cfgs = [Matrix{Float64}(c) for c in configs]

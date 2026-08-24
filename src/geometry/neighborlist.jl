@@ -80,6 +80,22 @@ plain-PBC supercell fitting this over-counts beyond `L/2` (it admits aliases of
 shorter bonds), so it is *not* the fitting default; it is the representation a
 **generalized-Bloch / spin-spiral** extension needs, where the phase `e^{i q·R}`
 resolves images a single supercell cannot. Requires a finite cutoff.
+
+# Not for fitting: the tiling-template contract
+
+`AllImages` is also the only way to *write* a model whose neighbors are the periodic
+images of the cell's own atoms — a monatomic cell's nearest-neighbor bond — which is
+how a downstream tiling consumer is handed a compact reference model: it expands the
+cell onto a supercell where the images become **distinct sites**, and each self-image
+pair becomes a genuine bond there.
+
+On the reference cell such a member is **not** a pair function. Both ends carry the
+same spin `e_a`, so the SALC collapses to a single-site function — a constant for
+`Lf = 0` — and carries no information about the configuration. Its coefficient must
+therefore be **set by hand** (or fitted elsewhere and transferred), never fitted on
+this cell: [`SCEDataset`](@ref) refuses a basis with self-image members for exactly
+that reason. To fit the same model from data, build on a supercell with
+[`MinimumImage`](@ref), where the neighbors are distinct atoms.
 """
 struct AllImages <: AbstractImageSelection end
 

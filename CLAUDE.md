@@ -111,8 +111,13 @@ Easy to break silently — confirm before touching the algorithm.
   the minimum-image one and is not independently fittable. The default `MinimumImage`
   selection enumerates exactly this set (boundary ties kept; `i==j` self-pairs and
   reused-atom clusters dropped); `cutoff = Inf` is the whole WS cell. `AllImages`
-  (every image, `R`-distinguished) is **only** for the future generalized-Bloch /
-  spin-spiral path where `e^{iq·R}` resolves the images. For `cutoff < min_d dᵢ / 2` the
+  (every image, `R`-distinguished) is **never fittable** — `SCEDataset` refuses a
+  basis with self-image members (`UnclassifiableBasis`). It serves two non-fitting
+  consumers: the future generalized-Bloch / spin-spiral path where `e^{iq·R}`
+  resolves the images, and the **tiling template** a downstream consumer expands
+  onto a supercell (a monatomic cell's NN bond can only be *written* as a
+  self-image pair; SCEMonteCarlo's cubic-Heisenberg tutorial is the live case,
+  coefficients set by hand). For `cutoff < min_d dᵢ / 2` the
   two coincide. Do **not** "fix" a `> L/2` cutoff by folding aliases into a shorter shell
   (double-counts) — that regime is simply unresolvable from one supercell.
 - **Energy units**: `Jφ` carry the DFT input unit (eV); `j0` is separate.
@@ -230,9 +235,11 @@ Easy to break silently — confirm before touching the algorithm.
   caught only by the OLS rank warning (`_OLS_RANK_RTOL`, `fitting/estimators.jl`):
   cross-orbit dependence (a trivial space group — `NoSymmetry` — puts tied images in
   separate orbits; genuine cross-orbit aliasing is unresolvable from the supercell,
-  not mergeable, so the reduction deliberately does not fold it), repeated-atom
-  members (`AllImages` self-pairs; dropping stays sound, independence uncertified),
-  and row-deficient training data. Gate:
+  not mergeable, so the reduction deliberately does not fold it) and
+  row-deficient training data. Repeated-atom members (`AllImages` self-pairs) are
+  the third thing the reduction cannot certify, but they no longer reach the solver:
+  `_refuse_self_image_basis` (`sce/model.jl`) throws `UnclassifiableBasis` at both
+  `SCEDataset` doors. Gate:
   the closed-form CsCl tie-shell testset in `test_salc.jl` (8-fold corner tie: 2
   emitted, the aggregate-zero `Lf = 2` dropped loudly, the survivor ≡ `e₁·e₂`).
   Change the evaluation kernel's member/shift semantics and the reduction's
@@ -531,6 +538,7 @@ the one that bites.
 | `[moment]` TOML section | none (no TOML moment input; the spec is spelled `soc`) | `read_setup(path).moment::Union{Nothing,MomentSpec}`, `MomentBasis(path)` (`io/input.jl`) | Exists only here. A port upstream must flip the key to `soc` with the OPPOSITE polarity; this reader refuses a `soc` key by name |
 | Function-space reduction | none | `_function_vector` / `_reduce_orbit_salcs` (pure-spin only; refuses decorated SALCs, message = wiring checklist) | Exists only here; upstream ports nothing back |
 | `SolidHarmonics` | values + Euclidean gradient API (`solid_harmonics_grad[!]`, `grad_Rlm`) + `solid_harmonic_poly` (the ASR and lattice-side builders) | **values only** (347 → 240 lines); the value recurrence is upstream's line for line | No force rows here; do not re-port the gradient "because upstream has it" — count what the production path actually reads (`R₀₀ ≡ 1`) |
+| Self-image fitting door | `unresolvable_columns` throws `UnclassifiableBasis` during the resolvability pass; the fit door screens on the displacement channel and the downstream fallback freezes nothing | `_refuse_self_image_basis` (`sce/model.jl`) throws the same exception at both `SCEDataset` constructors, before any design is built | Refusal point differs. Do not port the upstream fit-door predicate: it screens a channel this package does not have, and basis BUILDING must stay open (tiling templates) |
 | Test oracles | `CountingOracle` (852 lines), `_ls_block_stats` (C-2 block diagonality), plus the Cartesian projector since `08743d1` | the ~45-line Cartesian projector only; C-2 deferred to wiring | Counts agree; the projector shares no code with the SALC machinery in either package |
 
 Closed on 2026-08-21 — now identical in both packages, no longer divergences:

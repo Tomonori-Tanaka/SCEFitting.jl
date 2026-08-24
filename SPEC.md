@@ -127,9 +127,13 @@ capability consumed by both the introspection and the Sunny interop.
   onto one atom set) are dropped with a warning naming orbit, channel, and reason
   (surviving keys keep their `block` numbers; gaps are legal). The independence
   guarantee is per orbit, distinct-atom members only: cross-orbit aliasing (e.g. a
-  trivial space group splitting tied images into separate orbits), repeated-atom
-  `AllImages` members, and row-deficient training data can still leave the design
-  rank deficient — the `OLS` rank warning is the gate there.
+  trivial space group splitting tied images into separate orbits) and row-deficient
+  training data can still leave the design rank deficient — the `OLS` rank warning is
+  the gate there. Repeated-atom (`AllImages` self-image) members, which the reduction
+  also cannot certify, are refused outright at the `SCEDataset` door with an
+  `UnclassifiableBasis`: on the reference cell both ends carry the same spin, so those
+  columns are redundant by construction. Building such a basis stays legal — it is the
+  tiling template a downstream consumer expands onto a supercell.
 - Validated by the ground-truth tests with non-collinear spins, **all `Lf`, all body
   orders**: space-group invariance `Φ(g·e)=Φ(e)`, time-reversal evenness, linear
   independence; projector eigenvalues exactly 0/1. Improper-op parity is handled

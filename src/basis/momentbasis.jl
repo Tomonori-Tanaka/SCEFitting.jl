@@ -39,11 +39,20 @@
 """
     UnclassifiableBasis <: Exception
 
-Thrown by [`moment_resolvability`](@ref) when the symbolic signature expansion
-cannot classify a basis — a member carrying two environment spin factors on one
-reference-cell atom (two periodic images of one neighbor) multiplies two harmonics
-of the SAME unit vector, and the monomial signature would overcount the rank. The
-honest answer is "unknown", never "none"; the gate refuses rather than reports.
+Thrown when a gate cannot classify a basis because a member carries two spin
+factors on ONE reference-cell atom (two periodic images of one neighbor), so two
+harmonics of the SAME unit vector multiply and the monomial key the gate is built on
+no longer names a function uniquely. The honest answer is "unknown", never "none";
+the gate refuses rather than reports. Two gates raise it:
+
+- [`moment_resolvability`](@ref) — two ENVIRONMENT spin factors on one atom (the
+  mark factor is exempt: it reads the independent axis variable), where the signature
+  expansion would overcount the rank.
+- [`SCEDataset`](@ref) — an energy-side basis with a repeated-atom (`AllImages`
+  self-image) member, whose columns are redundant on the reference cell and which the
+  per-orbit function-space reduction cannot certify. Only the fitting door refuses;
+  building such a basis as a tiling template stays legal.
+
 (Upstream SLCE.jl defines the same exception for its energy-side gate.)
 """
 struct UnclassifiableBasis <: Exception
