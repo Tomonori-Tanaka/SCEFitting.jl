@@ -5,11 +5,12 @@
 #
 # Both packages are imported QUALIFIED: they export the same names.
 
-# SCOPE NOTE: every pointed case here pins `nbody = 3` (and the energy cases 2 or 3),
-# so this harness does NOT cover the pointed body-order door. This package builds
-# general `N` with a cap of 4; SLCE.jl is still 3-only. Until the port lands and an
-# `nbody = 4` case is added here, the two engines can diverge at N = 4 with this gate
-# green. See the "Pointed body order" row of the upstream divergence ledger.
+# SCOPE NOTE on body order: the acceptance cases pin `nbody = 3` (energy cases 2 or
+# 3), because their reference numbers were taken there. The pointed body-order DOOR is
+# covered separately by the `nbody = 4` case at the end of the FeGe block, added when
+# the generalization was ported upstream — without it the two engines could diverge at
+# N = 4 with this gate green, which is what the ledger's "Pointed body order" row used
+# to warn about.
 
 
 using Test
@@ -239,6 +240,39 @@ _skip(msg) = (@warn msg; @test_skip false)
                 pb = dsb3.X[dsb3.keep, :] * SLCE.coef(fb)
                 @test norm(pa - pb) <= 1e-10 * norm(pb)
             end
+        end
+
+        # ---- the pointed body-order door (both engines general in N) -------------
+        # No acceptance number here: the reference protocol never ran at N = 4. What
+        # this states is the thing the rest of the harness cannot — that the two
+        # packages build the SAME 4-body sector. `cutoff_star = 2.6` keeps it to the
+        # nearest-neighbour shell (at 3.0 the same spec reaches 727 columns, 572 of
+        # them 4-body, which is a benchmark rather than a gate).
+        @testset "nbody = 4" begin
+            sp4a = SCEFitting.MomentSpec(; lmax_env = [2, 2], sampled = [true, true],
+                                         lmax_mark = 2, nbody = 4, cutoff_pair = 4.6,
+                                         cutoff_star = 2.6, lsum = 4,
+                                         marked = [true, false])
+            sp4b = SLCE.MomentSpec(; lmax_env = [2, 2], sampled = [true, true],
+                                   lmax_mark = 2, nbody = 4, cutoff_pair = 4.6,
+                                   cutoff_star = 2.6, lsum = 4, marked = [true, false])
+            mb4a = SCEFitting.MomentBasis(xa, sp4a; backend = FixedA(sga))
+            mb4b = SLCE.MomentBasis(xb, sp4b; backend = FixedB(sgb))
+            # the 4-body sector is REALLY there — a spec that silently returned the
+            # 3-body basis would satisfy every parity assertion below
+            n4a = count(k -> k.body == 4, mb4a.salc_basis.keys)
+            @test n4a == count(k -> k.body == 4, mb4b.salc_basis.keys) > 0
+            @test SCEFitting.n_salcs(mb4a) == SLCE.n_salcs(mb4b) == 43
+            @test [count(k -> k.body == b, mb4a.salc_basis.keys) for b = 1:4] ==
+                  [count(k -> k.body == b, mb4b.salc_basis.keys) for b = 1:4] ==
+                  [1, 24, 10, 8]
+            sel = vcat(1:6, 396:400)
+            cfgs = [train[c].directions for c in sel]
+            X4a = SCEFitting._design_moment(mb4a, cfgs, [copy(e) for e in cfgs])
+            X4b = SLCE._design_moment(mb4b, cfgs, [copy(e) for e in cfgs])
+            w4 = column_parity(X4a, mb4a.salc_basis.keys, X4b, mb4b.salc_basis.keys)
+            @printf("  nbody4 p=%3d (%d four-body)  column parity: worst %.2e\n",
+                    SCEFitting.n_salcs(mb4a), n4a, w4)
         end
     end
 end

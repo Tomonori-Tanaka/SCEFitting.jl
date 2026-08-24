@@ -1,6 +1,6 @@
 # Tasklist: pointed moment basis の体数一般化（門は 4）
 
-Status: in progress (2026-08-24) — M0 実測完了、requirements に書き戻し済み
+Status: in progress (2026-08-25) — M0–M4 着地（実装コミット: 下記）、残るは M5 の bench と M6
 
 This file holds coarse-grained, commit-sized milestones. Day-to-day tracking
 goes through `TaskCreate` in-session.
@@ -74,11 +74,15 @@ goes through `TaskCreate` in-session.
 
 ### M4 — SLCE.jl へ同時移植（`refactor(basis): …` + `feat(basis): …`）
 
-- [ ] SLCE.jl に M2 / M3 と同一の変更。
-- [ ] `test/parity/` の列 parity（同期の変更検出器）を両側で緑に。
-- [ ] SLCE 側の `make test-all` / docs strict 緑。
+- [x] SLCE.jl に M2 / M3 と同一の変更（SLCE `5684572`）。ついでに 57a22de のパネル修正
+      （自己像オラクル・多重度カウント・符号ゲージ・無言打ち切り警告・threading）も
+      同時に入れた — 分けて入れる意味がない。
+- [x] `test/parity/` に `nbody = 4` ケースを新設（FeGe 2×2×2 / `cutoff_star = 2.6` /
+      43 列うち 4 体 8）。**worst relative column deviation = 0.00e+00**。
+      スコープ注記は「受入数値は N=3、体数の門は専用ケースが見る」に書き換え。
+- [x] SLCE 側の `make test-all` 相当（`TEST_MODE=all`）緑 53375、docs strict 緑。
 
-- [ ] **Exit**: 両パッケージで `make test-all` 緑、parity ゲート緑。
+- [x] **Exit**: 両パッケージで全スイート緑、parity ゲート緑。
 
 ### M5 — docs / bench / レビュー
 
@@ -121,21 +125,27 @@ bcc Fe 3×3×3 で**星メンバ 2,774,736 本 / P1 軌道 115,614**（N=3 の 3
 Run through every item once implementation lands. ~~Strike through~~ items
 that do not apply.
 
-- [ ] `make test-all` passes (4 threads).
-- [ ] `make test-pin` passes（**M1 の pointed フィクスチャを含めて**）, or pins
-      recaptured with the reason in `test/pin/PIN.md`.
-- [ ] `make docs` builds (strict).
-- [ ] If results changed: regression or validation test added, oracle
+- [x] `make test-all` passes (4 threads) — 38795; SLCE 側 `TEST_MODE=all` 53375。
+- [x] `make test-pin` passes（**M1 の pointed フィクスチャを含めて**）— 104、-t 4 / -t 1
+      両方。ピン再取得なし。
+- [x] `make docs` builds (strict) — 両パッケージ。
+- [x] If results changed: regression or validation test added, oracle
       independent of the implementation.
-- [ ] If public API changed: `SPEC.md` and `docs/src/api.md` updated.
+- [x] If public API changed: `SPEC.md` and `docs/src/api.md` updated.
 - [ ] If a hot path was touched: before / after recorded in
-      `bench/BENCH_LOG.md`（メンバ生成 / 射影 / resolvability を分けて）.
-- [ ] Tier 2 review panel run (numerical / maintainability / performance /
-      API axes) and findings resolved.
-- [ ] If module names or Makefile targets changed: `.claude/agents/` swept.
-- [ ] If this diverges from SLCE.jl: divergence ledger row in `CLAUDE.md`.
-      （本 spec は同時移植なので新規行なし — ずれたまま片方だけ入れない）
-- [ ] `CHANGELOG.md` `[Unreleased]` updated.
-- [ ] `Status:` line in this file and the table in `docs/specs/README.md`
+      `bench/BENCH_LOG.md`（メンバ生成 / 射影 / resolvability を分けて）— **M5 で未実施**。
+- [x] Tier 2 review panel run (numerical / maintainability / performance /
+      API axes) and findings resolved（`57a22de`）。
+- [x] ~~If module names or Makefile targets changed: `.claude/agents/` swept.~~
+- [x] If this diverges from SLCE.jl: divergence ledger row in `CLAUDE.md`.
+      （同時移植で決着 — ledger の該当行は 2026-08-25 の closed 節に移した）
+- [x] `CHANGELOG.md` `[Unreleased]` updated（両パッケージ）.
+- [x] `Status:` line in this file and the table in `docs/specs/README.md`
       updated in sync.
-- [ ] Implementation commit hash appended below.
+- [x] Implementation commit hash appended below.
+
+## Implementation commits
+
+- SCEFitting.jl: `b808181` (M1 pin) → `f297df9` (M2) → `679b6fa` (M3) →
+  `57a22de` (Tier 2 パネル全件適用) → parity `nbody = 4` ケース（本コミット）。
+- SLCE.jl: `5684572`（M2 + M3 + 57a22de のパネル修正を一括）。

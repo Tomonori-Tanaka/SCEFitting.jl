@@ -1,6 +1,6 @@
 # Tasklist: 罰則計量の正当化と λ 選択（エネルギー / モーメント両チャネル）
 
-Status: in progress (2026-08-24) — M1–M4 着地（実装コミット: 下記）
+Status: in progress (2026-08-25) — M1–M5 着地（実装コミット: 下記）、残るは M6（受け入れ確認）
 
 This file holds coarse-grained, commit-sized milestones. Day-to-day tracking
 goes through `TaskCreate` in-session.
@@ -75,13 +75,27 @@ group-L0 の不動点 `→ λ v_g` も壊れる）。
 
 ### M5 — SLCE.jl へ移植（Q4 の段取り）
 
-- [ ] SLCE.jl の**純スピン両チャネル**に同型移植（`_edof` / 計量の 6 サイト /
-      収束判定 / 計量 0 による pointed の μ₀ 免除）。**群重み `≥ 0` の緩和は本 spec で
-      落としたので移植しない**。
+- [x] SLCE.jl の**純スピン両チャネル**に同型移植（SLCE `57fc4fc`）: `fitting/metric.jl`
+      新設、計量の 6 サイト、収束判定、pointed の μ₀ 免除、`_effective_dof_free`、
+      `_reduce_to_active` の ridge 系、`with_lambda`、provenance の門 5 箇所。
+      **群重み `≥ 0` の緩和は移植していない**（本 spec で落とした通り）。
+- [x] **上流固有の追加**: ASR / freeze 再パラメータ化の下では罰則が `Z'·Diagonal(D)·Z`
+      に圧縮されるので、計量は**基底列**で添字づけたまま（`column_groups` と同じ規約）。
+      計量なしの一様罰則は γ 空間で厳密に `λ·I` を通す分岐を残し、無重み fit の
+      ビット等号を保った。`_free_directions` は `null(diag(√m)·Z)` を SVD で取る
+      （純スピンの freeze なら `Z` は選択行列なので添字版に厳密に一致）。
+- [x] **移植しなかったもの（意図的）**: M3 のモーメント側 λ 選択 API
+      （`cross_validate(::MomentDataset,…)` / `MomentCVResult` / `gcv` /
+      `effective_dof(::MomentFit)` / `_cv_fold_count`）。M5 の本文が挙げていないため。
+      ledger に行を書いた。その結果 SLCE 側の `_effective_dof_free` は内部からしか
+      到達できない = **本 spec の M1 が上流で着地した時とまったく同じ状態**なので、
+      ゲートも同じく人工設計＋密ハット参照で書いた。
 - [ ] joint（変位）側は**参照アンサンブルの定義を決めてから**別途。
       `|u|^{2k} R_{lm}(u)` は一様乱数スピンでは定義できないので、変位の参照分布を
-      spec に起こす（本 spec のスコープ外、ledger に段取りを残す）。
-- [ ] SLCE 側の `make test-all` / docs strict 緑。
+      spec に起こす（本 spec のスコープ外）。**上流では門で拒否**:
+      `penalty_metric(::SLCEBasis)` は変位付き基底を名指しで拒み、
+      `force_weight > 0` の fit も計量付きでは拒む。
+- [x] SLCE 側 `TEST_MODE=all` 緑 53375（+124）、docs strict 緑。
 
 ### M6 — 受け入れ確認（package 外、コミットしない）
 
@@ -98,21 +112,28 @@ group-L0 の不動点 `→ λ v_g` も壊れる）。
 Run through every item once implementation lands. ~~Strike through~~ items
 that do not apply.
 
-- [ ] `make test-all` passes (4 threads).
-- [ ] `make test-pin` passes, or pins recaptured with the reason in
-      `test/pin/PIN.md`.
-- [ ] `make docs` builds (strict).
-- [ ] If results changed: regression or validation test added, oracle
-      independent of the implementation.
-- [ ] If public API changed: `SPEC.md` and `docs/src/api.md` updated.
-- [ ] If a hot path was touched: before / after recorded in
-      `bench/BENCH_LOG.md`.
-- [ ] Tier 2 review panel run (numerical / maintainability / performance /
-      API axes) and findings resolved.
-- [ ] ~~If module names or Makefile targets changed: `.claude/agents/` swept.~~
-- [ ] If this diverges from SLCE.jl: divergence ledger row in `CLAUDE.md`
-      （M7 の段取りと、joint 側が未移植である期間を明記）。
-- [ ] `CHANGELOG.md` `[Unreleased]` updated（**BREAKING**）.
-- [ ] `Status:` line in this file and the table in `docs/specs/README.md`
+- [x] `make test-all` passes (4 threads) — 38795; SLCE 側 `TEST_MODE=all` 53375。
+- [x] `make test-pin` passes — 104、-t 4 / -t 1 両方。ピン再取得なし。
+- [x] `make docs` builds (strict) — 両パッケージ。
+- [x] If results changed: regression or validation test added, oracle
+      independent of the implementation（解析閉形式 / 密ハット参照 / 独立恒等式）。
+- [x] If public API changed: `SPEC.md` and `docs/src/api.md` updated（両パッケージ）。
+- [x] If a hot path was touched: before / after recorded in
+      `bench/BENCH_LOG.md`（SCEFitting 側 `bench_solver.jl`。SLCE 側は計量構築の
+      ベンチを新設していない — 同じカーネルで、λ パスへの上乗せは列あたり 1 乗算）。
+- [x] Tier 2 review panel run (numerical / maintainability / performance /
+      API axes) and findings resolved（`2c720fb`, `56f4dc5`）。
+- [x] ~~If module names or Makefile targets changed: `.claude/agents/` swept.~~
+- [x] If this diverges from SLCE.jl: divergence ledger row in `CLAUDE.md`
+      （移植後に 2 行へ書き換え: モーメント λ 選択 API と綴りの差分。joint 側は
+      両パッケージとも未対応で、上流は門で拒否する）。
+- [x] `CHANGELOG.md` `[Unreleased]` updated（**BREAKING**、両パッケージ）.
+- [x] `Status:` line in this file and the table in `docs/specs/README.md`
       updated in sync.
-- [ ] Implementation commit hash appended below.
+- [x] Implementation commit hash appended below.
+
+## Implementation commits
+
+- SCEFitting.jl: `4d7ed7c` (M1) → `c6ccdde` (M2) → `e24b45e` (M3) → `6680d9e` (M4 docs)
+  → `2c720fb` (Tier 2 パネル全件適用) → `56f4dc5` (`nconfig` 既定 2048)。
+- SLCE.jl: `57fc4fc` (M5)。
