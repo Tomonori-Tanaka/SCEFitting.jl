@@ -163,6 +163,10 @@ function refit(f::SCEFit, estimator::AbstractEstimator = OLS();
         "default) or Ridge — the group structure already did its job selecting."))
     dataset = f.dataset
     w = f.torque_weight
+    # The same door `fit` / `select_fit` / `cross_validate` carry: a metric built for
+    # another channel, another basis, or another torque weight is invisible to every
+    # numerical gate, and a support reduction only ever checks its LENGTH.
+    _check_metric_provenance(estimator, :energy, dataset.basis.salc_basis.fingerprint, w)
     X, y, xbar, ybar, groups = _assemble_problem(dataset, w)
     jphi_in = f.jphi
     # Scaled-magnitude support on the assembled design: a column survives when its

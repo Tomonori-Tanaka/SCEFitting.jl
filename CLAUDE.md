@@ -513,11 +513,24 @@ Easy to break silently — confirm before touching the algorithm.
   `_edof` (`rank(X_F) + Σ sᵢ/(sᵢ + λ)`, branching BEFORE the cached-`XtX` path) and the
   IRLS stopping rule (metric coordinates `√mⱼβⱼ`, penalized columns only). A metric
   carries a `MetricProvenance` (channel / basis fingerprint / `torque_weight`) that the
-  `fit` / `select_fit` / `cross_validate` doors check — no numerical gate can see a
-  wrong metric, since scale invariance holds for any `m ∝ c²`. `Ridge` /
-  `AdaptiveRidge` are column-structured once they carry one, so `_reduce_to_active`
-  needs a method for each (the pointed freeze and `refit`'s support both cut the metric
-  with the design). `select_fit`'s alive-group rule is the `refit` scaled-magnitude support rule
+  `fit` / `refit` / `select_fit` / `cross_validate` doors check — no numerical gate can
+  see a wrong metric, since scale invariance holds for any `m ∝ c²`. `Ridge` /
+  `AdaptiveRidge` are column-structured once they carry one, and `AdaptiveLasso` is
+  through its **pilot** (whose coefficients set the weighted-L1 penalty factors), so
+  `_reduce_to_active` and both `_estimator_*` accessors need a method for each — the
+  pointed freeze and `refit`'s support both cut the metric with the design.
+  `SCEFitting.with_lambda` is the supported way to move an estimator along a λ path
+  with its metric intact; a hand rebuild from `column_groups`/`group_weights` drops it
+  silently, and a dropped metric is indistinguishable from a deliberate uniform one.
+- **`_assemble_problem` ↔ `penalty_metric(::SCEBasis)`** (`fitting/fit.jl`,
+  `fitting/selection.jl`): the metric RESTATES the assembly's block weighting per row
+  (`(1−w)·Var` + `w·E[…]/(3·n_atoms)`, from `√((1−w)/n_E)` and `√(w/n_T)` with
+  `n_T = n_E·3·n_atoms`) rather than reassembling, deliberately — it is a property of
+  the basis, not of a dataset. Change the centering or the whitening and this formula
+  moves with it; that weighting has already been changed once (the `w == 0` rescale).
+- **`select_fit` ↔ `refit` ↔ `select_support` share the support rule**
+  (`fitting/selection.jl`, `fitting/fit.jl`): `select_fit`'s alive-group rule is the
+  `refit` scaled-magnitude support rule
   (`|jϕⱼ|·‖X[:,j]‖ > threshold`) applied per group — change one side and the other (and
   the E2E cost-recomputation test) follows; `select_support` reuses the same rule for its
   per-point alive/cost columns while delegating each point's fit to `refit` itself
@@ -555,6 +568,7 @@ the one that bites.
 | Decor engine screen | `_orbit_salcs_decors(…, labels, soc::Bool, wcache; lmax_by_species, pmax_by_species, admit)` — 7th **positional**; `soc = true` keeps every `L_S` | `_orbit_salcs_decors(…, labels, wcache; isotropy::Bool)` — **required keyword**; `isotropy = true` keeps `L_S = 0` only | **Opposite meaning in the same slot.** A verbatim upstream call must be a `MethodError` here; never make `isotropy` positional or give it a default |
 | Moment-basis screen | `MomentSpec(; soc = false)` — `soc = true` keeps every `L_S` | `MomentSpec(; isotropy = true)` — `isotropy = false` keeps every `L_S` | Same polarity trap as the engine row, one level up; the field is named `isotropy` here and forwarded as the engine's keyword |
 | Path screen placement | `_decor_coupled_bases(slots)` builds every path; the screen is applied afterwards | `_decor_coupled_bases(slots, isotropy)` hands `AngularMomentum.build_real_bases` a `keep` predicate so a rejected path never builds its tensor | Same SALCs, different call shape; port logic, not signatures |
+| Penalty metric | none — SLCE.jl has no `penalty_metric` | `penalty_metric` / `MetricProvenance` / `metric` + `metric_provenance` on `Ridge` / `AdaptiveRidge` / `GroupAdaptiveRidge` / `with_lambda` / `_edof_free` / `_reduce_to_active` for the ridge family | **Exists only here** (port pending). `GroupAdaptiveRidge`'s inner constructor takes `metric, metric_provenance` **positionally with no default**, so a verbatim upstream 6-argument call is a `MethodError` — that is the point, and it must stay that way. Never port `estimators.jl` / `selection.jl` wholesale in either direction: upstream-to-here deletes the metric from every solve, here-to-upstream carries a half-wired one |
 | Admission | `_admit_assignment(t, species, …)` — a production, species-resolved rule | only the `admit` hook; callers (tests) transcribe the per-species `lmax` | The pointed builder (D4) will need its own mark-aware rule; upstream's is the reference, not a drop-in |
 | `[moment]` TOML section | none (no TOML moment input; the spec is spelled `soc`) | `read_setup(path).moment::Union{Nothing,MomentSpec}`, `MomentBasis(path)` (`io/input.jl`) | Exists only here. A port upstream must flip the key to `soc` with the OPPOSITE polarity; this reader refuses a `soc` key by name |
 | Function-space reduction | none | `_function_vector` / `_reduce_orbit_salcs` (pure-spin only; refuses decorated SALCs, message = wiring checklist) | Exists only here; upstream ports nothing back |

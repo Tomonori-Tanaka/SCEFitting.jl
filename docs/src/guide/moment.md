@@ -205,9 +205,15 @@ grouped **by configuration**, so the rows of one configuration — one per marke
 all sharing its spin directions — never split across the train/holdout boundary:
 
 ```@example moment
-cv = cross_validate(ds, Ridge(mb; lambda = 1e-4); nfolds = 3)
+est = Ridge(mb; lambda = 1e-4, metric_nconfig = 512)
+cv = cross_validate(ds, est; nfolds = 3)
 cv.pooled_rmse_moment
 ```
+
+For a λ sweep, move that estimator along the path with
+`SCEFitting.with_lambda(est, λ)`: it carries the penalty metric forward, where a hand
+rebuild would drop it and a fresh `Ridge(mb; lambda = λ)` would rebuild the reference
+ensemble at every point.
 
 Each fold re-solves with the same frozen column set as the full dataset, and a fold
 whose training rows miss a marked orbit entirely is refused by name — that orbit's

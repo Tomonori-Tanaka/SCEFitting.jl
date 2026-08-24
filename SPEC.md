@@ -408,9 +408,13 @@ capability consumed by both the introspection and the Sunny interop.
   nconfig, seed)` = `E[Φⱼ²]`, both over uniform-random reference configurations drawn by
   an in-package generator (SplitMix64 + the Archimedes construction; `Random`'s stream
   carries no cross-version guarantee and this quantity enters every penalized
-  coefficient). Carried on `Ridge` / `AdaptiveRidge` / `GroupAdaptiveRidge` as `metric`
-  (`nothing` = uniform) with a `MetricProvenance` (channel, `torque_weight`, `nconfig`,
-  `seed`, basis fingerprint) the `fit` / `select_fit` / `cross_validate` doors check.
+  coefficient). `nconfig = 8192` by default, sized from the measured relative standard
+  error (1.6 % median / 2.8 % worst column; `1/√nconfig`). Carried on `Ridge` /
+  `AdaptiveRidge` / `GroupAdaptiveRidge` as `metric` (`nothing` = uniform) with a
+  validating `MetricProvenance` (channel, `torque_weight`, `nconfig`, `seed`, basis
+  fingerprint) the `fit` / `refit` / `select_fit` / `cross_validate` doors check;
+  `AdaptiveLasso` carries one through its pilot. `SCEFitting.with_lambda(est, λ)` moves
+  an estimator along a λ path with the metric intact.
   The metric sits in the **denominator** of the adaptive weight maps, which is what makes
   the estimators invariant under a column rescaling and preserves the `λ·v_g` fixed
   point; the IRLS cold starts and the stopping rule (metric coordinates, penalized

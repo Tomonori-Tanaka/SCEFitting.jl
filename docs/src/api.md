@@ -204,6 +204,7 @@ SupportPath
 cross_validate
 CVResult
 MomentCVResult
+SCEFitting.with_lambda
 SCEFitting.salc_groups
 SCEFitting.group_costs
 SCEFitting.cost_weights

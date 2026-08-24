@@ -388,10 +388,12 @@ split them across folds.
 There is **no centering and no global intercept**: the `l = 0` 1-body `[MARK]`
 columns are the per-orbit intercepts μ₀ (one per marked-atom orbit — never shared
 across species; the `l = 2` 1-body columns are on-site ê anisotropies, not
-intercepts), so the design is passed to the estimator exactly as built. Note for
-regularized estimators (`Ridge`, …): the μ₀ columns are penalized like every other
-column — v1 is OLS-first; shrinking intercepts is a deliberate choice, not a
-default to reach for. A column-structured estimator ([`GroupAdaptiveRidge`](@ref))
+intercepts), so the design is passed to the estimator exactly as built. A
+penalized estimator built from the basis (`Ridge(mb; lambda)` and its siblings)
+leaves those μ₀ columns **unpenalized**: [`penalty_metric`](@ref)`(mb)` gives them a
+scale of exactly `0`, which every estimator reads as "do not penalize this column".
+Pass `free_intercepts = false`, or an estimator carrying no metric, to shrink them
+anyway. A column-structured estimator ([`GroupAdaptiveRidge`](@ref))
 is reduced to the active columns with the freeze (`_reduce_to_active`): its labels
 must be built on THIS basis (`salc_groups(mb)` / `GroupAdaptiveRidge(mb; lambda)`),
 and a label vector of the wrong length is refused loudly.
@@ -695,7 +697,7 @@ function _intercept_columns(mb::MomentBasis)::Vector{Int}
 end
 
 """
-    penalty_metric(mb::MomentBasis; free_intercepts = true, nconfig = 2000, seed = 1)
+    penalty_metric(mb::MomentBasis; free_intercepts = true, nconfig = 8192, seed = 1)
         -> Vector{Float64}
 
 The per-column penalty scale of a pointed moment basis, in design-column order — the
@@ -724,44 +726,57 @@ Two families of column get an exact `0`, which the estimators read as **unpenali
 
 Any OTHER zero is refused: zero means a structural exemption, so it is never inferred
 from a sample.
+
+Unlike the energy channel, the moment design reaches the estimator with **no row
+whitening**, so the column norms the solver sees are `n_rows · mⱼ`. Relative weighting
+and scale invariance are unaffected — it is a uniform factor — but λ on this channel is
+therefore not comparable across datasets of different row count, where the energy
+channel's `√(1/n_E)` makes it so.
 """
 function penalty_metric(mb::MomentBasis; free_intercepts::Bool = true,
-                        nconfig::Integer = 2000, seed::Integer = 1)::Vector{Float64}
+                        nconfig::Integer = 8192, seed::Integer = 1)::Vector{Float64}
+    # The structural exemptions come FIRST: `moment_resolvability` is also the
+    # `UnclassifiableBasis` door, so on a basis this cell cannot resolve the user should
+    # not first pay a full reference-ensemble evaluation inside a constructor. The
+    # columns it names are then skipped rather than measured and discarded.
+    res = moment_resolvability(mb)
+    structural = copy(res.vanishing)
+    free_intercepts && append!(structural, _intercept_columns(mb))
+    sort!(unique!(structural))
+    p = n_salcs(mb)
+    measured = setdiff(1:p, structural)
+
     nat = n_atoms(mb.crystal)
     cfgs = _reference_configs(nat, Int(nconfig), Int(seed))
-    p = n_salcs(mb)
-    nmark = length(mb.marked_atoms)
+    nmark = max(1, length(mb.marked_atoms))
     # Accumulate over configuration chunks rather than building the whole reference
-    # design: `nconfig · n_marked × p` is ~100 MB for a 3x3x3 supercell basis, and this
-    # runs in a constructor.
-    chunk = max(1, cld(4096, max(1, nmark)))
+    # design: the full `nconfig · n_marked × p` block is ~100 MB for a 3x3x3 supercell
+    # basis, and this runs in a constructor. The chunk is sized by BYTES, so the peak
+    # buffer stays put as the column count grows.
+    chunk = clamp(cld(_METRIC_CHUNK_BYTES, 8 * nmark * max(1, p)), 1, length(cfgs))
+    index = _mark_term_index(salcs(mb), mb.marked_atoms)   # once, not once per chunk
     acc = zeros(Float64, p)
     nrow = 0
     for lo = 1:chunk:length(cfgs)
         sub = cfgs[lo:min(lo + chunk - 1, length(cfgs))]
-        X = _design_moment(mb, sub, sub)          # identity axes: the mode-4 rule
+        X = _design_moment(mb, sub, sub; index = index)    # identity axes: mode-4
         nrow += size(X, 1)
-        for j = 1:p
-            acc[j] += sum(abs2, view(X, :, j))
+        # A plain sequential row loop, not `sum`: `sum`'s pairwise tree would make the
+        # last bits of every entry of `m` a function of the chunk size, i.e. of a
+        # tuning constant. This way the accumulation order is the row order whatever
+        # the chunking.
+        for j in measured
+            a = acc[j]
+            @inbounds for i = 1:size(X, 1)
+                a += abs2(X[i, j])
+            end
+            acc[j] = a
         end
     end
     m = acc ./ nrow
-    structural = Int[]
-    res = moment_resolvability(mb)
-    append!(structural, res.vanishing)
-    free_intercepts && append!(structural, _intercept_columns(mb))
-    sort!(unique!(structural))
-    # Report the ORIGINAL column indices: a filtered vector would name positions in
-    # itself, which is exactly the kind of index the reader cannot act on.
-    accidental = setdiff(findall(iszero, m), structural)
-    isempty(accidental) || throw(ArgumentError(
-        "penalty_metric(::MomentBasis): columns $accidental have zero reference " *
-        "norm. Zero marks an unpenalized column, so it is reserved for a structural " *
-        "exemption (a μ₀ intercept, an identically vanishing column) and never " *
-        "inferred from a sample. A column that is identically zero on the reference " *
-        "ensemble carries no information; `moment_resolvability` should have named " *
-        "it, and that it did not is worth understanding before fitting."))
-    m[structural] .= 0.0
+    _refuse_zero_metric(m, "penalty_metric(::MomentBasis)"; exempt = structural,
+                        hint = " `moment_resolvability` should have named it, and " *
+                               "that it did not is worth understanding before fitting.")
     return m
 end
 
@@ -769,22 +784,19 @@ end
 # energy-side `_basis_metric`.
 function _basis_metric(mb::MomentBasis, metric, free_intercepts::Bool,
                        nconfig::Integer, seed::Integer)
-    metric === :basis || return (metric, nothing)
+    metric === :basis || return (_checked_metric_keyword(metric), nothing)
     m = penalty_metric(mb; free_intercepts = free_intercepts, nconfig = nconfig,
                        seed = seed)
-    pv = MetricProvenance((:moment, 0.0, Int(nconfig), Int(seed),
-                           mb.salc_basis.fingerprint))
+    pv = MetricProvenance(:moment, 0.0, nconfig, seed, mb.salc_basis.fingerprint)
     return (m, pv)
 end
 
 """
     GroupAdaptiveRidge(mb::MomentBasis; lambda, epsilon = 1e-8, max_iter = 50,
                        tol = 1e-6, metric = :basis, free_intercepts = true,
-                       metric_nconfig = 2000, metric_seed = 1)
-    Ridge(mb::MomentBasis; lambda, metric = :basis, ...)
-    AdaptiveRidge(mb::MomentBasis; lambda, epsilon = 1e-8, ..., metric = :basis, ...)
+                       metric_nconfig = 8192, metric_seed = 1)
 
-Penalized estimators for a pointed basis, carrying
+Penalized group estimator for a pointed basis, carrying
 [`penalty_metric`](@ref)`(mb; free_intercepts, ...)` by default. The group form uses
 [`salc_groups`](@ref)`(mb)` labels with UNIT weights (the moment channel has no MC
 contraction cost; the energy-side `cost_weights` story does not apply).
@@ -798,7 +810,7 @@ a vector of your own.
 function GroupAdaptiveRidge(mb::MomentBasis; lambda::Real, epsilon::Real = 1e-8,
                             max_iter::Integer = 50, tol::Real = 1e-6,
                             metric = :basis, free_intercepts::Bool = true,
-                            metric_nconfig::Integer = 2000, metric_seed::Integer = 1)
+                            metric_nconfig::Integer = 8192, metric_seed::Integer = 1)
     cg = salc_groups(mb)
     m, pv = _basis_metric(mb, metric, free_intercepts, metric_nconfig, metric_seed)
     return GroupAdaptiveRidge(cg, ones(maximum(cg)); lambda = lambda,
@@ -806,16 +818,33 @@ function GroupAdaptiveRidge(mb::MomentBasis; lambda::Real, epsilon::Real = 1e-8,
                               metric = m, metric_provenance = pv)
 end
 
+"""
+    Ridge(mb::MomentBasis; lambda, metric = :basis, free_intercepts = true,
+          metric_nconfig = 8192, metric_seed = 1)
+
+Ridge for a pointed basis, carrying [`penalty_metric`](@ref)`(mb; free_intercepts,
+...)`. That metric is what keeps the μ₀ intercept columns out of the penalty; see
+[`GroupAdaptiveRidge`](@ref)`(mb; ...)` for why it is the metric that does it rather
+than a group weight.
+"""
 function Ridge(mb::MomentBasis; lambda::Real, metric = :basis,
-               free_intercepts::Bool = true, metric_nconfig::Integer = 2000,
+               free_intercepts::Bool = true, metric_nconfig::Integer = 8192,
                metric_seed::Integer = 1)
     m, pv = _basis_metric(mb, metric, free_intercepts, metric_nconfig, metric_seed)
     return Ridge(lambda, m, pv)
 end
 
+"""
+    AdaptiveRidge(mb::MomentBasis; lambda, epsilon = 1e-8, max_iter = 50, tol = 1e-6,
+                  metric = :basis, free_intercepts = true, metric_nconfig = 8192,
+                  metric_seed = 1)
+
+The per-coefficient adaptive ridge for a pointed basis. Keyword semantics as in
+[`Ridge`](@ref)`(mb; ...)`.
+"""
 function AdaptiveRidge(mb::MomentBasis; lambda::Real, epsilon::Real = 1e-8,
                        max_iter::Integer = 50, tol::Real = 1e-6, metric = :basis,
-                       free_intercepts::Bool = true, metric_nconfig::Integer = 2000,
+                       free_intercepts::Bool = true, metric_nconfig::Integer = 8192,
                        metric_seed::Integer = 1)
     m, pv = _basis_metric(mb, metric, free_intercepts, metric_nconfig, metric_seed)
     return AdaptiveRidge(; lambda = lambda, epsilon = epsilon, max_iter = max_iter,
@@ -839,7 +868,7 @@ function _moment_diag_problem(f::MomentFit)
     active = trues(p)
     active[ds.vanishing] .= false
     return (ds.X[ds.keep, active], ds.y[ds.keep], f.coeffs[active],
-            _reduce_to_active(f.estimator, active))
+            _reduce_to_active(f.estimator, active), findall(active))
 end
 
 # The informative row count: the gate-kept rows are the ones the fit was solved on.
@@ -863,9 +892,9 @@ function effective_dof(f::MomentFit)::Float64
     islinear(f.estimator) || throw(ArgumentError(
         "effective_dof requires a linear estimator (`islinear`); " *
         "got $(typeof(f.estimator))"))
-    X, _, beta, est = _moment_diag_problem(f)
+    X, _, beta, est, cols = _moment_diag_problem(f)
     lambda, D = _penalty_diagonal(est, beta)
-    return D === nothing ? _rank_df(X) : _edof(X, lambda, D)
+    return D === nothing ? _rank_df(X) : _edof(X, lambda, D; columns = cols)
 end
 
 """
@@ -884,7 +913,7 @@ Returns `Inf` in the near-interpolating regime `df → n`.
 function gcv(f::MomentFit)::Float64
     islinear(f.estimator) || throw(ArgumentError(
         "gcv requires a linear estimator (`islinear`); got $(typeof(f.estimator))"))
-    X, y, beta, est = _moment_diag_problem(f)
+    X, y, beta, est, _ = _moment_diag_problem(f)
     lambda, D = _penalty_diagonal(est, beta)
     return first(_gcv_score(X, y, beta, lambda, D; n_eff = _gcv_neff(f),
                             intercept = 0.0))
@@ -907,12 +936,14 @@ moment the pointed model does not claim to fit, so scoring on them measures the 
 not the model. `NaN` when a fold holds out no rejected row.
 
 A Tables.jl source with one row per fold (`fold`, `n_holdout`, `score`,
-`score_defined`, `rmse_moment`).
+`score_defined`, `rmse_moment`). `n_holdout_rows` counts held-out **rows** — the
+energy channel's `CVResult.n_holdout` counts held-out configurations, and a pointed
+configuration carries one row per marked atom.
 """
 struct MomentCVResult
     nfolds::Int
     seed::Int
-    n_holdout::Vector{Int}         # gate-kept held-out ROWS per fold
+    n_holdout_rows::Vector{Int}    # gate-kept held-out ROWS per fold
     score::Vector{Float64}
     score_defined::Vector{Float64} # NaN where a fold holds out no rejected row
     rmse_moment::Vector{Float64}
@@ -923,13 +954,14 @@ end
 Tables.istable(::Type{MomentCVResult}) = true
 Tables.columnaccess(::Type{MomentCVResult}) = true
 Tables.columns(r::MomentCVResult) =
-    (; fold = collect(eachindex(r.score)), n_holdout = r.n_holdout, score = r.score,
+    (; fold = collect(eachindex(r.score)), n_holdout_rows = r.n_holdout_rows,
+       score = r.score,
        score_defined = r.score_defined, rmse_moment = r.rmse_moment)
 
 function Base.show(io::IO, ::MIME"text/plain", r::MomentCVResult)
     print(io, "MomentCVResult (", r.nfolds, " folds, seed = ", r.seed, "):")
     for k in eachindex(r.score)
-        print(io, "\n  fold ", k, ": n = ", r.n_holdout[k],
+        print(io, "\n  fold ", k, ": n = ", r.n_holdout_rows[k],
               "  score = ", round(r.score[k]; sigdigits = 5),
               "  rmse = ", round(r.rmse_moment[k]; sigdigits = 5), " μB")
         isnan(r.score_defined[k]) ||
@@ -982,17 +1014,12 @@ function cross_validate(ds::MomentDataset, estimator::AbstractEstimator = OLS();
 
     cfgs = unique(ds.row_config[ds.keep])
     nc = length(cfgs)
-    nf = min(Int(nfolds), div(nc, 3))
-    nf >= 2 || throw(ArgumentError(
-        "cross-validation needs at least 6 configurations with a kept row for ≥ 2 " *
-        "folds; got $nc"))
-    nf < Int(nfolds) &&
-        @warn "cross_validate: reducing CV folds so every fold keeps ≥ 3 " *
-              "configurations" requested = Int(nfolds) effective = nf configs = nc
+    nf = _cv_fold_count(nc, nfolds, "cross_validate", "configurations with a kept row")
     fold = _grouped_folds(ds.row_config, nf, Int(seed))
     orbits = sort!(unique(ds.orbit_rep[ds.keep]))
+    Xa = ds.X[:, active]         # gather the unfrozen columns once, not per fold
 
-    n_holdout = Vector{Int}(undef, nf)
+    n_holdout_rows = Vector{Int}(undef, nf)
     score = Vector{Float64}(undef, nf)
     score_def = fill(NaN, nf)
     rmse = Vector{Float64}(undef, nf)
@@ -1009,22 +1036,22 @@ function cross_validate(ds::MomentDataset, estimator::AbstractEstimator = OLS();
             "fold $k trains on no row of marked orbit(s) $missing_orbits, so their " *
             "μ₀ intercepts are unidentified on that fold rather than merely " *
             "under-determined. Use fewer folds, or more configurations."))
-        beta = solve_coefficients(est, ds.X[train, active], ds.y[train];
+        beta = solve_coefficients(est, Xa[train, :], ds.y[train];
                                   groups = ds.row_config[train])
-        resid = ds.y[ho] .- ds.X[ho, active] * beta
-        n_holdout[k] = count(ho)
+        resid = ds.y[ho] .- Xa[ho, :] * beta
+        n_holdout_rows[k] = count(ho)
         score[k] = mean(abs2, resid)
         rmse[k] = sqrt(score[k])
         sse += sum(abs2, resid)
         nrow += length(resid)
         rej = (fold .== k) .& ds.defined .& .!ds.keep
         if any(rej)
-            score_def[k] = mean(abs2, ds.y[rej] .- ds.X[rej, active] * beta)
+            score_def[k] = mean(abs2, ds.y[rej] .- Xa[rej, :] * beta)
         end
     end
     pooled = sse / nrow
-    return MomentCVResult(nf, Int(seed), n_holdout, score, score_def, rmse, pooled,
-                          sqrt(pooled))
+    return MomentCVResult(nf, Int(seed), n_holdout_rows, score, score_def, rmse,
+                          pooled, sqrt(pooled))
 end
 
 # ── local-field diagnostics + the simple-feature nested floor ──────────────────────

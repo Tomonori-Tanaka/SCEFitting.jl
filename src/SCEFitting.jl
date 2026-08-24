@@ -11,7 +11,7 @@ diagnostics, persistence, Sunny export, introspection) is realized; see `SPEC.md
 module SCEFitting
 
 using LinearAlgebra: norm, det, I, eigen, eigvals, svdvals, svd, Symmetric, Diagonal,
-    dot, cross, qr, qr!, ColumnNorm, cholesky, issuccess
+    dot, cross, qr, qr!, ColumnNorm
 using StaticArrays
 using Statistics: mean, quantile, std
 using Random: AbstractRNG, default_rng
@@ -47,6 +47,7 @@ include("basis/salc.jl")
 include("basis/salcbasis.jl")
 
 # --- fitting + high-level SCE API ---
+include("fitting/metric.jl")      # the per-column penalty scale + its provenance
 include("fitting/estimators.jl")
 include("sce/truncation.jl")     # BasisSpec sugar → dense canonical resolution
 include("sce/model.jl")          # pipeline types + constructors + config validation
@@ -144,6 +145,7 @@ public build_neighbor_list, NeighborPair, NeighborList, interplanar_spacing
 public analyze_symmetry, n_ops, SymOp, SpaceGroup, AbstractTrainingDatum
 public check_moment_gates                                             # moment-channel axis gates
 public UnclassifiableBasis                                            # resolvability refusal
+public with_lambda                     # re-lambda an estimator, metric and all
 public build_clusters, ClusterMember, ClusterOrbit, ClusterSet
 public build_salc_basis, evaluate_salc, salcs, SALC, SALCKey, SALCBasis
 public Channel, SPIN, DISP, OCC, SiteFactor, SiteDecor                # decoration labels

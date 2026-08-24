@@ -99,11 +99,12 @@ are in-tree (closed form, no dependencies):
 | [`OLS`](@ref) | none | ordinary least squares (QR) |
 | [`Ridge`](@ref) | ``\lambda\sum_j m_j\beta_j^2`` | L2, closed form |
 | [`AdaptiveRidge`](@ref) | ``\lambda\sum_j D_j\beta_j^2`` | iterative reweighted ridge, an L0 approximation |
-| [`GroupAdaptiveRidge`](@ref) | as above, ``D`` shared per group | group-L0, fixed cost weights |
+| [`GroupAdaptiveRidge`](@ref) | as above, ``w`` shared per group | group-L0, fixed cost weights |
 
 [`AdaptiveRidge`](@ref) (Frommlet & Nuel 2016) repeatedly refits a per-coefficient
-weighted ridge with ``w_j = 1/(\beta_j^2 + \varepsilon)``, so large coefficients get a
-light penalty and small ones a heavy penalty — iterating drives the small ones toward
+weighted ridge with ``D_j = m_j/(m_j\beta_j^2 + \varepsilon)``, so large coefficients
+get a light penalty and small ones a heavy penalty — iterating drives the small ones
+toward
 zero. Each subproblem is the analytic weighted ridge, so it needs no extension:
 
 ```julia
@@ -144,7 +145,20 @@ m   = penalty_metric(basis; torque_weight = 0.3)              # or build it your
 est_w = GroupAdaptiveRidge(basis; lambda = 1e-5, torque_weight = 0.3)
 fit(SCEFit, dataset, est_w; torque_weight = 0.3)              # weights must agree
 est_plain = GroupAdaptiveRidge(salc_groups(basis), weights; lambda = 1e-5)  # uniform
+
+# a λ sweep: build the metric ONCE and move it along the path
+fits = [fit(SCEFit, dataset, SCEFitting.with_lambda(est, l)) for l in lambdas]
 ```
+
+Use `SCEFitting.with_lambda` rather than rebuilding the estimator by hand. A hand
+rebuild (`GroupAdaptiveRidge(est.column_groups, est.group_weights; lambda = l)`)
+silently drops the metric, and a dropped metric is indistinguishable from a deliberate
+uniform one — no door will complain. Rebuilding through the basis-aware constructor
+instead re-runs `penalty_metric` at every point, which is the expensive half: the
+metric is a Monte-Carlo average, ~1.6 % relative standard error per column at the
+default `metric_nconfig = 8192` (2.8 % on the worst column, `1/√nconfig` from there),
+and a fraction of a second to seconds depending on the basis. The λ path itself is
+unaffected — the metric is one extra multiply per column per iteration.
 
 Three things follow from that definition and are worth knowing:
 
@@ -159,8 +173,9 @@ Three things follow from that definition and are worth knowing:
   stay leak-free, and the prior sits on the function space rather than on how strongly
   one training set happened to excite each column. The price is the converse — a column
   the reference ensemble excites weakly but your data drives hard is effectively
-  under-penalized. Comparing ``m_j`` against the training column variances is the
-  diagnostic when your configurations are far from uniform.
+  under-penalized — worth keeping in mind when your configurations are far from
+  uniform (near-collinear low-temperature states, say) rather than spread over the
+  sphere the way the reference ensemble is.
 - **The support rule is a separate scale, and already invariant.** [`refit`](@ref) and
   [`select_support`](@ref) threshold ``|\beta_j|\cdot\lVert X[:,j]\rVert``, which does
   not move under a column rescaling at all, so the metric does not touch it. The two

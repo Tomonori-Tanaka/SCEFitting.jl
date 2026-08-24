@@ -13,135 +13,6 @@ ElasticNet) are provided by a package extension.
 abstract type AbstractEstimator end
 
 """
-    MetricProvenance
-
-Where a penalty metric came from: the `channel` it was built for (`:energy` or
-`:moment`), the `torque_weight` its reference norms were taken at (`0.0` on the moment
-channel, which has no torque block), the reference-ensemble size `nconfig` and its
-`seed`, and the `fingerprint` of the SALC basis it was built on. Carried on the
-estimator so a fit can refuse a metric built for a different problem. The metric enters
-every penalized coefficient, and a mismatch is invisible to the scale-invariance gates
-— those hold for any `m ∝ c²`, right or wrong — so it has to be checked from outside.
-"""
-const MetricProvenance = @NamedTuple{channel::Symbol, torque_weight::Float64,
-                                     nconfig::Int, seed::Int, fingerprint::UInt64}
-
-# Metric accessors that work for EVERY estimator, so the fitting doors can check
-# provenance without dispatching on which estimators happen to carry a metric.
-_estimator_metric(::AbstractEstimator)::Union{Nothing,Vector{Float64}} = nothing
-_estimator_provenance(::AbstractEstimator)::Union{Nothing,MetricProvenance} = nothing
-
-# A metric built for another problem is invisible to every numerical gate — scale
-# invariance holds for any `m ∝ c²`, right or wrong — so the doors check the
-# provenance instead. An estimator carrying a metric with NO provenance is a
-# hand-built one and passes: the caller owns it.
-function _check_metric_provenance(est::AbstractEstimator, channel::Symbol,
-                                  fingerprint::UInt64, torque_weight::Float64)
-    pv = _estimator_provenance(est)
-    pv === nothing && return nothing
-    pv.channel === channel || throw(ArgumentError(
-        "the estimator's penalty metric was built for the $(pv.channel) channel, but " *
-        "this is the $channel channel. The two channels have different design rows " *
-        "and different reference norms; build the metric from THIS basis."))
-    pv.fingerprint == fingerprint || throw(ArgumentError(
-        "the estimator's penalty metric was built on a different basis (SALC " *
-        "fingerprint mismatch). Column scales are basis-specific; rebuild it with " *
-        "`penalty_metric` on this basis."))
-    pv.torque_weight == torque_weight || throw(ArgumentError(
-        "the estimator's penalty metric was built at torque_weight = " *
-        "$(pv.torque_weight), but this fit uses $torque_weight. The assembled design " *
-        "mixes the energy and torque blocks by that weight, so the column scales " *
-        "move with it; rebuild the metric at the weight you are fitting at."))
-    return nothing
-end
-
-# --- penalty metric: shared validation and use ------------------------------------
-
-# Validate a penalty metric at construction. `nothing` means "uniform" and is kept as a
-# distinct value from an all-ones vector so `show`, the provenance check, and the
-# byte-equality gates can tell "no metric" from "a metric that happens to be flat".
-# Length is NOT checked here — a constructor does not see the design matrix, so that
-# check lives at the `solve_coefficients` door.
-function _validated_metric(metric)::Union{Nothing,Vector{Float64}}
-    metric === nothing && return nothing
-    m = Vector{Float64}(metric)
-    isempty(m) &&
-        throw(ArgumentError("metric must be nonempty (one entry per design column)"))
-    all(x -> isfinite(x) && x >= 0, m) ||
-        throw(ArgumentError("metric entries must be finite and ≥ 0"))
-    any(>(0), m) || throw(ArgumentError(
-        "metric is zero on every column, so no column would be penalized — that is " *
-        "`OLS()`, not a penalized fit. Use `OLS()` if that is the intent."))
-    return m
-end
-
-# The per-column penalty scale the solvers see: the estimator's metric, or the uniform
-# metric when none was supplied. `1.0 * x === x` for every Float64, so a `nothing`
-# metric reproduces the unweighted penalty bit for bit and the solvers below need no
-# separate no-metric branch.
-function _metric_vector(metric::Union{Nothing,Vector{Float64}}, p::Int,
-                        what::AbstractString)::Vector{Float64}
-    metric === nothing && return ones(Float64, p)
-    length(metric) == p || throw(DimensionMismatch(
-        "$what metric length $(length(metric)) does not match design-matrix column " *
-        "count $p; the metric was likely built on a different basis."))
-    return metric
-end
-
-# Unpenalized columns (`mⱼ == 0`) leave the normal equations singular unless that block
-# is itself of full column rank: `v'(X'X + λD)v = ‖Xv‖² + λΣ Dⱼvⱼ²` vanishes only for
-# `v_pen = 0` and `X_free v_free = 0`, so positive definiteness is exactly a rank
-# condition on the unpenalized block. A `Symmetric` solve on a singular matrix does not
-# reliably throw — it can return numerical garbage instead (measured at ‖β‖ ~ 1e16
-# against OLS's 0.48 on a design with one duplicated column) — so refuse by name first.
-#
-# The test runs on the free block's Gram, whose eigenvalues are the SQUARED singular
-# values of `X_free`, and cuts at `√eps` relative: the normal equations square the
-# condition number, so `κ(X_free) ≳ 1e8` is the point past which the unpenalized
-# coefficients stop being meaningful whether or not the factorization reports failure.
-# A plain `cholesky(...; check = false)` is not enough — on an exactly duplicated
-# column the trailing pivot lands a rounding step above zero and succeeds. The cut is
-# deliberately stricter than the rank test `_edof_free` applies to the same block, so a
-# solve that is accepted here is never rejected by the diagnostic afterwards.
-function _check_free_block(XtX::AbstractMatrix, metric::Vector{Float64},
-                           what::AbstractString)
-    free = findall(iszero, metric)
-    isempty(free) && return nothing
-    ev = eigvals(Symmetric(Matrix{Float64}(XtX[free, free])))
-    if !(ev[end] > 0 && ev[1] > sqrt(eps(Float64)) * ev[end])
-        throw(ArgumentError(
-            "$what: the unpenalized columns $free are linearly dependent (or nearly " *
-            "so) on this design — the block's condition number is " *
-            "$(ev[1] > 0 ? sqrt(ev[end] / ev[1]) : Inf), against a limit of 1e8 — so " *
-            "the penalized normal equations are singular and those coefficients are " *
-            "not identified. Penalize the columns, or drop the dependent ones."))
-    end
-    return nothing
-end
-
-# Relative ∞-norm change of an IRLS iterate, measured in metric coordinates `√mⱼ·βⱼ`
-# and over the PENALIZED columns only. `√mⱼ·βⱼ` is the invariant of a column rescaling
-# (`Φⱼ → cⱼΦⱼ` sends `βⱼ → βⱼ/cⱼ` and `mⱼ → cⱼ²mⱼ`), so the stopping rule moves with the
-# penalty instead of against it; restricting to penalized columns keeps one large
-# unpenalized coefficient from turning the relative tolerance into an absolute one far
-# coarser than the coefficients it is meant to converge. With a uniform metric and no
-# unpenalized column this is exactly the plain relative ∞-norm rule.
-function _irls_rel_change(beta_new::Vector{Float64}, beta::Vector{Float64},
-                          metric::Vector{Float64})::Float64
-    num = 0.0
-    den = 0.0
-    @inbounds for j in eachindex(beta_new)
-        metric[j] > 0.0 || continue
-        s = sqrt(metric[j])
-        d = s * abs(beta_new[j] - beta[j])
-        d > num && (num = d)
-        a = s * abs(beta_new[j])
-        a > den && (den = a)
-    end
-    return num / max(den, eps(Float64))
-end
-
-"""
     OLS()
 
 Ordinary least squares, solved by pivoted QR (`X \\ y`) — **not** the normal
@@ -377,17 +248,26 @@ struct AdaptiveRidge <: AbstractEstimator
     tol::Float64
     metric::Union{Nothing,Vector{Float64}}
     metric_provenance::Union{Nothing,MetricProvenance}
+
+    # An INNER constructor, so an exactly-typed positional call cannot skip the
+    # validation. It is not hypothetical: the active-column reduction rebuilds this
+    # estimator field by field, and a metric that reached the solver with a negative
+    # entry would make `XtX + λ·Diagonal(D)` indefinite, which `Symmetric \` answers
+    # with numerical garbage rather than a throw.
+    function AdaptiveRidge(lambda::Real, epsilon::Real, max_iter::Integer, tol::Real,
+                           metric, metric_provenance)
+        (lambda >= 0 && isfinite(lambda)) ||
+            throw(ArgumentError("lambda must be finite and ≥ 0; got $lambda"))
+        epsilon > 0 || throw(ArgumentError("epsilon must be > 0; got $epsilon"))
+        max_iter >= 1 || throw(ArgumentError("max_iter must be ≥ 1; got $max_iter"))
+        tol > 0 || throw(ArgumentError("tol must be > 0; got $tol"))
+        return new(Float64(lambda), Float64(epsilon), Int(max_iter), Float64(tol),
+                   _validated_metric(metric), metric_provenance)
+    end
 end
-function AdaptiveRidge(; lambda::Real, epsilon::Real = 1e-8, max_iter::Integer = 50,
-                       tol::Real = 1e-6, metric = nothing, metric_provenance = nothing)
-    (lambda >= 0 && isfinite(lambda)) ||
-        throw(ArgumentError("lambda must be finite and ≥ 0; got $lambda"))
-    epsilon > 0 || throw(ArgumentError("epsilon must be > 0; got $epsilon"))
-    max_iter >= 1 || throw(ArgumentError("max_iter must be ≥ 1; got $max_iter"))
-    tol > 0 || throw(ArgumentError("tol must be > 0; got $tol"))
-    return AdaptiveRidge(Float64(lambda), Float64(epsilon), Int(max_iter), Float64(tol),
-                         _validated_metric(metric), metric_provenance)
-end
+AdaptiveRidge(; lambda::Real, epsilon::Real = 1e-8, max_iter::Integer = 50,
+              tol::Real = 1e-6, metric = nothing, metric_provenance = nothing) =
+    AdaptiveRidge(lambda, epsilon, max_iter, tol, metric, metric_provenance)
 
 """
     GroupAdaptiveRidge(column_groups, group_weights; lambda, epsilon = 1e-8,
@@ -499,19 +379,19 @@ Base.show(io::IO, e::AdaptiveLasso) =
 Base.show(io::IO, e::GroupAdaptiveRidge) =
     print(io, "GroupAdaptiveRidge(", length(e.column_groups), " columns in ",
           length(e.group_weights), " groups, lambda=", e.lambda,
-          ", epsilon=", e.epsilon, ", ", _metric_summary(e.metric), ")")
+          ", epsilon=", e.epsilon, ", ",
+          _metric_summary(e.metric, e.metric_provenance), ")")
 Base.show(io::IO, e::Ridge) =
-    print(io, "Ridge(lambda=", e.lambda, ", ", _metric_summary(e.metric), ")")
+    print(io, "Ridge(lambda=", e.lambda, ", ",
+          _metric_summary(e.metric, e.metric_provenance), ")")
 Base.show(io::IO, e::AdaptiveRidge) =
     print(io, "AdaptiveRidge(lambda=", e.lambda, ", epsilon=", e.epsilon, ", ",
-          _metric_summary(e.metric), ")")
+          _metric_summary(e.metric, e.metric_provenance), ")")
 
 # One-line penalty-metric summary for `show`: how many columns it covers and how many
 # of them it leaves unpenalized (the number a reader needs to sanity-check an
 # intercept exemption without printing the whole vector).
-_metric_summary(m::Nothing) = "metric=uniform"
-_metric_summary(m::Vector{Float64}) =
-    string("metric=", length(m), " columns, ", count(iszero, m), " unpenalized")
+
 
 """
     islinear(est) -> Bool
@@ -638,10 +518,11 @@ function solve_coefficients(est::AdaptiveRidge, X::AbstractMatrix, y::AbstractVe
     # though its objective does not.
     beta = Symmetric(XtX + est.lambda * Diagonal(m)) \ Xty
     D = Vector{Float64}(undef, p)
+    sm = sqrt.(m)                    # the stopping rule's coordinates, hoisted
     for _ = 1:est.max_iter
         @. D = m / (m * beta^2 + est.epsilon)
         beta_new = Symmetric(XtX + est.lambda * Diagonal(D)) \ Xty
-        rel = _irls_rel_change(beta_new, beta, m)
+        rel = _irls_rel_change(beta_new, beta, sm)
         beta = beta_new
         rel < est.tol && break
     end
@@ -683,6 +564,7 @@ function _solve_gar(XtX::Matrix{Float64}, Xty::Vector{Float64}, lambda::Float64,
     p = length(Xty)
     D = Vector{Float64}(undef, p)
     normsq = Vector{Float64}(undef, length(group_weights))
+    sm = sqrt.(metric)               # the stopping rule's coordinates, hoisted
     _check_free_block(XtX, metric, "GroupAdaptiveRidge")
     # Iteration 0 (cold start): the fixed-weight ridge `Dⱼ = mⱼ·v_g` — with a uniform
     # metric and unit weights this is numerically Ridge(lambda), matching the
@@ -702,7 +584,7 @@ function _solve_gar(XtX::Matrix{Float64}, Xty::Vector{Float64}, lambda::Float64,
         _gar_weights!(D, beta, column_groups, group_weights, group_sizes, metric,
                       epsilon, normsq)
         beta_new = Symmetric(XtX + lambda * Diagonal(D)) \ Xty
-        rel = _irls_rel_change(beta_new, beta, metric)
+        rel = _irls_rel_change(beta_new, beta, sm)
         beta = beta_new
         rel < tol && break
     end
@@ -733,12 +615,72 @@ function solve_coefficients(est::PrecomputedPilot, X::AbstractMatrix, y::Abstrac
     return copy(est.beta)
 end
 
+# Metric accessors that work for EVERY estimator, so the fitting doors can check
+# provenance without dispatching on which estimators happen to carry a metric.
+_estimator_metric(::AbstractEstimator)::Union{Nothing,Vector{Float64}} = nothing
+_estimator_provenance(::AbstractEstimator)::Union{Nothing,MetricProvenance} = nothing
+
+# A metric built for another problem is invisible to every numerical gate — scale
+# invariance holds for any `m ∝ c²`, right or wrong — so the doors check the
+# provenance instead. An estimator carrying a metric with NO provenance is a
+# hand-built one and passes: the caller owns it.
+function _check_metric_provenance(est::AbstractEstimator, channel::Symbol,
+                                  fingerprint::UInt64, torque_weight::Float64)
+    pv = _estimator_provenance(est)
+    pv === nothing && return nothing
+    pv.channel === channel || throw(ArgumentError(
+        "the estimator's penalty metric was built for the $(pv.channel) channel, but " *
+        "this is the $channel channel. The two channels have different design rows " *
+        "and different reference norms; build the metric from THIS basis."))
+    pv.fingerprint == fingerprint || throw(ArgumentError(
+        "the estimator's penalty metric was built on a different basis (SALC " *
+        "fingerprint mismatch). Column scales are basis-specific; rebuild it with " *
+        "`penalty_metric` on this basis."))
+    pv.torque_weight == torque_weight || throw(ArgumentError(
+        "the estimator's penalty metric was built at torque_weight = " *
+        "$(pv.torque_weight), but this fit uses $torque_weight. The assembled design " *
+        "mixes the energy and torque blocks by that weight, so the column scales " *
+        "move with it; rebuild the metric at the weight you are fitting at."))
+    return nothing
+end
+
 _estimator_metric(e::Ridge) = e.metric
 _estimator_metric(e::AdaptiveRidge) = e.metric
 _estimator_metric(e::GroupAdaptiveRidge) = e.metric
 _estimator_provenance(e::Ridge) = e.metric_provenance
 _estimator_provenance(e::AdaptiveRidge) = e.metric_provenance
 _estimator_provenance(e::GroupAdaptiveRidge) = e.metric_provenance
+# A pilot's metric is not decorative: `AdaptiveLasso` turns the pilot's coefficients
+# into the per-column penalty factors of the whole weighted-L1 solve, so a pilot
+# carrying the wrong metric moves the final fit. Follow the pilot at both accessors.
+_estimator_metric(e::AdaptiveLasso) = _estimator_metric(e.pilot)
+_estimator_provenance(e::AdaptiveLasso) = _estimator_provenance(e.pilot)
+
+"""
+    with_lambda(estimator, lambda) -> typeof(estimator)
+
+`estimator` at a new penalty strength, with everything else carried forward — the
+group labels and weights, the IRLS controls, and, decisively, the **penalty metric and
+its provenance**.
+
+Rebuilding a penalized estimator by hand for a λ sweep (`GroupAdaptiveRidge(
+est.column_groups, est.group_weights; lambda = λ)`) silently drops the metric, and a
+dropped metric is indistinguishable from a deliberate uniform one — the fitting doors
+see no provenance and pass it. Rebuilding through the basis-aware constructor instead
+re-runs [`penalty_metric`](@ref) at every point of the sweep. This does neither.
+
+```julia
+est  = GroupAdaptiveRidge(basis; lambda = 1.0, theta = 1.0)
+fits = [fit(SCEFit, ds, SCEFitting.with_lambda(est, l)) for l in lambdas]
+```
+"""
+with_lambda(e::Ridge, lambda::Real)::Ridge =
+    Ridge(lambda, e.metric, e.metric_provenance)
+with_lambda(e::AdaptiveRidge, lambda::Real)::AdaptiveRidge =
+    AdaptiveRidge(lambda, e.epsilon, e.max_iter, e.tol, e.metric, e.metric_provenance)
+with_lambda(e::GroupAdaptiveRidge, lambda::Real)::GroupAdaptiveRidge =
+    GroupAdaptiveRidge(lambda, e.column_groups, e.group_weights, e.epsilon, e.max_iter,
+                       e.tol, e.metric, e.metric_provenance)
 
 # --- column selection --------------------------------------------------------------
 
@@ -768,9 +710,22 @@ function _reduce_metric(metric::Union{Nothing,Vector{Float64}}, active::BitVecto
                         what::AbstractString)::Union{Nothing,Vector{Float64}}
     metric === nothing && return nothing
     length(metric) == length(active) || throw(DimensionMismatch(
-        "$what metric length $(length(metric)) does not match the pointed design " *
-        "column count $(length(active)); build it on THIS basis (penalty_metric(mb))"))
+        "$what metric length $(length(metric)) does not match the reduced design " *
+        "column count $(length(active)); build it with `penalty_metric` on the basis " *
+        "you are fitting"))
     return metric[active]
+end
+
+# `AdaptiveLasso` is column-structured through its PILOT: the pilot's coefficients
+# become the weighted-L1 penalty factors, so a pilot carrying a full-length metric
+# into a reduced solve dies inside the length check with a message that blames a
+# basis mismatch that did not happen.
+function _reduce_to_active(estimator::AdaptiveLasso, active::BitVector)::AdaptiveLasso
+    red = _reduce_to_active(estimator.pilot, active)
+    red === estimator.pilot && return estimator
+    return AdaptiveLasso(red, estimator.lambda, estimator.gamma, estimator.epsilon,
+                         estimator.standardize, estimator.nfolds, estimator.select,
+                         estimator.seed, estimator.nlambda)
 end
 
 function _reduce_to_active(estimator::Ridge, active::BitVector)::Ridge
@@ -792,8 +747,8 @@ function _reduce_to_active(estimator::GroupAdaptiveRidge,
     all(active) && return estimator
     length(estimator.column_groups) == length(active) || throw(DimensionMismatch(
         "GroupAdaptiveRidge column_groups length $(length(estimator.column_groups)) " *
-        "does not match the pointed design column count $(length(active)); build " *
-        "the labels on THIS basis (salc_groups(mb))"))
+        "does not match the reduced design column count $(length(active)); build " *
+        "the labels with `salc_groups` on the basis you are fitting"))
     sub = estimator.column_groups[findall(active)]
     remap = Dict{Int,Int}()
     labels = [get!(remap, g, length(remap) + 1) for g in sub]

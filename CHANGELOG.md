@@ -75,6 +75,22 @@ release, so everything lives under *Unreleased*.
   match the fit (wrong channel, wrong basis fingerprint, wrong `torque_weight`) —
   a mismatch is invisible to every numerical gate, since scale invariance holds for
   any `m ∝ c²`, right or wrong.
+- Review-panel follow-ups (2026-08-24): `refit` carries the same provenance door as
+  the other fitting entry points, and `AdaptiveLasso` follows its **pilot** for both
+  the metric and its provenance (the pilot's coefficients set the weighted-L1 penalty
+  factors, so a pilot under the wrong metric moves the whole solve).
+  `SCEFitting.with_lambda(est, λ)` moves an estimator along a λ path with its metric
+  intact — a hand rebuild drops it silently, and a dropped metric is indistinguishable
+  from a deliberate uniform one. `AdaptiveRidge` gained the validating inner
+  constructor it lacked, so a field-typed call can no longer install a negative penalty
+  scale. `MetricProvenance` is a validating struct rather than a bare named tuple, and
+  `show` renders it. The free-block conditioning guard now cuts where its message says
+  it does (`κ(X_free) ≲ 6.7e7`, on the Gram), and the metric machinery moved to
+  `src/fitting/metric.jl`.
+- The default `nconfig` is 8192, sized from measurement rather than guessed: the
+  relative standard error of `mⱼ` over eight independent seeds is 1.6 % median / 2.8 %
+  worst column there, against 3.3 % / 5.3 % at 2000 (bcc Fe 2×2×2, `lmax = 2`, 2- and
+  3-body columns; body order barely moves it).
 - **Breaking**: every penalized fit changes. `OLS` and `lambda = 0` are untouched
   (bitwise), as is any estimator constructed without a metric. λ recorded against
   an earlier penalized fit no longer means the same thing — bcc Fe `l02`…`l044` and

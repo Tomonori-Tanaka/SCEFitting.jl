@@ -975,8 +975,31 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         modelv = MomentModel(fv)
         @test all(isfinite, predict_moment(modelv, ev[1]))
         # the GAR reduction rides the same freeze on a REAL vanishing set
-        fg = fit(MomentFit, dsv, GroupAdaptiveRidge(mbv; lambda = 1e-6))
+        fg = fit(MomentFit, dsv, GroupAdaptiveRidge(mbv; lambda = 1e-6,
+                                                    metric_nconfig = 256))
         @test all(fg.coeffs[mrv.vanishing] .== 0.0)
+
+        # the diagnostics describe the design that was SOLVED, not `ds.X`. A
+        # reconstruction that forgot the freeze would pass every length check and
+        # charge degrees of freedom to the 16 frozen columns, so gate the difference,
+        # not just the agreement.
+        Xr, _, _, _, cols = SCEFitting._moment_diag_problem(fg)
+        @test size(Xr, 2) == n_salcs(mbv) - length(mrv.vanishing)
+        @test cols == setdiff(1:n_salcs(mbv), mrv.vanishing)
+        lam, D = SCEFitting._penalty_diagonal(
+            SCEFitting._reduce_to_active(fg.estimator, .!in.(1:n_salcs(mbv),
+                                                             Ref(mrv.vanishing))),
+            fg.coeffs[cols])
+        @test effective_dof(fg) ≈ tr(Xr * ((Xr' * Xr + lam * Diagonal(D)) \ Xr')) rtol =
+              1e-8
+        # ...and the full design is not merely a different number: with the frozen
+        # columns unpenalized AND identically zero, its normal equations are singular,
+        # so the naive reconstruction is refused rather than answered
+        Xf = dsv.X[dsv.keep, :]
+        Df = SCEFitting._penalty_diagonal(fg.estimator, fg.coeffs)[2]
+        @test count(iszero, Df) ==
+              length(union(mrv.vanishing, SCEFitting._intercept_columns(mbv)))
+        @test_throws ArgumentError SCEFitting._edof(Xf, lam, Df)
     end
 
     @testset "salc_groups: same mark atoms, different mark sites split" begin
@@ -1053,8 +1076,12 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         mp = penalty_metric(mb; free_intercepts = false, nconfig = 512, seed = 5)
         @test all(>(0), mp[ic])
         @test mp[rest] == m[rest]
-        # a μ₀ column is the constant 1, so its reference second moment is exactly 1
-        @test all(x -> x ≈ 1.0, mp[ic])
+        # A μ₀ column is its mark class's indicator, so its reference second moment is
+        # the class's share of the rows — exactly 1 only when a single class covers
+        # them all. Read that share off the design, not off the metric.
+        share = [count(isone, ds.X[:, j]) / size(ds.X, 1) for j in ic]
+        @test mp[ic] ≈ share rtol = 1e-12
+        @test sum(share) ≈ 1.0 rtol = 1e-12
     end
 
     @testset "penalty metric: μ₀ at λ → ∞ is the intercept-only least squares" begin
@@ -1102,11 +1129,11 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
 
         cv = cross_validate(ds, OLS(); nfolds = nf, seed = 1)
         @test cv.nfolds == nf && cv.seed == 1
-        @test sum(cv.n_holdout) == count(ds.keep)
+        @test sum(cv.n_holdout_rows) == count(ds.keep)
         # the pooled score aggregates the out-of-fold residuals, so it is the
         # holdout-count-weighted mean of the per-fold scores — an exact identity
         @test cv.pooled_score ≈
-              sum(cv.n_holdout .* cv.score) / sum(cv.n_holdout) rtol = 1e-12
+              sum(cv.n_holdout_rows .* cv.score) / sum(cv.n_holdout_rows) rtol = 1e-12
         @test cv.rmse_moment ≈ sqrt.(cv.score) rtol = 1e-12
         @test cv.pooled_rmse_moment ≈ sqrt(cv.pooled_score) rtol = 1e-12
         # the data are exactly in the model's span, so out-of-fold prediction is exact
@@ -1129,7 +1156,7 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         # a metric built for the energy channel is refused here
         bad = Ridge(; lambda = 1.0, metric = ones(size(ds.X, 2)),
                     metric_provenance = MetricProvenance(
-                        (:energy, 0.0, 100, 1, mb.salc_basis.fingerprint)))
+                        :energy, 0.0, 100, 1, mb.salc_basis.fingerprint))
         @test_throws ArgumentError cross_validate(ds, bad)
         @test_throws ArgumentError fit(MomentFit, ds, bad)
         # too few configurations for two folds
@@ -1142,7 +1169,7 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         ds = _mf_ds(mb, data; gate_eps = 1e-8)
         est = Ridge(mb; lambda = 1e-3, metric_nconfig = 256)
         f = fit(MomentFit, ds, est)
-        Xr, yr, beta, estr = SCEFitting._moment_diag_problem(f)
+        Xr, yr, beta, estr, _ = SCEFitting._moment_diag_problem(f)
         lam, D = SCEFitting._penalty_diagonal(estr, beta)
         # dense hat matrix of the REDUCED problem, formed independently here
         H = Xr * ((Xr' * Xr + lam * Diagonal(D)) \ Xr')
@@ -1154,7 +1181,7 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
         @test effective_dof(f) >= length(SCEFitting._intercept_columns(mb)) - 1e-8
         # OLS is the design rank
         fo = fit(MomentFit, ds, OLS())
-        Xo, = SCEFitting._moment_diag_problem(fo)
+        Xo, _, _, _, _ = SCEFitting._moment_diag_problem(fo)
         @test effective_dof(fo) ≈ rank(Xo)
         # non-linear estimators are refused
         @test_throws ArgumentError gcv(fit(MomentFit, ds,

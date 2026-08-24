@@ -149,14 +149,17 @@ end
         C = exp.(range(-1.5, 1.5; length = p))
         X2 = X .* C'
         m2 = m .* C .^ 2
+        # `tol` well below the assertion: the iteration is exactly equivariant in real
+        # arithmetic, but a knife-edge rounding difference in the stopping test can
+        # cost one extra step in one of the two runs, moving β by O(tol)
         for (e1, e2) in ((Ridge(; lambda = 0.7, metric = m),
                           Ridge(; lambda = 0.7, metric = m2)),
-                         (AdaptiveRidge(; lambda = 0.05, metric = m),
-                          AdaptiveRidge(; lambda = 0.05, metric = m2)),
+                         (AdaptiveRidge(; lambda = 0.05, tol = 1e-12, metric = m),
+                          AdaptiveRidge(; lambda = 0.05, tol = 1e-12, metric = m2)),
                          (GroupAdaptiveRidge(groups, [1.0, 2.0, 0.5]; lambda = 0.05,
-                                             metric = m),
+                                             tol = 1e-12, metric = m),
                           GroupAdaptiveRidge(groups, [1.0, 2.0, 0.5]; lambda = 0.05,
-                                             metric = m2)))
+                                             tol = 1e-12, metric = m2)))
             b1 = solve_coefficients(e1, X, y)
             b2 = solve_coefficients(e2, X2, y)
             @test X2 * b2 ≈ X * b1 rtol = 1e-7
@@ -169,11 +172,10 @@ end
     end
 
     @testset "penalty metric: the group-L0 fixed point survives" begin
-        # `docs/design-notes.md` derives the fixed-point property that makes v_g a
-        # group-L0 weight: the converged penalty contribution of an ALIVE group,
-        # `Σ_{j∈g} D_j·β_j²`, tends to `v_g` once its metric-weighted norm dominates
-        # `p_g·ε`. Placing the metric anywhere but the denominator would leave
-        # `v_g·⟨m⟩_g` here instead.
+        # The property that makes v_g a group-L0 weight: the converged penalty
+        # contribution of an ALIVE group, `Σ_{j∈g} D_j·β_j²`, tends to `v_g` once its
+        # metric-weighted norm dominates `p_g·ε`. Placing the metric anywhere but the
+        # denominator of the weight map would leave `v_g·⟨m⟩_g` here instead.
         rng = MersenneTwister(9003)
         n, p = 80, 6
         X = randn(rng, n, p)
@@ -187,7 +189,9 @@ end
         _, D = SCEFitting._penalty_diagonal(est, b)
         contrib1 = sum(D[j] * b[j]^2 for j = 1:3)
         @test contrib1 ≈ vg[1] rtol = 1e-6         # alive group: → v_g, not v_g·⟨m⟩
-        @test sum(m[j] * b[j]^2 for j = 1:3) > 1e3 * 3 * est.epsilon
+        # the fixed point is `v_g·N/(N + p_g·ε)`, so the relative gap is `p_g·ε/N`:
+        # the assertion above is only meaningful while N clears `p_g·ε / rtol`
+        @test sum(m[j] * b[j]^2 for j = 1:3) > 3 * est.epsilon / 1e-6
     end
 
     @testset "penalty metric: refusals" begin
@@ -593,12 +597,12 @@ end
         bad_basis = GroupAdaptiveRidge(
             salc_groups(basis), ones(maximum(salc_groups(basis))); lambda = 1e-3,
             metric = good,
-            metric_provenance = MetricProvenance((:energy, 0.0, 2000, 1, fp + 0x1)))
+            metric_provenance = MetricProvenance(:energy, 0.0, 2000, 1, fp + 0x1))
         @test_throws ArgumentError fit(SCEFit, ds_p, bad_basis)
         bad_channel = GroupAdaptiveRidge(
             salc_groups(basis), ones(maximum(salc_groups(basis))); lambda = 1e-3,
             metric = good,
-            metric_provenance = MetricProvenance((:moment, 0.0, 2000, 1, fp)))
+            metric_provenance = MetricProvenance(:moment, 0.0, 2000, 1, fp))
         @test_throws ArgumentError fit(SCEFit, ds_p, bad_channel)
         # a metric taken at w = 0 is refused for a co-fit: the assembled design mixes
         # the two blocks by w, so the column scales move with it

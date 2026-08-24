@@ -150,7 +150,7 @@ end
 """
     GroupAdaptiveRidge(basis::SCEBasis; lambda, theta = 1.0, epsilon = 1e-8,
                        max_iter = 50, tol = 1e-6, torque_weight = 0.0,
-                       metric = :basis, metric_nconfig = 2000, metric_seed = 1)
+                       metric = :basis, metric_nconfig = 8192, metric_seed = 1)
 
 Cost-weighted group estimator for `basis`: [`salc_groups`](@ref) column labels with the
 fixed [`cost_weights`](@ref)`(basis; theta)` weights, and by default the basis-intrinsic
@@ -165,7 +165,7 @@ mismatch. Pass `metric = nothing` for the unweighted penalty, or a vector of you
 function GroupAdaptiveRidge(basis::SCEBasis; lambda::Real, theta::Real = 1.0,
                             epsilon::Real = 1e-8, max_iter::Integer = 50,
                             tol::Real = 1e-6, torque_weight::Real = 0.0,
-                            metric = :basis, metric_nconfig::Integer = 2000,
+                            metric = :basis, metric_nconfig::Integer = 8192,
                             metric_seed::Integer = 1)
     lw = cost_weights(basis; theta = theta)
     m, pv = _basis_metric(basis, metric, torque_weight, metric_nconfig, metric_seed)
@@ -176,26 +176,39 @@ end
 
 """
     Ridge(basis::SCEBasis; lambda, torque_weight = 0.0, metric = :basis,
-          metric_nconfig = 2000, metric_seed = 1)
-    AdaptiveRidge(basis::SCEBasis; lambda, epsilon = 1e-8, max_iter = 50, tol = 1e-6,
-                  torque_weight = 0.0, metric = :basis, metric_nconfig = 2000,
-                  metric_seed = 1)
+          metric_nconfig = 8192, metric_seed = 1)
 
-The plain and per-coefficient adaptive ridge carrying the basis-intrinsic
-[`penalty_metric`](@ref)`(basis; torque_weight, ...)`, so that λ means the same thing
-across the three penalized estimators. `torque_weight` must match the fit's.
+Ridge for `basis`, carrying the basis-intrinsic
+[`penalty_metric`](@ref)`(basis; torque_weight, ...)` so that λ means the same thing
+across the three penalized estimators.
+
+`torque_weight` is the only metric keyword without a `metric_` prefix, deliberately:
+it must equal the `torque_weight` the fit runs at, because the assembled design mixes
+the energy and torque blocks by it and the column scales move with it. The fitting
+doors refuse a mismatch. `metric = nothing` gives the unweighted penalty and a vector
+is taken as given; anything else is refused by name. Reuse one metric across a λ sweep
+with `SCEFitting.with_lambda` rather than rebuilding it per point.
 """
 function Ridge(basis::SCEBasis; lambda::Real, torque_weight::Real = 0.0,
-               metric = :basis, metric_nconfig::Integer = 2000,
+               metric = :basis, metric_nconfig::Integer = 8192,
                metric_seed::Integer = 1)
     m, pv = _basis_metric(basis, metric, torque_weight, metric_nconfig, metric_seed)
     return Ridge(lambda, m, pv)
 end
 
+"""
+    AdaptiveRidge(basis::SCEBasis; lambda, epsilon = 1e-8, max_iter = 50, tol = 1e-6,
+                  torque_weight = 0.0, metric = :basis, metric_nconfig = 8192,
+                  metric_seed = 1)
+
+The per-coefficient adaptive ridge for `basis`, carrying the basis-intrinsic
+[`penalty_metric`](@ref)`(basis; torque_weight, ...)`. Keyword semantics as in
+[`Ridge`](@ref)`(basis; ...)`.
+"""
 function AdaptiveRidge(basis::SCEBasis; lambda::Real, epsilon::Real = 1e-8,
                        max_iter::Integer = 50, tol::Real = 1e-6,
                        torque_weight::Real = 0.0, metric = :basis,
-                       metric_nconfig::Integer = 2000, metric_seed::Integer = 1)
+                       metric_nconfig::Integer = 8192, metric_seed::Integer = 1)
     m, pv = _basis_metric(basis, metric, torque_weight, metric_nconfig, metric_seed)
     return AdaptiveRidge(; lambda = lambda, epsilon = epsilon, max_iter = max_iter,
                          tol = tol, metric = m, metric_provenance = pv)
@@ -206,75 +219,16 @@ end
 # carries no provenance — the caller owns it).
 function _basis_metric(basis::SCEBasis, metric, torque_weight::Real, nconfig::Integer,
                        seed::Integer)
-    metric === :basis || return (metric, nothing)
+    metric === :basis || return (_checked_metric_keyword(metric), nothing)
     m = penalty_metric(basis; torque_weight = torque_weight, nconfig = nconfig,
                        seed = seed)
-    pv = MetricProvenance((:energy, Float64(torque_weight), Int(nconfig), Int(seed),
-                           basis.salc_basis.fingerprint))
+    pv = MetricProvenance(:energy, torque_weight, nconfig, seed,
+                          basis.salc_basis.fingerprint)
     return (m, pv)
 end
 
-# --- the penalty metric -----------------------------------------------------------
-
-# SplitMix64 (Steele, Lea & Flood 2014), the reference-ensemble generator. Julia's
-# `MersenneTwister` stream carries no cross-version stability guarantee, and this
-# metric enters EVERY penalized coefficient — a stream that drifted between Julia
-# releases would silently move every recorded penalized fit and every regression pin
-# without a line of this package changing. SplitMix64 is fully specified by the four
-# constants below, so the sequence is fixed for good.
-@inline function _splitmix64(state::UInt64)::Tuple{UInt64,UInt64}
-    s = state + 0x9e3779b97f4a7c15
-    z = s
-    z = (z ⊻ (z >> 30)) * 0xbf58476d1ce4e5b9
-    z = (z ⊻ (z >> 27)) * 0x94d049bb133111eb
-    return s, z ⊻ (z >> 31)
-end
-
-# `nconfig` uniform-random spin configurations on `nat` atoms — the reference ensemble
-# the penalty metric averages over. Uniformity on the sphere is exact rather than
-# approximate: `cosθ` uniform on [−1, 1) with `φ` uniform on [0, 2π) is the Archimedes
-# construction, so there is no rejection loop and no normal deviate (either would make
-# the stream depend on library internals the constants above are chosen to avoid).
-function _reference_configs(nat::Int, nconfig::Int, seed::Int)::Vector{Matrix{Float64}}
-    nat >= 1 || throw(ArgumentError("nat must be ≥ 1; got $nat"))
-    nconfig >= 2 || throw(ArgumentError(
-        "the reference ensemble needs ≥ 2 configurations to carry a variance; got " *
-        "$nconfig"))
-    seed >= 0 || throw(ArgumentError("seed must be ≥ 0; got $seed"))
-    state = UInt64(seed)
-    cfgs = Vector{Matrix{Float64}}(undef, nconfig)
-    for c = 1:nconfig
-        e = Matrix{Float64}(undef, 3, nat)
-        for a = 1:nat
-            state, z1 = _splitmix64(state)
-            state, z2 = _splitmix64(state)
-            ez = 2.0 * (Float64(z1 >> 11) * 0x1p-53) - 1.0
-            phi = 2π * (Float64(z2 >> 11) * 0x1p-53)
-            r = sqrt(max(0.0, 1.0 - ez * ez))
-            e[1, a] = r * cos(phi)
-            e[2, a] = r * sin(phi)
-            e[3, a] = ez
-        end
-        cfgs[c] = e
-    end
-    return cfgs
-end
-
-# An accidental zero in a metric would silently unpenalize a column. Zero is reserved
-# for a STRUCTURAL exemption (an intercept, an identically vanishing column), so a
-# numerically-zero estimate is refused rather than floored.
-function _refuse_zero_metric(m::Vector{Float64}, what::AbstractString)
-    z = findall(iszero, m)
-    isempty(z) && return nothing
-    throw(ArgumentError(
-        "$what: columns $z have zero reference norm. Zero marks an unpenalized " *
-        "column, so it is reserved for a structural exemption and never inferred " *
-        "from a sample. A column that is identically zero on the reference ensemble " *
-        "carries no information and should be removed from the basis."))
-end
-
 """
-    penalty_metric(basis::SCEBasis; torque_weight = 0.0, nconfig = 2000, seed = 1)
+    penalty_metric(basis::SCEBasis; torque_weight = 0.0, nconfig = 8192, seed = 1)
         -> Vector{Float64}
 
 The per-column penalty scale of `basis`: one entry per SALC column, in design-column
@@ -312,11 +266,22 @@ uniform (near-collinear low-temperature configurations, say).
 this package rather than taken from `Random`, so the sequence does not move between
 Julia versions; the estimate converges as `1/√nconfig` to a closed-form expectation.
 
+The default is sized from that convergence, not guessed. Measured on bcc Fe 2×2×2
+(`lmax = 2`, 2- and 3-body columns) as the spread of `mⱼ` over eight independent
+seeds: the relative standard error is **1.6 % median / 2.8 % worst column at
+`nconfig = 8192`**, and 3.3 % / 5.3 % at 2000. Body order barely moves it (2-body and
+3-body columns agree within the spread), so `1/√nconfig` from these numbers sizes any
+basis. That residual is a seed-dependent wobble on the *prior*, an order of magnitude
+smaller than the systematic factor the metric removes — orbit size times the ordering
+multiplicity of the member fold, which spans decades — but it is not zero, so build the
+metric ONCE and reuse it across a λ sweep (`SCEFitting.with_lambda`) rather than
+rebuilding per point with a different seed.
+
 See also [`Ridge`](@ref)`(basis; ...)` and [`GroupAdaptiveRidge`](@ref)`(basis; ...)`,
 which attach the metric and its provenance for you.
 """
 function penalty_metric(basis::SCEBasis; torque_weight::Real = 0.0,
-                        nconfig::Integer = 2000, seed::Integer = 1)::Vector{Float64}
+                        nconfig::Integer = 8192, seed::Integer = 1)::Vector{Float64}
     w = Float64(torque_weight)
     (isfinite(w) && 0 <= w <= 1) ||
         throw(ArgumentError("torque_weight must be in [0, 1]; got $torque_weight"))
@@ -329,27 +294,38 @@ function penalty_metric(basis::SCEBasis; torque_weight::Real = 0.0,
     # Columns are independent and each task owns one, so the result is identical at
     # any thread count. The torque block is accumulated, never materialized: the full
     # `K·3·n_atoms × p` design would be hundreds of MB for a supercell basis.
+    #
+    # The three `w` regimes are separate loops rather than one loop with a test: at
+    # `w = 1` the energy term is multiplied by zero, and evaluating it anyway costs
+    # roughly the whole `w = 0` column.
     Threads.@threads for j = 1:p
         scratch = SALCScratch()
-        G = Matrix{Float64}(undef, 3, nat)
         s1 = 0.0
         s2 = 0.0
         st = 0.0
-        @inbounds for c in cfgs
-            phi = evaluate_salc(sal[j], c, scratch)
-            s1 += phi
-            s2 += phi * phi
-            w == 0.0 && continue
-            fill!(G, 0.0)
-            accumulate_grad!(G, sal[j], c, 1.0, scratch)
-            for a = 1:nat
-                ea = SVector{3,Float64}(c[1, a], c[2, a], c[3, a])
-                ga = SVector{3,Float64}(G[1, a], G[2, a], G[3, a])
-                st += sum(abs2, cross(ga, ea))
+        if w < 1.0
+            @inbounds for c in cfgs
+                phi = evaluate_salc(sal[j], c, scratch)
+                s1 += phi
+                s2 += phi * phi
             end
         end
-        # Clamped: the two-pass identity is exact in real arithmetic, and a column
-        # whose variance is genuinely zero can land at −1e-30 here.
+        if w > 0.0
+            G = Matrix{Float64}(undef, 3, nat)
+            @inbounds for c in cfgs
+                fill!(G, 0.0)
+                accumulate_grad!(G, sal[j], c, 1.0, scratch)
+                for a = 1:nat
+                    ea = SVector{3,Float64}(c[1, a], c[2, a], c[3, a])
+                    ga = SVector{3,Float64}(G[1, a], G[2, a], G[3, a])
+                    st += sum(abs2, cross(ga, ea))
+                end
+            end
+        end
+        # The textbook one-pass variance. It can go slightly negative on a column whose
+        # variance is genuinely zero, which the clamp absorbs; the reference ensemble is
+        # centered enough (`E[Φ] = 0` for every all-`l ≥ 1` label) that the
+        # cancellation this form is known for does not bite here.
         varj = max(0.0, s2 / K - (s1 / K)^2)
         m[j] = (1 - w) * varj + w * (st / K) / (3 * nat)
     end
@@ -412,8 +388,9 @@ end
 # `XtX` form divides by zero without so much as an `Inf` in the trace — so the split is
 # taken FIRST, before the `XtX` keyword is consulted.
 function _edof(X::Matrix{Float64}, lambda::Float64, w::Vector{Float64};
-               XtX::Union{Nothing,Matrix{Float64}} = nothing)::Float64
-    any(iszero, w) && return _edof_free(X, lambda, w)
+               XtX::Union{Nothing,Matrix{Float64}} = nothing,
+               columns::Union{Nothing,Vector{Int}} = nothing)::Float64
+    any(iszero, w) && return _edof_free(X, lambda, w; columns = columns)
     n, p = size(X)
     M = if p <= n
         if XtX === nothing
@@ -456,23 +433,33 @@ end
 # the eigenproblem is taken on the smaller of `B'B` (`p_P × p_P`) and `BB'` (`n × n`).
 # A cached `XtX` is deliberately unused: this branch runs once per diagnostic, not once
 # per point of a λ path.
-function _edof_free(X::Matrix{Float64}, lambda::Float64, w::Vector{Float64})::Float64
+function _edof_free(X::Matrix{Float64}, lambda::Float64, w::Vector{Float64};
+                    columns::Union{Nothing,Vector{Int}} = nothing)::Float64
     free = findall(iszero, w)
     pen = findall(!iszero, w)
     XF = X[:, free]
-    p_F = _rank_df(XF)
-    p_F == length(free) || throw(ArgumentError(
-        "effective dof with unpenalized columns: the unpenalized block must have " *
-        "full column rank, but columns $(free) have numerical rank $(Int(p_F)) < " *
-        "$(length(free)). The penalized least-squares problem is then singular and " *
-        "its hat matrix undefined — drop the dependent columns, or penalize them, " *
-        "rather than reporting a finite dof for a model that is not identified"))
-    isempty(pen) && return p_F
+    # ONE factorization: the SVD supplies both the rank test and the orthonormal basis
+    # of the projector, and doing those with two different factorizations would leave
+    # the test and the projection able to disagree. The tolerance is `_rank_df`'s.
+    F = svd(XF)
+    tolr = isempty(F.S) ? 0.0 : minimum(size(XF)) * eps(Float64) * F.S[1]
+    p_F = count(>(tolr), F.S)
+    if p_F != length(free)
+        named = columns === nothing ? free : columns[free]
+        throw(ArgumentError(
+            "effective dof with unpenalized columns: the unpenalized block must have " *
+            "full column rank, but columns $named have numerical rank $p_F < " *
+            "$(length(free)). The penalized least-squares problem is then singular " *
+            "and its hat matrix undefined — drop the dependent columns, or penalize " *
+            "them, rather than reporting a finite dof for a model that is not " *
+            "identified"))
+    end
+    isempty(pen) && return Float64(p_F)
     Xp = X[:, pen] ./ sqrt.(w[pen])'
-    Q = Matrix(qr(XF).Q)
+    Q = view(F.U, :, 1:p_F)
     B = Xp .- Q * (Q' * Xp)
     G = length(pen) <= size(X, 1) ? Symmetric(B' * B) : Symmetric(B * B')
-    df = p_F
+    df = Float64(p_F)
     for s in eigvals(G)
         s > 0.0 || continue
         df += s / (s + lambda)
@@ -609,6 +596,23 @@ end
 # across the train/holdout boundary. A core port of the GLMNet extension's
 # `_make_folds` (the extension cannot be referenced from here); same seed ⇒ identical
 # folds within a Julia session/version (`hash` is version-dependent).
+# The fold count every grouped cross-validation in the package settles on: at most the
+# requested `nfolds`, and never so many that a fold would hold fewer than three
+# resampling units. Fewer than two folds is refused; a reduction warns, because a
+# silently different fold count makes two runs incomparable. The `unit` noun is the
+# caller's, since "configuration" and "resampling unit" mean the same thing here only
+# for an energy-only dataset.
+function _cv_fold_count(nunits::Int, nfolds::Integer, caller::AbstractString,
+                        unit::AbstractString, extra::AbstractString = "")::Int
+    nf = min(Int(nfolds), div(nunits, 3))
+    nf >= 2 || throw(ArgumentError(
+        "cross-validation needs at least 6 $unit for ≥ 2 folds; got $nunits." * extra))
+    nf < Int(nfolds) &&
+        @warn "$caller: reducing CV folds so every fold keeps ≥ 3 $unit" requested =
+              Int(nfolds) effective = nf units = nunits
+    return nf
+end
+
 function _grouped_folds(units::AbstractVector, nf::Int, seed::Int)::Vector{Int}
     uniq = unique(units)
     order = sortperm([hash((seed, u)) for u in uniq])
@@ -856,13 +860,8 @@ function select_fit(dataset::SCEDataset, est::GroupAdaptiveRidge;
     else
         units = rowgroups === nothing ? collect(1:n) : rowgroups
         nunits = length(unique(units))
-        nf = min(Int(nfolds), div(nunits, 3))
-        nf >= 2 || throw(ArgumentError(
-            "cross-validation needs at least 6 resampling units for ≥ 2 folds; got " *
-            "$nunits. Use criterion = :gcv or pass more data."))
-        nf < Int(nfolds) &&
-            @warn "select_fit: reducing CV folds so every fold keeps ≥ 3 resampling " *
-                  "units" requested = Int(nfolds) effective = nf units = nunits
+        nf = _cv_fold_count(nunits, nfolds, "select_fit", "resampling units",
+                            " Use criterion = :gcv or pass more data.")
         folds = _grouped_folds(units, nf, seed)
         sse = zeros(Float64, nl)
         for k = 1:nf
@@ -1212,12 +1211,7 @@ function cross_validate(dataset::SCEDataset, estimator::AbstractEstimator;
             "Pass the estimator that produced the pilot instead."))
     end
     nc = length(dataset)
-    nf = min(Int(nfolds), div(nc, 3))
-    nf >= 2 || throw(ArgumentError(
-        "cross-validation needs at least 6 configurations for ≥ 2 folds; got $nc"))
-    nf < Int(nfolds) &&
-        @warn "cross_validate: reducing CV folds so every fold keeps ≥ 3 " *
-              "configurations" requested = Int(nfolds) effective = nf configs = nc
+    nf = _cv_fold_count(nc, nfolds, "cross_validate", "configurations")
 
     folds = _grouped_folds(collect(1:nc), nf, seed)
     hastq = has_torque(dataset)

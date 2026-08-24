@@ -474,7 +474,9 @@ an unpenalized coefficient of order 1 (a moment channel's μ₀ ≈ 2.2 μ_B) tu
 relative tolerance into an absolute one far coarser than the coefficients it is meant
 to converge. An `mⱼ` of exactly `0` is how a column becomes unpenalized at all, which
 is what keeps those μ₀ intercepts out of the penalty for **every** estimator — a group
-weight could only have done it for the group form. The trade-off versus a group lasso is theory: no convexity, selection
+weight could only have done it for the group form.
+
+**The trade-off versus a group lasso is theory**: no convexity, selection
 consistency is empirical. That is the same trade already accepted for `AdaptiveRidge`.
 
 **What the fixed-point argument does and does not say.** `λ·v_g·‖β_g‖²/(‖β_g‖² + p_g ε)
@@ -505,7 +507,9 @@ eigenvalues of `W^{-1/2}X_P'(I − P_F)X_P W^{-1/2}`, so an unpenalized column a
 costs a full degree of freedom and `df → rank(X_F)` as `λ → ∞`. That branch is taken
 before the cached-Gram one, whose `D^{-1/2}` form would divide by zero; `X_F` must be
 of full column rank, which is exactly the condition for `X'X + λD ≻ 0`, and a
-rank-deficient one is refused rather than answered. Two honesty guards: the score is `Inf` once `df → n` (a
+rank-deficient one is refused rather than answered.
+
+Two honesty guards: the score is `Inf` once `df → n` (a
 near-interpolating fit has no GCV-selectable error), and on torque co-fits GCV is
 *optimistic* because the energy and torque rows of one configuration are correlated
 while GCV treats rows as exchangeable — the same leak configuration-grouped CV folds
