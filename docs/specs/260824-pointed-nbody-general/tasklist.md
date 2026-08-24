@@ -53,15 +53,15 @@ goes through `TaskCreate` in-session.
 
 門は 3 のまま据え置いて中身だけ一般化。**この時点で数値は 1 bit も動かない**。
 
-- [ ] `_subsets` / `_permutations`、`_PERMS3` 削除。
-- [ ] `_moment_labels` 一般化、`_pointed_star_candidates(…, N)` 一般化、
+- [x] `_subsets` / `_permutations`、`_PERMS3` 削除。
+- [x] `_moment_labels` 一般化、`_pointed_star_candidates(…, N)` 一般化、
       **`MomentBasis` ctor の星構築ループ**（L340-348）、`admit` の `body >= 3`。
-- [ ] `salc.jl:482`（`_eval_term_mixed` の直前）に decorated の `D`（rank-0 マークなら
+- [x] `salc.jl:482`（`_eval_term_mixed` の直前）に decorated の `D`（rank-0 マークなら
       `N`、rank ≥ 1 なら `N+1`）を追記。**`:293` の「`D` == body order」は純スピン専用の
       カーネルについて正しいので触らない**。
-- [ ] `make test-all` / `make test-pin` 緑、ピン再取得なし（M1 のフィクスチャで担保）。
+- [x] `make test-all` / `make test-pin` 緑、ピン再取得なし（M1 のフィクスチャで担保）。
 
-- [ ] **Exit**: `make test-all` / `make test-pin` 緑、数値が 1 bit も動いていない。
+- [x] **Exit**: `make test-all` / `make test-pin` 緑、数値が 1 bit も動いていない。
 
 ### M3 — 門を 4 に開ける（`feat(basis): allow nbody = 4 in the pointed moment basis`）
 

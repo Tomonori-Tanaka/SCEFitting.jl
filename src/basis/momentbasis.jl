@@ -178,24 +178,29 @@ is_marked(d::SiteDecor)::Bool = has_disp(d)
 # rank even (TR) and ≤ lsum. Which SITE may carry which decor is the per-assignment
 # `admit` closure's business, not the label's.
 function _moment_labels(spec::MomentSpec, N::Int)::Vector{Vector{SiteDecor}}
+    N >= 1 || return Vector{SiteDecor}[]
     lem = maximum(spec.lmax_env; init = 0)
+    # Non-decreasing environment multisets, so each multiset is enumerated once; which
+    # SITE carries which decor is the per-assignment `admit` closure's business.
+    envs = Vector{Vector{Int}}()
+    function grow!(cur::Vector{Int}, lo::Int)
+        if length(cur) == N - 1
+            push!(envs, copy(cur))
+            return
+        end
+        for l = lo:lem
+            push!(cur, l)
+            grow!(cur, l)
+            pop!(cur)
+        end
+    end
+    grow!(Int[], 1)
     labs = Vector{Vector{SiteDecor}}()
-    if N == 1
-        for lm = 0:spec.lmax_mark
-            (iseven(lm) && lm <= spec.lsum) || continue
-            push!(labs, [_mark_decor(lm)])
-        end
-    elseif N == 2
-        for lm = 0:spec.lmax_mark, le = 1:lem
-            (iseven(lm + le) && lm + le <= spec.lsum) || continue
-            push!(labs, sort([_mark_decor(lm), SiteDecor(spin = le)]))
-        end
-    elseif N == 3
-        for lm = 0:spec.lmax_mark, l1 = 1:lem, l2 = l1:lem
-            (iseven(lm + l1 + l2) && lm + l1 + l2 <= spec.lsum) || continue
-            push!(labs, sort([_mark_decor(lm), SiteDecor(spin = l1),
-                              SiteDecor(spin = l2)]))
-        end
+    for lm = 0:spec.lmax_mark, e in envs
+        t = lm + sum(e; init = 0)
+        (iseven(t) && t <= spec.lsum) || continue
+        push!(labs, sort(vcat([_mark_decor(lm)],
+                              [SiteDecor(spin = l) for l in e])))
     end
     sort!(labs)
     unique!(labs)
@@ -221,10 +226,28 @@ end
 # first finds each triangle once (per translation class), then expands EVERY class
 # to all 3! re-anchored orderings — identical members to what `candidate_clusters`
 # would emit for the clusters it also admits.
-const _PERMS3 = ((1, 2, 3), (1, 3, 2), (2, 1, 3), (2, 3, 1), (3, 1, 2), (3, 2, 1))
+# Ascending `k`-subsets of `1:n`. Small `k` (= body order − 1) only; cheap.
+function _subsets(n::Int, k::Int)::Vector{Vector{Int}}
+    k == 0 && return [Int[]]
+    out = Vector{Int}[]
+    function grow!(cur::Vector{Int}, lo::Int)
+        if length(cur) == k
+            push!(out, copy(cur))
+            return
+        end
+        for i = lo:n
+            push!(cur, i)
+            grow!(cur, i + 1)
+            pop!(cur)
+        end
+    end
+    grow!(Int[], 1)
+    return out
+end
 
 function _pointed_star_candidates(crystal::Crystal, nl::NeighborList,
-                                  spec::MomentSpec)::Vector{ClusterMember}
+                                  spec::MomentSpec, N::Int)::Vector{ClusterMember}
+    N >= 3 || throw(ArgumentError("pointed stars start at body order 3; got $N"))
     nat = n_atoms(crystal)
     sp = crystal.species
     fac = 1.0 + nl.tol
@@ -236,34 +259,43 @@ function _pointed_star_candidates(crystal::Crystal, nl::NeighborList,
     end
     z = SVector{3,Int}(0, 0, 0)
     classes = Dict{Any,ClusterMember}()
+    sites = Vector{Tuple{Int,SVector{3,Int}}}(undef, N - 1)
     for i = 1:nat
         ns = nbrs[i]
-        for x = 1:length(ns), y = (x + 1):length(ns)
-            (j, Rj) = ns[x]
-            (k, Rk) = ns[y]
+        length(ns) >= N - 1 || continue
+        for combo in _subsets(length(ns), N - 1)
+            for (t, c) in enumerate(combo)
+                sites[t] = ns[c]
+            end
             # Only an exact (atom, shift) repeat is skipped. Two DIFFERENT minimum
-            # images of one neighbor (j == k, Rj != Rk — a small cell's tie) are
-            # kept, as upstream keeps them, so the pointed columns agree with
-            # SLCE.jl on the same cell. Under plain PBC both environment factors
-            # then read the one spin e_j and the member reduces to a lower-body
+            # images of one neighbor (same atom, different shift — a small cell's
+            # tie) are kept, as upstream keeps them, so the pointed columns agree
+            # with SLCE.jl on the same cell. Under plain PBC every environment
+            # factor then reads the one spin and the member reduces to a lower-body
             # function; `moment_resolvability` refuses such a basis as
-            # `UnclassifiableBasis`, and `MomentDataset` runs that gate at its
-            # door — a hard refusal, never a silent overcount. (The energy side's
+            # `UnclassifiableBasis`, and `MomentDataset` runs that gate at its door
+            # — a hard refusal, never a silent overcount. (The energy side's
             # `candidate_clusters` drops these members instead; the pointed
-            # enumeration does not, deliberately.)
-            (j, Rj) == (k, Rk) && continue
-            m = ClusterMember([i, j, k], [z, Rj, Rk])
+            # enumeration does not, deliberately.) The subsets are ascending, so a
+            # repeat can only be at adjacent positions.
+            ok = true
+            for t = 2:(N - 1)
+                sites[t] == sites[t - 1] && (ok = false; break)
+            end
+            ok || continue
+            m = ClusterMember(vcat([i], [t[1] for t in sites]),
+                              vcat([z], [t[2] for t in sites]))
             get!(classes, _member_sig(m), m)
         end
     end
     out = ClusterMember[]
+    perms = _ordered_subsets(N, N)               # every ordering: the k = n case
     for sig in sort!(collect(keys(classes)))     # deterministic emission order
         m = classes[sig]
-        for p in _PERMS3
-            atoms2 = [m.atoms[p[1]], m.atoms[p[2]], m.atoms[p[3]]]
+        for p in perms
             s1 = m.shifts[p[1]]
-            shifts2 = [m.shifts[p[1]] - s1, m.shifts[p[2]] - s1, m.shifts[p[3]] - s1]
-            push!(out, ClusterMember(atoms2, shifts2))
+            push!(out, ClusterMember([m.atoms[q] for q in p],
+                                     [m.shifts[q] - s1 for q in p]))
         end
     end
     return out
@@ -338,11 +370,15 @@ function MomentBasis(crystal::Crystal, spec::MomentSpec;
     end
     dmin2_star = Matrix{Float64}(undef, 0, 0)
     if spec.nbody >= 3
+        # One neighbor list for every star order: `cutoff_star` is a single radius,
+        # and only the mark–environment spokes are cut on it whatever N is.
         nl3 = build_neighbor_list(crystal, spec.cutoff_star, MinimumImage();
                                   tol = tie_tol)
-        stars = _pointed_star_candidates(crystal, nl3, spec)
-        for (k, O) in enumerate(_orbits_from_members(crystal, sg, stars, 3))
-            push!(orbits, (3, k, O))
+        for N = 3:spec.nbody
+            stars = _pointed_star_candidates(crystal, nl3, spec, N)
+            for (k, O) in enumerate(_orbits_from_members(crystal, sg, stars, N))
+                push!(orbits, (N, k, O))
+            end
         end
         dmin2_star = _dmin2_matrix(nl3, nat)
     end
@@ -371,7 +407,7 @@ function MomentBasis(crystal::Crystal, spec::MomentSpec;
                     # stars — every mark–env bond minimum-image within the radius
                     spec.marked[O.species[s]] || return false
                     d.spin_l <= spec.lmax_mark || return false
-                    if body == 3
+                    if body >= 3
                         for u in eachindex(t)
                             u == s && continue
                             r = spec.cutoff_star[O.species[s], O.species[u]]

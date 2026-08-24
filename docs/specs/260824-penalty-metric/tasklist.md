@@ -69,7 +69,9 @@ group-L0 の不動点 `→ λ v_g` も壊れる）。
 - [x] `test/glmnet/` / `test/sunny/` / `examples/*.jl` の推定器構築箇所を grep
       （field surface ↔ ALL test environments）。
 - [x] `make docs` strict 緑。
-- [x] **Tier 2 レビューパネル（4 軸）実施、`numerical-reviewer` の指摘を全件適用。**
+- [x] **Tier 2 レビューパネル（4 軸）実施 (2026-08-24): blocker 4 / major 12 / minor 24。**
+      `2c720fb` で全件適用（見送りは性能 m6/m8 の 2 件、理由はコミット本文）、
+      `56f4dc5` で `nconfig` 既定を実測コストから 2048 に。
 
 ### M5 — SLCE.jl へ移植（Q4 の段取り）
 
