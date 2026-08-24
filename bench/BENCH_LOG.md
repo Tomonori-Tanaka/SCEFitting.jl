@@ -22,6 +22,55 @@ Entries are append-only history — keep them after merging.
 
 ---
 
+## Penalty metric: construction cost and λ-path neutrality — 2026-08-24
+
+**Context**: 2026-08-24 · `main` · local macOS (darwin 24.6, aarch64) · julia 1.12.7 ·
+**threads = 4** · `bench/bench_solver.jl` (new sections) · fixture: bcc Fe 2×2×2
+(16 atoms), `nbody = 2`, `cutoff = 4.1`, `lmax = 2`, Spglib backend → **18 SALCs**.
+
+Not a before/after: `penalty_metric` is new, and the question it has to answer is
+whether attaching it by default in `Ridge(basis; ...)` / `GroupAdaptiveRidge(basis; ...)`
+is affordable, and whether it slows the λ path down.
+
+### Reference-ensemble construction
+
+| `nconfig` | `torque_weight` | time | allocated |
+|---|---|---|---|
+| 500 | 0.0 | 33.2 ms | 48.1 MiB |
+| 500 | 1.0 | 102.9 ms | 86.2 MiB |
+| 2000 | 0.0 | 130.9 ms | 192.5 MiB |
+| 2000 | 1.0 | 439.6 ms | 344.9 MiB |
+
+Linear in `nconfig`, as it must be. The torque form costs ~3.4× the energy form (it adds
+a gradient evaluation and an `n_atoms` loop per configuration). At the default
+`nconfig = 2000` this is a **0.1–0.4 s one-off** on this basis; it scales with the column
+count, so budget proportionally for a production basis (108 columns at 3×3×3 bcc Fe).
+
+`@allocated` is CUMULATIVE allocation, dominated by the evaluation kernel's per-call
+churn — the same churn `_design_energy` pays — not by anything the function holds. The
+accumulation that matters for memory (never materializing the
+`nconfig · 3 · n_atoms × p` torque design, 280 MiB at 3×3×3 bcc Fe) is invisible on a
+fixture this small; it is a structural property of the loop, not a measured one here.
+
+### λ path
+
+| | time |
+|---|---|
+| `select_fit`, uniform penalty | 0.7 ms |
+| `select_fit`, basis metric | 0.7 ms |
+
+Ratio 0.95 — no measurable difference, which is the expected result: the metric is one
+extra multiply per column per IRLS step and changes no loop structure. The cost of the
+metric is entirely in its construction, and a caller who wants to avoid it can pass
+`metric = nothing` or reuse a vector across estimators.
+
+**Follow-up**: the moment channel has no benchmark script at all
+(`bench/` covers clusters, design matrices, SALC build, the solver, and two end-to-end
+fixtures), so `penalty_metric(::MomentBasis)` is unmeasured. Worth adding alongside a
+`bench_moment.jl`.
+
+---
+
 ## Baseline for the pointed-moment backport — 2026-08-21 (phase 0, S-bench)
 
 **Why this entry exists.** The backport plan needs a performance baseline that

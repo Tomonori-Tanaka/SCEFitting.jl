@@ -184,13 +184,17 @@ residuals_torque
 
 The fit-accuracy-vs-Monte-Carlo-cost workflow: `salc_groups` / `group_costs` /
 `cost_weights` (public, unexported — call as `SCEFitting.salc_groups` etc.) build the
-per-group cost weights of a [`GroupAdaptiveRidge`](@ref); `gcv` / `effective_dof` are
+per-group cost weights of a [`GroupAdaptiveRidge`](@ref); `penalty_metric` builds the
+per-column penalty scale that makes λ independent of the basis's column conventions
+(and `MetricProvenance` records what it was built from); `gcv` / `effective_dof` are
 the closed-form hat-matrix diagnostics of the linear estimators; `select_fit` drives
 the λ path and applies the cost-aware Pareto rule; `cross_validate` is the generic
-configuration-grouped K-fold assessment for comparing any estimators or
-`torque_weight` settings on both error axes.
+configuration-grouped K-fold assessment — on both error axes for an `SCEDataset`, and
+on the moment RMSE for a `MomentDataset`, where it is the criterion for choosing λ.
 
 ```@docs
+penalty_metric
+MetricProvenance
 gcv
 effective_dof
 select_fit
@@ -199,6 +203,7 @@ select_support
 SupportPath
 cross_validate
 CVResult
+MomentCVResult
 SCEFitting.salc_groups
 SCEFitting.group_costs
 SCEFitting.cost_weights

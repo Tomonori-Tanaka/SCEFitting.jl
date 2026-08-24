@@ -394,12 +394,30 @@ capability consumed by both the introspection and the Sunny interop.
 - **Estimator** (`fitting/estimators.jl`, in-core): `GroupAdaptiveRidge(column_groups,
   group_weights; lambda, epsilon, max_iter, tol)` — the group extension of
   `AdaptiveRidge`, approximating the weighted group-L0 `λ·Σ_g v_g·1{β_g≠0}` by iterating
-  `wⱼ = v_g/(‖β_g‖² + p_g·ε)` (all columns of a group share one weight; a surviving
-  group's converged penalty is exactly `λ·v_g`). Exact degeneration to `AdaptiveRidge`
-  for singleton groups with unit weights; `lambda = 0` ⇒ OLS; `islinear` ⇒ `true`.
+  `Dⱼ = mⱼ·v_g/(Σ_{k∈g} m_kβ_k² + p_g·ε)` (all columns of a group share one weight; a
+  surviving group's converged penalty is exactly `λ·v_g`). Exact degeneration to
+  `AdaptiveRidge` for singleton groups with unit weights and a uniform metric;
+  `lambda = 0` ⇒ OLS; `islinear` ⇒ `true`.
   `column_groups` labels **columns** (contiguous `1:G`, validated in the inner
   constructor) — unrelated to the per-row `groups` kwarg of `solve_coefficients`. The
-  weight map `_gar_weights!` is the single definition shared with the GCV diagnostics.
+  weight map `_gar_weights!` is the single definition of the group form, shared with the
+  GCV diagnostics.
+- **Penalty metric** (`fitting/selection.jl` / `fitting/momentfit.jl`, exported):
+  `penalty_metric(basis; torque_weight, nconfig, seed)` = `(1−w)·Var[Φⱼ] +
+  w·E[Σ_a‖(∂Φⱼ/∂e_a)×e_a‖²]/(3·n_atoms)` and `penalty_metric(mb; free_intercepts,
+  nconfig, seed)` = `E[Φⱼ²]`, both over uniform-random reference configurations drawn by
+  an in-package generator (SplitMix64 + the Archimedes construction; `Random`'s stream
+  carries no cross-version guarantee and this quantity enters every penalized
+  coefficient). Carried on `Ridge` / `AdaptiveRidge` / `GroupAdaptiveRidge` as `metric`
+  (`nothing` = uniform) with a `MetricProvenance` (channel, `torque_weight`, `nconfig`,
+  `seed`, basis fingerprint) the `fit` / `select_fit` / `cross_validate` doors check.
+  The metric sits in the **denominator** of the adaptive weight maps, which is what makes
+  the estimators invariant under a column rescaling and preserves the `λ·v_g` fixed
+  point; the IRLS cold starts and the stopping rule (metric coordinates, penalized
+  columns only) move with it. `mⱼ = 0` ⇒ column unpenalized, reserved for structural
+  exemptions (the moment channel's μ₀ intercepts, identically vanishing columns) and
+  refused when it comes out of a sample; the unpenalized block must be well conditioned
+  or the solve is refused. Basis-aware constructors attach it by default.
 - **Basis helpers** (`fitting/selection.jl`; public, unexported): `salc_groups(basis)`
   — column → group labels by `(body, orbit_id, decors)`, the granularity at which MC
   contraction entries vanish; `group_costs(basis, labels)` — per-group distinct-entry
@@ -412,9 +430,15 @@ capability consumed by both the introspection and the Sunny interop.
   (`_penalty_diagonal`, one method per linear estimator); `gcv(f)` = `n·RSS/(n−df)²` on
   the assembled problem, `Inf` in the near-interpolating regime `df → n`. The dof trace
   is an eigenproblem on the smaller Gram side (`p ≤ n`: weighted `X'X`, reusing the
-  path's cached Gram; `n < p`: the `n×n` dual) — never an `n×p` SVD. Linear estimators
+  path's cached Gram; `n < p`: the `n×n` dual) — never an `n×p` SVD. With unpenalized
+  columns (`Dⱼ = 0`) it is `rank(X_F) + Σᵢ sᵢ/(sᵢ+λ)` over the eigenvalues of
+  `W^{-1/2}X_P'(I−P_F)X_P W^{-1/2}` (thin QR, never an `n×n` projector), taken before
+  the cached-Gram branch and refusing a rank-deficient `X_F`. Linear estimators
   only; on torque co-fits GCV is optimistic (correlated within-configuration rows) —
   grouped CV is the ground truth there (documented, not an error).
+  `effective_dof(::MomentFit)` / `gcv(::MomentFit)` are the pointed counterparts, built
+  on the design the fit SOLVED (gate-kept rows, frozen columns removed, estimator
+  reduced) and with no `+1` (the μ₀ intercepts are columns of that design).
 - **λ path + Pareto** (exported): `select_fit(dataset, est; lambdas, torque_weight,
   criterion = :gcv|:cv, delta, costs, threshold, nfolds, seed) -> SelectionPath` —
   descending warm-started path on a once-assembled Gram; per-λ score, effective dof,
@@ -451,6 +475,15 @@ capability consumed by both the introspection and the Sunny interop.
   `PrecomputedPilot` is rejected (fold-independent coefficients would leak).
   `CVResult` is a Tables.jl source. Unlike `select_fit(criterion = :cv)` (global
   whitening, λ ranking only), this is the honest generalization-error estimate.
+- **Moment CV** (exported): `cross_validate(ds::MomentDataset, estimator; nfolds, seed)
+  -> MomentCVResult` — the pointed channel's λ criterion. Folds are grouped by
+  configuration (its per-marked-atom rows never split), each fold re-solves on its
+  training rows with the SAME frozen column set as the full dataset, and a fold whose
+  training rows miss a marked orbit is refused by name (that orbit's μ₀ would be
+  unidentified). Training and scoring run on the gate-kept rows; `score_defined` reports
+  the gate-rejected rows separately as disclosure. One error axis (the `ê·M` RMSE in
+  μ_B), hence its own result type; `pooled_score` aggregates out-of-fold residuals.
+  Tables.jl source; `PrecomputedPilot` rejected as above.
 - Validated in `test/unit/test_selection.jl`: construction/validation, exact
   `AdaptiveRidge` degeneration, group-sparse recovery + weight monotonicity, label/cost
   hand counts + additivity, `θ` endpoints, dense-hat-matrix trace agreement, the

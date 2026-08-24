@@ -97,9 +97,9 @@ are in-tree (closed form, no dependencies):
 | Estimator | Penalty | Notes |
 |-----------|---------|-------|
 | [`OLS`](@ref) | none | ordinary least squares (QR) |
-| [`Ridge`](@ref) | ``\lambda\lVert\beta\rVert_2^2`` | L2, closed form |
-| [`AdaptiveRidge`](@ref) | ``\lambda\sum_j w_j\beta_j^2`` | iterative reweighted ridge, an L0 approximation |
-| [`GroupAdaptiveRidge`](@ref) | as above, ``w`` shared per group | group-L0, fixed cost weights |
+| [`Ridge`](@ref) | ``\lambda\sum_j m_j\beta_j^2`` | L2, closed form |
+| [`AdaptiveRidge`](@ref) | ``\lambda\sum_j D_j\beta_j^2`` | iterative reweighted ridge, an L0 approximation |
+| [`GroupAdaptiveRidge`](@ref) | as above, ``D`` shared per group | group-L0, fixed cost weights |
 
 [`AdaptiveRidge`](@ref) (Frommlet & Nuel 2016) repeatedly refits a per-coefficient
 weighted ridge with ``w_j = 1/(\beta_j^2 + \varepsilon)``, so large coefficients get a
@@ -111,10 +111,64 @@ fit(SCEFit, dataset, AdaptiveRidge(lambda = 1e-3))     # L0-like selection, clos
 ```
 
 [`GroupAdaptiveRidge`](@ref) is its group extension: all columns of a group share one
-weight ``w_j = v_g/(\lVert\beta_g\rVert^2 + p_g\varepsilon)``, so whole groups — not
-individual columns — are driven to zero, and the fixed multiplier ``v_g`` prices each
-group (at convergence a surviving group pays exactly ``\lambda v_g``). This is the
+weight ``w_j = v_g/(\sum_{k\in g} m_k\beta_k^2 + p_g\varepsilon)``, so whole groups —
+not individual columns — are driven to zero, and the fixed multiplier ``v_g`` prices
+each group (at convergence a surviving group pays exactly ``\lambda v_g``). This is the
 estimator behind the Monte-Carlo-cost-aware selection workflow below.
+
+## The penalty metric
+
+``m_j`` above is the **penalty metric**: a per-column scale, `nothing` (uniform) or a
+vector from [`penalty_metric`](@ref). It is on by default whenever an estimator is
+built from a basis.
+
+``\lambda\lVert\beta\rVert^2`` is not invariant under rescaling a design column, and
+SALC column norms are set by basis conventions — an orbit's member count, and the
+ordering multiplicity the member fold absorbs — not by physics. A column with a larger
+norm carries a smaller coefficient at the same physical effect, so it is shrunk *less*:
+the unweighted penalty quietly prefers large orbits and high body order. The metric
+
+```math
+m_j(w) = (1-w)\,\mathrm{Var}[\Phi_j]
+       + w\,\frac{1}{3 n_\text{atoms}}\,
+         \mathbb{E}\Bigl[\sum_a \lVert (\partial\Phi_j/\partial e_a)\times e_a\rVert^2\Bigr]
+```
+
+— the reference norm of the column as the estimator sees it, over uniform-random spin
+configurations — removes that, leaving only the prior you state deliberately through
+`theta`.
+
+```julia
+est = GroupAdaptiveRidge(basis; lambda = 1e-5, theta = 1.0)   # metric attached
+m   = penalty_metric(basis; torque_weight = 0.3)              # or build it yourself
+est_w = GroupAdaptiveRidge(basis; lambda = 1e-5, torque_weight = 0.3)
+fit(SCEFit, dataset, est_w; torque_weight = 0.3)              # weights must agree
+est_plain = GroupAdaptiveRidge(salc_groups(basis), weights; lambda = 1e-5)  # uniform
+```
+
+Three things follow from that definition and are worth knowing:
+
+- **`torque_weight` is part of the metric.** The assembled design mixes the energy and
+  torque blocks by ``w``, so the column scales move with it. Build the metric at the
+  weight you will fit at; [`fit`](@ref), [`select_fit`](@ref) and
+  [`cross_validate`](@ref) refuse a mismatch, along with a metric built on a different
+  basis. (A metric you assembled by hand carries no provenance and is never second-
+  guessed.)
+- **It is a property of the basis, not of the training data.** That is deliberate: λ
+  becomes comparable between cells, cross-validation needs no per-fold recomputation to
+  stay leak-free, and the prior sits on the function space rather than on how strongly
+  one training set happened to excite each column. The price is the converse — a column
+  the reference ensemble excites weakly but your data drives hard is effectively
+  under-penalized. Comparing ``m_j`` against the training column variances is the
+  diagnostic when your configurations are far from uniform.
+- **The support rule is a separate scale, and already invariant.** [`refit`](@ref) and
+  [`select_support`](@ref) threshold ``|\beta_j|\cdot\lVert X[:,j]\rVert``, which does
+  not move under a column rescaling at all, so the metric does not touch it. The two
+  knobs are independent by construction rather than by tuning.
+
+An entry of exactly `0` marks a column **unpenalized** — that is how the moment
+channel's ``\mu_0`` intercepts are kept out of the penalty (see the
+[moment guide](moment.md)), for every estimator rather than only the group form.
 
 The penalized-path estimators — the Lasso, the elastic net, and the adaptive Lasso — are
 provided by a **GLMNet extension** that lights up under `using GLMNet`:

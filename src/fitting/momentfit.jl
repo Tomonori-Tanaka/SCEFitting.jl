@@ -751,9 +751,16 @@ function penalty_metric(mb::MomentBasis; free_intercepts::Bool = true,
     append!(structural, res.vanishing)
     free_intercepts && append!(structural, _intercept_columns(mb))
     sort!(unique!(structural))
-    keep = trues(p)
-    keep[structural] .= false
-    _refuse_zero_metric(m[keep], "penalty_metric(::MomentBasis)")
+    # Report the ORIGINAL column indices: a filtered vector would name positions in
+    # itself, which is exactly the kind of index the reader cannot act on.
+    accidental = setdiff(findall(iszero, m), structural)
+    isempty(accidental) || throw(ArgumentError(
+        "penalty_metric(::MomentBasis): columns $accidental have zero reference " *
+        "norm. Zero marks an unpenalized column, so it is reserved for a structural " *
+        "exemption (a μ₀ intercept, an identically vanishing column) and never " *
+        "inferred from a sample. A column that is identically zero on the reference " *
+        "ensemble carries no information; `moment_resolvability` should have named " *
+        "it, and that it did not is worth understanding before fitting."))
     m[structural] .= 0.0
     return m
 end

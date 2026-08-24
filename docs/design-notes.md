@@ -443,7 +443,38 @@ cost-blind to cost-proportional and changes the *order* in which groups die). Wr
 the denominator as `p_g·(mean_j βⱼ² + ε)` also keeps `ε` a per-coefficient magnitude
 floor independent of group size — the same calibration as `AdaptiveRidge`'s `βⱼ² + ε`,
 to which the update degenerates exactly for singleton groups with unit weights (pinned
-by test). The trade-off versus a group lasso is theory: no convexity, selection
+by test).
+
+**The penalty metric goes in that denominator, and only there.** The plain penalty
+`λ·Σβⱼ²` is not invariant under rescaling a design column, and SALC column norms are
+set by basis conventions — an orbit's member count and the ordering multiplicity the
+member fold absorbs — rather than by physics. Since a larger column norm means a
+smaller coefficient at the same physical effect, and therefore *less* shrinkage, that
+is an accidental prior in favour of large orbits and high body order, sitting on top of
+the deliberate `(c_g/c̄)^θ` tilt and partly collinear with it (`group_costs` and the
+column norm share the orbit-size factor). `penalty_metric` measures the reference norm
+`mⱼ` of each column as the estimator sees it and the weight map becomes
+
+    Dⱼ = mⱼ·wⱼ,   wⱼ = v_g / (Σ_{k∈g} m_k·β_k² + p_g·ε)
+
+Placing `mⱼ` in the denominator is what preserves everything above. The group norm the
+map sees is then the rescaling invariant `Σ m_k β_k²`, so `wⱼ` itself is invariant and
+`Dⱼ → cⱼ²Dⱼ` exactly cancels `βⱼ → βⱼ/cⱼ`; and the fixed-point contribution stays
+`λ·v_g`. Multiplying the penalty by `mⱼ` from *outside* the weight map would leave the
+converged contribution at `λ·v_g·⟨m⟩_g`, so `v_g` would no longer be the group-L0
+weight and the Pareto rule below would be sweeping something else. `ε` is
+correspondingly a floor on the metric-weighted magnitudes, `p_g·(mean_j mⱼβⱼ² + ε)`.
+
+An invariant objective is not by itself an invariant estimator: this is a non-convex
+surrogate reached by fixed-point iteration, so the iteration has to be equivariant too.
+That costs two more lines — the IRLS cold starts are built from `Dⱼ = mⱼ·v_g` rather
+than `v_g`, and the stopping rule is measured in the invariant coordinates `√mⱼ·βⱼ`.
+Restricting that rule to the penalized columns fixes a second problem at the same time:
+an unpenalized coefficient of order 1 (a moment channel's μ₀ ≈ 2.2 μ_B) turns a
+relative tolerance into an absolute one far coarser than the coefficients it is meant
+to converge. An `mⱼ` of exactly `0` is how a column becomes unpenalized at all, which
+is what keeps those μ₀ intercepts out of the penalty for **every** estimator — a group
+weight could only have done it for the group form. The trade-off versus a group lasso is theory: no convexity, selection
 consistency is empirical. That is the same trade already accepted for `AdaptiveRidge`.
 
 **What the fixed-point argument does and does not say.** `λ·v_g·‖β_g‖²/(‖β_g‖² + p_g ε)
@@ -468,7 +499,13 @@ converged fit is linear in `y` with the weights frozen (`islinear`), so
 `n·RSS/(n − df)²` needs no refitting. The trace is evaluated as `Σᵢ sᵢ/(sᵢ + λ)` over
 the eigenvalues of the weighted Gram `X̃'X̃` (`p ≤ n`, reusing the λ-path's cached
 `X'X`) or its `n×n` dual (`n < p`) — never an `n×p` SVD, which would dominate the path
-cost in the co-fit regime. Two honesty guards: the score is `Inf` once `df → n` (a
+cost in the co-fit regime. Unpenalized columns split the trace rather than break it:
+with `X = [X_F X_P]` and `D = diag(0, W)` it is `rank(X_F) + Σᵢ sᵢ/(sᵢ + λ)` over the
+eigenvalues of `W^{-1/2}X_P'(I − P_F)X_P W^{-1/2}`, so an unpenalized column always
+costs a full degree of freedom and `df → rank(X_F)` as `λ → ∞`. That branch is taken
+before the cached-Gram one, whose `D^{-1/2}` form would divide by zero; `X_F` must be
+of full column rank, which is exactly the condition for `X'X + λD ≻ 0`, and a
+rank-deficient one is refused rather than answered. Two honesty guards: the score is `Inf` once `df → n` (a
 near-interpolating fit has no GCV-selectable error), and on torque co-fits GCV is
 *optimistic* because the energy and torque rows of one configuration are correlated
 while GCV treats rows as exchangeable — the same leak configuration-grouped CV folds

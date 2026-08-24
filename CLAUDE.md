@@ -491,12 +491,33 @@ Easy to break silently — confirm before touching the algorithm.
   `fitting/estimators.jl`): `gcv`/`effective_dof` reassemble the design through
   `_assemble_problem` (change the centering/whitening and the score moves with `fit`),
   are gated by `islinear`, and recompute the converged penalty diagonal through the
-  **same** functions the solvers iterate — `_gar_weights!` (the single definition of
-  `wⱼ = v_g/(‖β_g‖² + p_g·ε)`; `_penalty_diagonal` has one method per linear estimator,
-  and `AdaptiveRidge`'s `1/(β² + ε)` must stay in sync with its solve loop). Change a
+  **same** functions the solvers iterate — `_gar_weights!` (the single definition of the
+  GROUP form `Dⱼ = mⱼ·v_g/(Σ_{k∈g} m_kβ_k² + p_g·ε)`; `_penalty_diagonal` has one method
+  per linear estimator, and `Ridge`'s `mⱼ` and `AdaptiveRidge`'s `mⱼ/(mⱼβ² + ε)` must
+  each stay in sync with their own solve loop). Change a
   weight formula in the solver and the `_penalty_diagonal` method, the design-notes §13
   derivation, and the dense-hat-matrix tests in `test/unit/test_selection.jl` move
-  together. `select_fit`'s alive-group rule is the `refit` scaled-magnitude support rule
+  together.
+- **The penalty metric `m` enters SIX sites** (`fitting/estimators.jl`,
+  `fitting/selection.jl`): the `Ridge` solve, `AdaptiveRidge`'s iteration-0 cold start
+  and its weight update, `_solve_gar`'s cold start, `_gar_weights!`, and the three
+  `_penalty_diagonal` methods. Miss one and the diagnostics use a different penalty
+  diagonal than the solver — the failure class `_refuse_refit_diagnostic` was written
+  for. It also enters the FIVE estimator-expansion points of `select_fit` (the path
+  solve, the GCV weights, the per-fold solve, the cold re-solve of the selected point,
+  and that point's GCV): the `GroupAdaptiveRidge` inner constructor takes `metric` /
+  `metric_provenance` as positional arguments with no default so a missed site is a
+  `MethodError`, not a silently unweighted fit. `m ≥ 0`, and an exact `0` means
+  **unpenalized** — reserved for a structural exemption (a μ₀ intercept, an identically
+  vanishing column), never inferred from a sample. Unpenalized columns also change
+  `_edof` (`rank(X_F) + Σ sᵢ/(sᵢ + λ)`, branching BEFORE the cached-`XtX` path) and the
+  IRLS stopping rule (metric coordinates `√mⱼβⱼ`, penalized columns only). A metric
+  carries a `MetricProvenance` (channel / basis fingerprint / `torque_weight`) that the
+  `fit` / `select_fit` / `cross_validate` doors check — no numerical gate can see a
+  wrong metric, since scale invariance holds for any `m ∝ c²`. `Ridge` /
+  `AdaptiveRidge` are column-structured once they carry one, so `_reduce_to_active`
+  needs a method for each (the pointed freeze and `refit`'s support both cut the metric
+  with the design). `select_fit`'s alive-group rule is the `refit` scaled-magnitude support rule
   (`|jϕⱼ|·‖X[:,j]‖ > threshold`) applied per group — change one side and the other (and
   the E2E cost-recomputation test) follows; `select_support` reuses the same rule for its
   per-point alive/cost columns while delegating each point's fit to `refit` itself

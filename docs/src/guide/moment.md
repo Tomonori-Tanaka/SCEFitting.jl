@@ -166,8 +166,16 @@ order parameter `|⟨e⟩|` of every configuration.
 `fit(MomentFit, ds, estimator)` solves the gated rows and, for disclosure, the
 ungated ones; both coefficient sets are stored. There is **no centering and no
 global intercept**: the `l = 0` mark columns are the per-orbit intercepts, so the
-design reaches the estimator exactly as built (a regularized estimator therefore
-shrinks `μ₀` like any other column — choose it deliberately).
+design reaches the estimator exactly as built.
+
+A regularized estimator built from the basis leaves those `μ₀` columns
+**unpenalized**: [`penalty_metric`](@ref)`(mb)` gives them a scale of exactly `0`,
+which every estimator reads as "do not penalize this column". Shrinking the reference
+moment magnitude toward zero has no physical meaning, and the exemption is not a
+special case in `fit` — it is the same per-column scale that makes the penalty
+invariant under the basis's column conventions (see the
+[fitting guide](fitting.md)). Pass `free_intercepts = false` to penalize them anyway,
+or `metric = nothing` for the plain unweighted penalty.
 
 ```@example moment
 f = fit(MomentFit, ds, OLS())
@@ -187,6 +195,31 @@ Monte-Carlo consumer asks for), and explicit axes reproduce mode-1 training rows
 For group-adaptive shrinkage, `salc_groups(mb)` labels the pointed columns at
 **mark-class** granularity and `GroupAdaptiveRidge(mb; lambda)` builds the
 matching estimator; `fit` reduces it to the active columns alongside the freeze.
+`Ridge(mb; lambda)` and `AdaptiveRidge(mb; lambda)` are the ungrouped forms, and all
+three carry the metric.
+
+## Choosing λ
+
+[`cross_validate`](@ref)`(ds, estimator)` is the honest criterion. Its folds are
+grouped **by configuration**, so the rows of one configuration — one per marked atom,
+all sharing its spin directions — never split across the train/holdout boundary:
+
+```@example moment
+cv = cross_validate(ds, Ridge(mb; lambda = 1e-4); nfolds = 3)
+cv.pooled_rmse_moment
+```
+
+Each fold re-solves with the same frozen column set as the full dataset, and a fold
+whose training rows miss a marked orbit entirely is refused by name — that orbit's
+`μ₀` would be unidentified on the fold rather than merely noisy. Training and scoring
+run on the gate-kept rows; `score_defined` reports the rejected rows separately, as
+disclosure rather than as a criterion (their targets carry a transverse component no
+coefficient can fit).
+
+[`effective_dof`](@ref)`(f)` and [`gcv`](@ref)`(f)` are the fast reference for a
+linear estimator, computed on the design the fit actually solved. GCV treats rows as
+exchangeable, which the rows of one configuration are not, so it runs optimistic —
+use it to scan, and cross-validate the shortlist.
 
 ## Diagnostics
 

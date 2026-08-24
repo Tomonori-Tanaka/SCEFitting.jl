@@ -1,6 +1,6 @@
 # Tasklist: 罰則計量の正当化と λ 選択（エネルギー / モーメント両チャネル）
 
-Status: draft (2026-08-24) — spec-reviewer 第 3 回反映済み
+Status: in progress (2026-08-24) — M1–M4 着地（実装コミット: 下記）
 
 This file holds coarse-grained, commit-sized milestones. Day-to-day tracking
 goes through `TaskCreate` in-session.
@@ -12,64 +12,64 @@ goes through `TaskCreate` in-session.
 エネルギー側のビット等号を保ったまま `_edof` だけ先に直す。罰則なし列を作る経路が
 まだ無いので、ゲートは人工設計で書く。
 
-- [ ] `free = findall(iszero, D)` の分岐を **`XtX` の有無より先**に。分割形は Gram だけで
+- [x] `free = findall(iszero, D)` の分岐を **`XtX` の有無より先**に。分割形は Gram だけで
       書く（`select_fit` のキャッシュ経路が `Inf` を作る穴を塞ぐ）。`M` は `n×n` で作らず
       `X_F` の thin QR で射影。前提（`X_F` 列フルランク / `λ > 0`）を導出コメントに明記。
-- [ ] テスト: design §5（密ハット参照、**4 分岐すべて**、λ→∞ で `df → rank(X_F)`）、
+- [x] テスト: design §5（密ハット参照、**4 分岐すべて**、λ→∞ で `df → rank(X_F)`）、
       §14（エネルギー側バイト等号ピン）。
-- [ ] `make test-all` 緑。
+- [x] `make test-all` 緑。
 
 ### M2 — 罰則スケール（`feat(estimators): a basis-intrinsic penalty scale`）
 
 **計量は重み写像の分母に入れる**（外に掛けると適応系がスケール不変にならず、
 group-L0 の不動点 `→ λ v_g` も壊れる）。
 
-- [ ] `estimators.jl`: 3 推定器に `metric`（`≥ 0`、全列 0 拒否、長さ検査）。
+- [x] `estimators.jl`: 3 推定器に `metric`（`≥ 0`、全列 0 拒否、長さ検査）。
       **計量が入る 6 サイト全部**（design の表: `Ridge` の解 / `AdaptiveRidge` の
       iteration 0 と重み更新 / `_solve_gar` cold start / `_gar_weights!` /
       `_penalty_diagonal` の 3 メソッド）。返り値は罰則対角 `D_j = m_j w_j`。
       **PD ガードは 3 経路すべて**（`free` 非空なら `XtX[free,free]` の Cholesky、
       失敗は列名指し）、**収束判定は計量座標 `√m_j β_j` かつ罰則列に限る**、
       長さ検査は `solve_coefficients` の入口。`metric_provenance` と不一致拒否。
-- [ ] `selection.jl`: `penalty_metric(::SCEBasis; torque_weight, nconfig, seed)`、
+- [x] `selection.jl`: `penalty_metric(::SCEBasis; torque_weight, nconfig, seed)`、
       基底を取る構築子、`cost_weights` docstring の役割分担、
       **`select_fit` の 5 呼び出し点**（`:547, 597, 629, **645**, 662`）に計量を通す。
       内側 ctor の `metric` は**既定なしの位置引数**にして漏れを `MethodError` にする。
-- [ ] `momentfit.jl`: `penalty_metric(::MomentBasis; free_intercepts, …)`、
+- [x] `momentfit.jl`: `penalty_metric(::MomentBasis; free_intercepts, …)`、
       `_intercept_columns(mb)`、`_reduce_to_active` の `metric` 縮約。
-- [ ] **列構造推定器の縮約**: `_reduce_to_active(::Ridge, …)` / `(::AdaptiveRidge, …)`、
+- [x] **列構造推定器の縮約**: `_reduce_to_active(::Ridge, …)` / `(::AdaptiveRidge, …)`、
       `refit` / `select_support` の support 縮約（または名指し拒否）。
-- [ ] `docs/design-notes.md` §13 の導出更新（重み写像に計量、不動点の再導出、`ε` の意味）。
-- [ ] テスト: design §1（罰則なし列の厳密性）、§2（スケール不変。**現行実装と
+- [x] `docs/design-notes.md` §13 の導出更新（重み写像に計量、不動点の再導出、`ε` の意味）。
+- [x] テスト: design §1（罰則なし列の厳密性）、§2（スケール不変。**現行実装と
       「分母の外」実装の両方で落ちることを先に確認**、群内不均一な `C` を含む）、
       §3（group-L0 不動点）、§4（参照計量の解析検算）、§6（`select_fit` の返り値が
       計量つき）、
       §7（μ₀ の λ→∞ 極限、3 推定器）、§11（縮約の網羅）、§12（拒否）、§13（OLS 不変）。
-- [ ] `make test-all` / `make test-pin` 緑。
+- [x] `make test-all` / `make test-pin` 緑。
 
 ### M3 — λ 選択（`feat(selection): cross_validate / gcv / effective_dof for MomentFit`）
 
-- [ ] `selection.jl`: `MomentCVResult`、`cross_validate(::MomentDataset, …)`、
+- [x] `selection.jl`: `MomentCVResult`、`cross_validate(::MomentDataset, …)`、
       `effective_dof` / `gcv`（**`fit` と同じ三つ組を再構成**）、`_gcv_neff(::MomentFit)`。
       `_grouped_folds` 再利用、fold 数の扱いはエネルギー側踏襲。
-- [ ] テスト: design §8（分割性質 + **fold 学習側の軌道被覆**）、§9（リークガード）、
+- [x] テスト: design §8（分割性質 + **fold 学習側の軌道被覆**）、§9（リークガード）、
       §10（凍結列整合）。
-- [ ] `make test-all` 緑。
+- [x] `make test-all` 緑。
 
 ### M4 — docs / 記録 / レビュー
 
-- [ ] `docs/src/guide/fitting.md` / `moment.md`（罰則計量、`cost_weights` との役割分担、
+- [x] `docs/src/guide/fitting.md` / `moment.md`（罰則計量、`cost_weights` との役割分担、
       支持規則との 2 スケール共存（Q2）、GCV が config 相関を無視する旨）。
-- [ ] `SPEC.md` fitting 節、`docs/src/api.md` に 2 行、
+- [x] `SPEC.md` fitting 節、`docs/src/api.md` に 2 行、
       `CHANGELOG.md`（**BREAKING** — `fit.jl:30-41` の前例と同格、記録済み fit の
       再取得が要る旨を名指し）、`CLAUDE.md` coupled-site L490-512 の更新 +
       L497 の「design-notes §13」参照先修正、`docs/specs/README.md`。
-- [ ] `bench/bench_solver.jl` に計量構築（**ピークメモリも**）と λ 掃引、
+- [x] `bench/bench_solver.jl` に計量構築（**ピークメモリも**）と λ 掃引、
       `BENCH_LOG.md` にエントリ。
-- [ ] `test/glmnet/` / `test/sunny/` / `examples/*.jl` の推定器構築箇所を grep
+- [x] `test/glmnet/` / `test/sunny/` / `examples/*.jl` の推定器構築箇所を grep
       （field surface ↔ ALL test environments）。
-- [ ] `make docs` strict 緑。
-- [ ] **Tier 2 レビューパネル（4 軸）実施、`numerical-reviewer` の指摘を全件適用。**
+- [x] `make docs` strict 緑。
+- [x] **Tier 2 レビューパネル（4 軸）実施、`numerical-reviewer` の指摘を全件適用。**
 
 ### M5 — SLCE.jl へ移植（Q4 の段取り）
 
