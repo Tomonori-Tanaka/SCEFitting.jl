@@ -29,7 +29,11 @@
 #   * the star cutoff (`N ≥ 3`) is MARK–ENVIRONMENT-SPOKE based, not all-edge: the
 #     star is pinned by its `N−1` spokes (each minimum-image within its radius), and
 #     the environment–environment edges are free — an all-edge cut at the same radius
-#     keeps 3 of the 15 nn star pairs on FeGe and loses 20–32 % in σ (M2-5);
+#     keeps 3 of the 15 nn star pairs on FeGe and loses 20–32 % in σ (M2-5). The
+#     radius is per STAR ORDER, because members grow as `C(z, N−1)·N!` and a body
+#     order past 3 is only affordable on a shell narrower than the one below it;
+#     per-SPOKE radii are not expressible at all (the label is a multiset, so
+#     permuting the environment sites leaves it unchanged);
 #   * time reversal: y = ê·M is TR-even, so only even-Σl labels exist (the mark's
 #     spin rank counts) — enforced by the engine's existing screen.
 
@@ -109,8 +113,17 @@ be written as the `[moment]` section of a TOML setup file ([`read_setup`](@ref),
 - `cutoff_pair` — mark–environment bond radius (Å) for 2-body clusters: a scalar
   or a symmetric per-species-pair matrix.
 - `cutoff_star` — mark–environment bond radius for stars (`nbody ≥ 3`; default:
-  `cutoff_pair`). Only the `N−1` mark–environment spokes are constrained; the
-  environment–environment edges are free. That asymmetry with the energy side's
+  `cutoff_pair`). One radius (scalar or symmetric per-species-pair matrix) applies to
+  every star order; **a vector gives one radius per star order**, entry `i` for body
+  order `i + 2`, and its length must be `nbody - 2`. Per-body radii are what make a
+  4-body probe affordable — star members grow as `C(z, N−1)·N!`, so keeping the
+  3-body shell wide while cutting the 4-body one to the first shell is the difference
+  between thousands of columns and tens. (Per-*spoke* radii are a different thing and
+  are NOT expressible: the label is a multiset, so permuting the environment sites
+  leaves the same label and "the first spoke is short, the second long" has no
+  symmetry-invariant meaning. A total-spoke-length or cluster-diameter cap would be
+  permutation invariant; neither is implemented.) Only the `N−1` mark–environment
+  spokes are constrained; the environment–environment edges are free. That asymmetry with the energy side's
   compact-cluster rule is deliberate: a star has a distinguished centre, so — **as long
   as every spoke has a unique minimum image** — each environment site is fixed by the
   mark's cell plus its own spoke, and two orbits cannot carry the same monomial. Where
@@ -131,7 +144,9 @@ struct MomentSpec
     sampled::Vector{Bool}
     marked::Vector{Bool}
     cutoff_pair::Matrix{Float64}
-    cutoff_star::Matrix{Float64}
+    # One entry per STAR order: `cutoff_star[N - 2]` is body order `N`, so the vector
+    # is empty for `nbody < 3`. Use `_star_cutoff(spec, N)` rather than indexing here.
+    cutoff_star::Vector{Matrix{Float64}}
     lsum::Int
     isotropy::Bool
 end
@@ -142,7 +157,8 @@ function MomentSpec(; lmax_env::AbstractVector{<:Integer},
                     marked::Union{Nothing,AbstractVector{Bool}} = nothing,
                     nbody::Integer = 3,
                     cutoff_pair::Union{Real,AbstractMatrix{<:Real}},
-                    cutoff_star::Union{Nothing,Real,AbstractMatrix{<:Real}} = nothing,
+                    cutoff_star::Union{Nothing,Real,AbstractMatrix{<:Real},
+                                       AbstractVector} = nothing,
                     lsum::Union{Nothing,Integer} = nothing,
                     isotropy::Bool = true)::MomentSpec
     nkd = length(lmax_env)
@@ -175,8 +191,34 @@ function MomentSpec(; lmax_env::AbstractVector{<:Integer},
     any(mk) || throw(ArgumentError("no species is marked — nothing to expand"))
     _cut(c) = c isa Real ? fill(Float64(c), nkd, nkd) : Matrix{Float64}(c)
     cp = _cut(cutoff_pair)
-    cs = cutoff_star === nothing ? copy(cp) : _cut(cutoff_star)
-    for (name, m) in (("cutoff_pair", cp), ("cutoff_star", cs))
+    # `cutoff_star` is stored per star order (`nbody - 2` entries, body `N` at `N - 2`).
+    # A scalar or a matrix means "the same radius at every star order"; a vector gives
+    # one per order. Below body order 3 there is no star, so the vector is empty and an
+    # explicit `cutoff_star` is refused rather than silently stored and never read.
+    nstar = max(Int(nbody) - 2, 0)
+    cs = if cutoff_star === nothing
+        Matrix{Float64}[copy(cp) for _ = 1:nstar]
+    elseif cutoff_star isa AbstractVector
+        length(cutoff_star) == nstar || throw(ArgumentError(
+            "cutoff_star has $(length(cutoff_star)) entries but nbody = $nbody needs " *
+            "$nstar (one per star order, entry i for body order i + 2). A scalar or a " *
+            "species-pair matrix applies to every star order instead"))
+        Matrix{Float64}[c isa Real || c isa AbstractMatrix{<:Real} ? _cut(c) :
+                        throw(ArgumentError("cutoff_star[$i] must be a number or a " *
+                                            "species-pair matrix; got $(typeof(c))"))
+                        for (i, c) in enumerate(cutoff_star)]
+    else
+        nstar > 0 || throw(ArgumentError(
+            "cutoff_star was given but nbody = $nbody has no star order (stars start " *
+            "at body order 3), so the radius would never be read — drop it or raise " *
+            "nbody"))
+        Matrix{Float64}[_cut(cutoff_star) for _ = 1:nstar]
+    end
+    named = Tuple{String,Matrix{Float64}}[("cutoff_pair", cp)]
+    for (i, m) in enumerate(cs)
+        push!(named, ("cutoff_star[$i] (body order $(i + 2))", m))
+    end
+    for (name, m) in named
         size(m) == (nkd, nkd) ||
             throw(ArgumentError("$name is $(size(m)) for $nkd species"))
         m == m' || throw(ArgumentError("$name must be symmetric"))
@@ -187,6 +229,23 @@ function MomentSpec(; lmax_env::AbstractVector{<:Integer},
     ls >= 0 || throw(ArgumentError("lsum must be ≥ 0; got $lsum"))
     return MomentSpec(Int(nbody), Int(lmax_mark), collect(Int, lmax_env),
                       collect(Bool, sampled), mk, cp, cs, ls, isotropy)
+end
+
+# The star radius of body order `N` (`N ≥ 3`). One accessor so the per-order layout of
+# `spec.cutoff_star` is named in exactly one place.
+_star_cutoff(spec::MomentSpec, N::Int)::Matrix{Float64} = spec.cutoff_star[N - 2]
+
+# The elementwise envelope of every star radius — the radius the ONE shared neighbor
+# list must reach. Enlarging that list never changes which stars are admitted (each
+# order re-filters on its own radius); it only makes `_dmin2_matrix` see shorter images,
+# which is strictly more correct.
+function _star_cutoff_envelope(spec::MomentSpec)::Matrix{Float64}
+    isempty(spec.cutoff_star) && return zeros(0, 0)
+    out = copy(spec.cutoff_star[1])
+    for m in spec.cutoff_star
+        out .= max.(out, m)
+    end
+    return out
 end
 
 _mark_decor(l::Int)::SiteDecor =
@@ -255,10 +314,11 @@ function _pointed_star_candidates(crystal::Crystal, nl::NeighborList,
     nat = n_atoms(crystal)
     sp = crystal.species
     fac = 1.0 + nl.tol
+    cut = _star_cutoff(spec, N)
     nbrs = [Tuple{Int,SVector{3,Int}}[] for _ = 1:nat]
     for p in nl.pairs
         spec.marked[sp[p.i]] || continue
-        p.distance <= spec.cutoff_star[sp[p.i], sp[p.j]] * fac || continue
+        p.distance <= cut[sp[p.i], sp[p.j]] * fac || continue
         push!(nbrs[p.i], (p.j, p.shift))
     end
     z = SVector{3,Int}(0, 0, 0)
@@ -383,10 +443,12 @@ function MomentBasis(crystal::Crystal, spec::MomentSpec;
     end
     dmin2_star = Matrix{Float64}(undef, 0, 0)
     if spec.nbody >= 3
-        # One neighbor list for every star order: `cutoff_star` is a single radius,
-        # and only the mark–environment spokes are cut on it whatever N is.
-        nl_star = build_neighbor_list(crystal, spec.cutoff_star, MinimumImage();
-                                  tol = tie_tol)
+        # ONE neighbor list for every star order, built at the elementwise envelope of
+        # the per-order radii; each order then re-filters on its own radius inside
+        # `_pointed_star_candidates` and `admit`. Only the mark–environment spokes are
+        # cut on it whatever N is.
+        nl_star = build_neighbor_list(crystal, _star_cutoff_envelope(spec),
+                                      MinimumImage(); tol = tie_tol)
         for N = 3:spec.nbody
             stars = _pointed_star_candidates(crystal, nl_star, spec, N)
             for (k, O) in enumerate(_orbits_from_members(crystal, sg, stars, N))
@@ -425,6 +487,7 @@ function MomentBasis(crystal::Crystal, spec::MomentSpec;
         pos = [SVector{3,Float64}(cart[:, rep.atoms[s]]) +
                SVector{3,Float64}(A * Float64.(rep.shifts[s])) for s = 1:body]
         edges = [norm(pos[s] - pos[t]) for s = 1:body, t = 1:body]
+        star_cut = body >= 3 ? _star_cutoff(spec, body) : zeros(0, 0)
         admit = function (t::Vector{SiteDecor})
             for s in eachindex(t)
                 d = t[s]
@@ -436,7 +499,7 @@ function MomentBasis(crystal::Crystal, spec::MomentSpec;
                     if body >= 3
                         for u in eachindex(t)
                             u == s && continue
-                            r = spec.cutoff_star[O.species[s], O.species[u]]
+                            r = star_cut[O.species[s], O.species[u]]
                             edges[s, u] <= r * fac || return false
                             edges[s, u]^2 <=
                                 dmin2_star[rep.atoms[s], rep.atoms[u]] * fac^2 ||
@@ -737,10 +800,12 @@ function _moment_resolvability(mb::MomentBasis, rtol::Float64)
                                       "symbolic signature cannot classify harmonic " *
                                       "products on a single sphere, so the gate " *
                                       "refuses rather than overcounting the rank. " *
-                                      "Reduce cutoff_star below the tied shell, step " *
-                                      "nbody back (the tie multiplicity grows as " *
-                                      "(tie)^(N-1), so a higher body order refuses " *
-                                      "where a lower one passed), or use a reference " *
+                                      "Reduce cutoff_star below the tied shell (a " *
+                                      "vector cuts one star order without touching " *
+                                      "the others), step nbody back (the tie " *
+                                      "multiplicity grows as (tie)^(N-1), so a higher " *
+                                      "body order refuses where a lower one passed), " *
+                                      "or use a reference " *
                                       "cell in which the images are distinct atoms"))
     end
     # The signature block S (rows = distinct signature keys, columns = pointed

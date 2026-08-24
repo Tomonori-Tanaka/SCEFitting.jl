@@ -103,6 +103,7 @@ sampled     = ["Fe"]       # REQUIRED: species the consumer samples (labels, ["*
 marked      = ["Fe"]       # optional, default every species: whose moments are expanded
 cutoff_pair = 4.1          # REQUIRED: mark–environment bond radius (Å); `inf` = whole WS cell
 cutoff_star = 4.1          # optional, default = cutoff_pair: a star's N-1 mark spokes
+                           #   (or a body-keyed table, one entry per star order)
 lsum        = 4            # optional, default uncapped
 isotropy    = true         # optional, default true (L_S = 0 only)
 ```
@@ -116,8 +117,19 @@ Every value is handed to the [`MomentSpec`](@ref) keyword constructor, which own
 validation (`sampled` is required there too, and every species with `lmax_env > 0`
 must be sampled). `lmax_env` takes the label-table form (`[moment.lmax_env]` with a
 `"*"` fallback) and `cutoff_pair` / `cutoff_star` the species-pair-table form
-(`[moment.cutoff_pair]` with `"Fe-*"` / `"*-*"` keys), exactly as in `[interaction]`;
-there are no body-order tables, because the pointed cutoffs are per role (pair / star).
+(`[moment.cutoff_pair]` with `"Fe-*"` / `"*-*"` keys), exactly as in `[interaction]`.
+`cutoff_pair` takes no body-order table — it is the 2-body radius — but `cutoff_star`
+does, one entry per star order, and the keys must cover exactly `3:nbody` so that no
+order is left silently at the default:
+
+```toml
+[moment.cutoff_star]        # per star order: a scalar per order ...
+3 = 4.1
+[moment.cutoff_star.4]      # ... or a species-pair table for one order
+"Fe-Fe" = 2.5
+"*-*"   = 0.0
+```
+
 Unknown keys are refused, and so is the upstream spelling `soc` (use `isotropy`; the
 polarities are opposite). Two things to keep in mind:
 

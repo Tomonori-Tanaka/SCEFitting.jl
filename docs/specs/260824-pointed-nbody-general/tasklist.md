@@ -84,19 +84,29 @@ goes through `TaskCreate` in-session.
 
 - [x] **Exit**: 両パッケージで全スイート緑、parity ゲート緑。
 
-### M5 — docs / bench / レビュー
+### M5 — docs / bench / レビュー（`feat(basis): per-star-order cutoff_star` + docs）
 
-- [ ] `docs/src/guide/moment.md`（`Σl = 2⌈(N−1)/2⌉` の一般則、星の辺規則の非対称と
+- [x] `docs/src/guide/moment.md`（`Σl = 2⌈(N−1)/2⌉` の一般則、星の辺規則の非対称と
       WS タイの注意、Q6 の 1 行、`:56`）、`docs/src/guide/io.md:99, 105`、
       `src/io/input.jl:63`、`src/basis/momentbasis.jl:30`、**`docs/src/api.md:329`**、
       **`docs/src/theory/moment.md:289, 381, 385-408`**、`SPEC.md`。
-- [ ] `CLAUDE.md:542` の ledger 行に Cartesian projector の所在
-      （`test/unit/test_mixedsalc.jl`）を追記。
-- [ ] `bench/bench_moment.jl` + Makefile `bench-moment` を新設し、N=3 不変（回帰）と
-      N=4 の **(a)(b)(c) 分離**実測 + TTFX を `BENCH_LOG.md` に。新設しない判断なら
-      「M0 の一回計測」であることとフィクスチャ・ハーネスを BENCH_LOG に明記する。
-      Makefile の `.PHONY`（L11-12）と `.claude/agents/` の Makefile ターゲット参照も掃く。
-- [ ] `CHANGELOG.md` `[Unreleased]`、`docs/specs/README.md` の行。
+- [x] `CLAUDE.md` の ledger 行に Cartesian projector の所在
+      （`test/unit/test_mixedsalc.jl`、`_Q5`）を追記。
+- [x] **`cutoff_star` の体数別化**（M6 の前提。スコープ移動の理由は requirements /
+      design Q6 に記録）。`MomentSpec.cutoff_star::Vector{Matrix{Float64}}`、
+      アクセサ `_star_cutoff` / `_star_cutoff_envelope`、TOML の body-keyed テーブル
+      （鍵は `3:nbody` を過不足なく）、SLCE.jl へ同時移植（`6bd3faa`）。
+      スカラー / 行列のブロードキャストで**既存の綴りはビット等号**（pin 104 緑・再取得なし）。
+      ゲートは「per-order カットの意味」= 合成性を両方向で主張（両パッケージ）。
+- [x] `bench/bench_moment.jl` + Makefile `bench-moment` を新設し、N=3（回帰基準）と
+      N=4 の **(a) メンバ生成 /(b) 軌道縮約 /(c) 全ビルド /(d) resolvability /
+      (e) 設計行列・計量** 分離実測 + (f) TTFX（子プロセス）を `BENCH_LOG.md` に。
+      `.PHONY` と `.claude/agents/profiler.md`、`bench/README.md` も掃いた。
+      **判明したこと**: 壁は SALC 射影で、(a)+(b) はどちらの次数でもビルドの 2 % 未満。
+      4 体は列 12 本のために射影 +3.7 s。`moment_resolvability` は既定 rtol の結果を
+      基底にキャッシュするので、ベンチは `rtol = 1e-10` を明示して未キャッシュで測る
+      （さもないとキャッシュヒットを測ってしまう）。
+- [x] `CHANGELOG.md` `[Unreleased]`、`docs/specs/README.md` の行。
 - [ ] **Tier 2 レビューパネル（4 軸）実施、`numerical-reviewer` の指摘を全件適用。**
 
 - [ ] **Exit**: `make docs` strict 緑、Tier 2 の指摘が全件解決。
@@ -113,8 +123,8 @@ bcc Fe 3×3×3 で**星メンバ 2,774,736 本 / P1 軌道 115,614**（N=3 の 3
 第一プローブだが、`MomentSpec` の `cutoff_star` は**全 N で 1 枚**なので
 「3 体は 4.1 Å、4 体は 2.5 Å」が現状**表現できない**。
 
-- [ ] **前提**: `cutoff_star` を体数ごと（エネルギー側の `cutoff[N-1][a,b]` と同じ形）に
-      する。これが無いと M6 は走らない。
+- [x] **前提**: `cutoff_star` を体数ごと（エネルギー側の `cutoff[N-1][a,b]` と同じ形）に
+      する。これが無いと M6 は走らない。→ M5 で着地。
 - [ ] `m_full_l2` に 4 体（1NN 星のみ, `lsum = 4`）を足した variant で CV を測り、
       **0.0217 μB を割るか**を `INVESTIGATION-moment-residuals.md` §4d に追記。
       **列数と行数の比を必ず併記する**（過学習と改善の区別に要る）。
@@ -132,8 +142,9 @@ that do not apply.
 - [x] If results changed: regression or validation test added, oracle
       independent of the implementation.
 - [x] If public API changed: `SPEC.md` and `docs/src/api.md` updated.
-- [ ] If a hot path was touched: before / after recorded in
-      `bench/BENCH_LOG.md`（メンバ生成 / 射影 / resolvability を分けて）— **M5 で未実施**。
+- [x] If a hot path was touched: before / after recorded in
+      `bench/BENCH_LOG.md`（メンバ生成 / 軌道縮約 / 全ビルド / resolvability /
+      設計行列・計量 / TTFX を分けて — `bench/bench_moment.jl`, 2026-08-25）。
 - [x] Tier 2 review panel run (numerical / maintainability / performance /
       API axes) and findings resolved（`57a22de`）。
 - [x] ~~If module names or Makefile targets changed: `.claude/agents/` swept.~~

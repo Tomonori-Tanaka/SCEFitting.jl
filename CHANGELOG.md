@@ -46,6 +46,25 @@ release, so everything lives under *Unreleased*.
   distinguished centre, so each environment site is fixed by its own spoke and two
   orbits cannot carry the same monomial — the energy side needs its compact-cluster
   rule precisely because its clusters have no centre.
+- **`cutoff_star` is now per star order** (BREAKING for anything reading the field:
+  it is a `Vector{Matrix{Float64}}`, body order `N` at index `N - 2`, read through
+  `_star_cutoff`; in TOML, a body-keyed table under `[moment.cutoff_star]` whose keys
+  must cover exactly `3:nbody`). A scalar or a matrix still broadcasts to every order,
+  so every existing spelling builds the same basis. This is what makes a four-body
+  probe reachable at all: at the 3NN star radius the 4-body sector of bcc Fe 3×3×3 is
+  2,774,736 members and 115,614 P1 orbits against 5,400 design rows, while the same
+  sector cut to the first shell is 72,576 members and 3 orbits. Per-*spoke* radii
+  remain impossible — the label is a decor multiset, so permuting the environment
+  sites leaves it unchanged and "first spoke short, second long" has no
+  symmetry-invariant meaning; a total-spoke-length or diameter cap would, and is not
+  implemented. Below body order 3 an explicit `cutoff_star` is refused rather than
+  stored and never read.
+- `bench/bench_moment.jl` (`make bench-moment`) times the five stages separately —
+  member generation, orbit reduction, the whole build, the resolvability gate, and the
+  two per-fit sweeps — plus TTFX from a cold child process. The wall turns out to be
+  the SALC projection: enumeration is under 2 % of the build at either order, and
+  going from three bodies to four costs +3.7 s of projection for 12 extra columns
+  (`bench/BENCH_LOG.md`).
 
 ### Added — λ selection for the moment channel (2026-08-24)
 

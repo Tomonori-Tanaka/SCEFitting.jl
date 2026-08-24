@@ -235,7 +235,10 @@ capability consumed by both the introspection and the Sunny interop.
   `lmax_mark`, environment spins only for `sampled` species up to `lmax_env` —
   refused loudly when a spin-bearing species is unsampled); 1/2-body clusters from
   the ordinary enumeration at `cutoff_pair`, stars (`3 ≤ N ≤ nbody`, cap 4) cut on
-  their `N−1` mark–environment spokes at `cutoff_star` (env–env edges free) with
+  their `N−1` mark–environment spokes at `cutoff_star` — stored **per star order**
+  (`cutoff_star[N-2]`, read through `_star_cutoff`; a scalar or matrix broadcasts to
+  every order, and the one shared star neighbor list is built at the elementwise
+  envelope) — with env–env edges free, with
   `candidate_clusters`' all-orderings
   multiplicity convention (`_orbits_from_members` is `build_clusters`' factored
   core); even-Σl (TR) only; `isotropy = true` keeps `L_S = 0` (upstream's

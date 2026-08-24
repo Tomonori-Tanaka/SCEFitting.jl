@@ -23,6 +23,7 @@ julia --project=bench bench/bench_design_matrix.jl [n] [m] [lmax] [cutoff] # ene
 julia --project=bench bench/bench_solver.jl                               # OLS vs Ridge solve, size sweep
 julia --project=bench bench/bench_end_to_end.jl    [n] [m] [lmax] [cutoff] # SCEBasis build + fits
 julia --project=bench bench/bench_nd2fe14b.jl      [nbody] [m] [cutoff]   # realistic multi-species case
+julia --project=bench bench/bench_moment.jl   [n] [pair] [star3] [star4]  # pointed moment basis, per stage
 ```
 
 Positional arguments are optional. **Defaults are the recorded stress baselines**
@@ -33,6 +34,12 @@ Positional arguments are optional. **Defaults are the recorded stress baselines*
   `bench_clusters` to `nbody = 3`; `bench_design_matrix`/`bench_end_to_end` to
   `lmax = 2`, `m = 100` configs). For a quick smoke run pass the old sizes
   explicitly, e.g. `bench_salcbasis.jl 2 2 2.6` (16 atoms, first shell).
+- **`bench_moment.jl`**: the pointed `MomentBasis` at body orders 3 and 4 on bcc Fe
+  3×3×3, with member generation, orbit reduction, the whole build, the resolvability
+  gate, `_design_moment` / `penalty_metric`, and TTFX (a child process) timed
+  separately — they scale differently in `N`, and one build time hides which is the
+  wall. Defaults use per-star-order radii (`[4.1, 2.5]`), since a 4-body sector at the
+  3-body radius does not fit in memory.
 - **`bench_nd2fe14b.jl`**: the 68-atom Nd₂Fe₁₄B cell (`assets/nd2fe14b.toml`) —
   9 sublattice species, 16 symmetry ops, per-species `lmax = [4,4,2,2,2,2,2,2,0]`
   (B non-magnetic), `isotropy = true`, `nbody = 3` with `cutoff = 4.0` Å (compact

@@ -113,13 +113,22 @@ Includes:
   BENCH_LOG に記録する旨の明記 — design Q7）。
 - docs / `SPEC.md` / `CHANGELOG.md` / `docs/specs/README.md`。
 - 上流 SLCE.jl への**同時**移植。
+- **`cutoff_star` の体数別化（2026-08-25 追加）**。当初は Excludes だったが、M0 の実測で
+  M6 が走らないことが判明したため移した。`MomentSpec.cutoff_star` は
+  `Vector{Matrix{Float64}}`（体数 `N` は添字 `N-2`、`_star_cutoff` 経由で読む）、
+  スカラー / 行列は全星次数へブロードキャスト（既存の綴りは 1 bit も動かない）、
+  TOML は `[moment.cutoff_star]` の body-keyed テーブル（鍵は `3:nbody` を過不足なく）。
+  星の近傍リストは per-order 半径の要素ごと上限で 1 本だけ建てる（各次数が自分の半径で
+  再フィルタするので採択される星は変わらず、`_dmin2_matrix` がより短い像を見るぶん
+  厳密に正しくなる）。**スポーク別は依然として不可能**（design Q6 の結論は不変）。
 
 Excludes:
 
 - `nbody ≥ 5`（門で拒否。門の定数 1 つで後から開く）。
 - エネルギー側 `BasisSpec` / `candidate_clusters` の挙動変更。
 - 1–2 体経路の候補源変更（`build_clusters` のまま。多重度規約が別なので統合しない）。
-- `cutoff_star` の精密化（design Q6）。
+- `cutoff_star` の**スポーク別**精密化（design Q6）。**体数別は 2026-08-25 にスコープへ
+  移した** — M6 が走らないため（下の Scope 末尾）。
 - 罰則計量・λ 選択（[`260824-penalty-metric`](../260824-penalty-metric/)）。
 
 ## Invariants

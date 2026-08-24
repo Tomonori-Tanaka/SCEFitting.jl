@@ -384,7 +384,7 @@ environment-only local Stoner condition) matters more than the
 | Design-matrix row | configuration ``c`` | (configuration ``c``, marked atom ``i``) |
 | Target | ``E^{(c)}`` | ``y_{c,i} = \hat{\boldsymbol e}_i \cdot \boldsymbol M_i`` |
 | Intercept | ``j_0``, a separate parameter | the one-body ``l_{\mathrm{mark}} = 0`` column, per Wyckoff orbit |
-| Cutoff | all edges compact | mark–environment spokes only (``N \ge 3``) |
+| Cutoff | all edges compact, per body order | mark–environment spokes only (``N \ge 3``), per star order |
 | Sharing | — | symmetry-equivalent sites share one coefficient |
 
 ### Explicit low-order forms (no spin–orbit)

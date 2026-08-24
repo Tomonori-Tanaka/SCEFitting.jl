@@ -26,6 +26,7 @@ the parent runs it if `bench/Manifest.toml` is missing. Never edit `src/`.
 | `make bench-solver` | OLS vs Ridge solve, size sweep (`fitting/estimators.jl`) | Estimator changes |
 | `make bench-end-to-end` | `SCEBasis` build + fits | Whole-pipeline regressions |
 | `make bench-nd2fe14b` | Realistic 68-atom, 9-species, low-symmetry case | The many-orbit / few-ops regime and the co-fit solve |
+| `make bench-moment` | Pointed `MomentBasis`, five stages split (`basis/momentbasis.jl`) | Body-order / `cutoff_star` changes, pointed projection cost, TTFX |
 
 ### Direct script execution
 
@@ -51,7 +52,8 @@ Historical numbers and the regression rule live in `bench/BENCH_LOG.md`.
 
 1. Run the benchmark of the suspected layer first (SALC build →
    `bench-salcbasis`; enumeration → `bench-clusters`; kernels →
-   `bench-design-matrix`; solver → `bench-solver`).
+   `bench-design-matrix`; solver → `bench-solver`; pointed moment basis →
+   `bench-moment`).
 2. Compare against the latest baseline entry in `bench/BENCH_LOG.md` for the
    same fixture size, machine, and thread count (`Threads.nthreads()` matters —
    the design kernels and the basis build are threaded).

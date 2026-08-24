@@ -54,9 +54,27 @@ are load-bearing:
 
 The cutoffs are **mark-aware**: `cutoff_pair` bounds the mark–environment bond of a
 2-body cluster, `cutoff_star` the `N−1` mark spokes of a star (`nbody ≥ 3`), and the
-environment–environment edge of a star is free. `isotropy = true` (the default)
-keeps the `L_S = 0` blocks only — the adiabatic map is taken to be spin-rotation
-covariant, exactly like an `isotropy = true` energy basis.
+environment–environment edges of a star are free. That asymmetry with the energy
+side's compact-cluster rule is deliberate: a star has a distinguished centre, so each
+environment site is fixed by the mark's cell plus its own spoke and two orbits cannot
+carry the same monomial — **as long as every spoke has a unique minimum image**. Where
+a spoke does not (a Wigner–Seitz tie at the cell boundary), that uniqueness is exactly
+what fails, the tie-induced member multiplicity grows as `(tie)^(N−1)`, and
+[`moment_resolvability`](@ref) is what catches the degeneracy — by refusing, never by
+overcounting.
+
+`cutoff_star` may be given **per star order**: a vector of `nbody - 2` entries, one
+per order, entry `i` for body order `i + 2` (a scalar or a species-pair matrix
+broadcasts to every order). This is what makes a four-body probe affordable — see
+[Body order](@ref) below. Per-*spoke* radii are a different thing and are not
+expressible: a label is a decor **multiset**, so permuting the environment sites
+leaves the same label and "the first spoke is short, the second long" has no
+symmetry-invariant meaning. A cap on the total spoke length, or on the cluster
+diameter, would be permutation invariant; neither is implemented.
+
+`isotropy = true` (the default) keeps the `L_S = 0` blocks only — the adiabatic map
+is taken to be spin-rotation covariant, exactly like an `isotropy = true` energy
+basis.
 
 ```@example moment
 using SCEFitting, LinearAlgebra, Random
@@ -177,6 +195,21 @@ Everything downstream — the orbit reduction, the SALC projection, and
 `_design_moment` on every fit — scales with those. Narrow `cutoff_star` and cap
 `lsum` before raising `nbody`, and expect a cell that resolved at three bodies to
 refuse at four (the tie multiplicity grows as `(tie)^(N−1)`).
+
+Narrowing `cutoff_star` globally would throw away the three-body reach at the same
+time, which is usually the opposite of what a four-body probe wants, so the radius is
+**per star order**:
+
+```julia
+spec = MomentSpec(; lmax_env = [2], sampled = [true], nbody = 4,
+                  cutoff_pair = 4.1,
+                  cutoff_star = [4.1, 2.5])   # 3-body to 3NN, 4-body to 1NN only
+```
+
+On that same bcc Fe cell the second entry is the difference between a four-body
+sector of thousands of columns and one of tens, at 5,400 design rows. The star
+neighbour list is built once, at the elementwise envelope of the per-order radii;
+each order then filters on its own.
 
 ## Fitting and predicting
 

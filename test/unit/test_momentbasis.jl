@@ -68,8 +68,33 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
     @testset "MomentSpec validation" begin
         ok = MomentSpec(; lmax_env = [2, 0], sampled = [true, false],
                         cutoff_pair = 3.0)
-        @test ok.nbody == 3 && ok.cutoff_star == ok.cutoff_pair
+        @test ok.nbody == 3 && ok.cutoff_star == [ok.cutoff_pair]
         @test ok.isotropy                           # L_S = 0 only, by default
+        # per-star-order radii: one matrix per order, body N at index N - 2. A scalar
+        # or a matrix broadcasts to every order; a vector must have exactly nbody - 2
+        # entries; below body order 3 there is no star to cut, so a radius that would
+        # never be read is refused rather than stored.
+        pb = MomentSpec(; lmax_env = [2], sampled = [true], nbody = 4,
+                        cutoff_pair = 3.0, cutoff_star = [3.0, [1.5;;]])
+        @test length(pb.cutoff_star) == 2
+        @test pb.cutoff_star[1] == fill(3.0, 1, 1) && pb.cutoff_star[2] == fill(1.5, 1, 1)
+        @test SCEFitting._star_cutoff(pb, 4) == pb.cutoff_star[2]
+        @test SCEFitting._star_cutoff_envelope(pb) == fill(3.0, 1, 1)
+        bcast = MomentSpec(; lmax_env = [2], sampled = [true], nbody = 4,
+                           cutoff_pair = 3.0, cutoff_star = 2.0)
+        @test bcast.cutoff_star == [fill(2.0, 1, 1), fill(2.0, 1, 1)]
+        @test_throws ArgumentError MomentSpec(; lmax_env = [2], sampled = [true],
+                                              nbody = 4, cutoff_pair = 3.0,
+                                              cutoff_star = [3.0])        # too few
+        @test_throws ArgumentError MomentSpec(; lmax_env = [2], sampled = [true],
+                                              nbody = 3, cutoff_pair = 3.0,
+                                              cutoff_star = [3.0, 1.5])   # too many
+        @test_throws ArgumentError MomentSpec(; lmax_env = [2], sampled = [true],
+                                              nbody = 2, cutoff_pair = 3.0,
+                                              cutoff_star = 3.0)          # no star order
+        @test_throws ArgumentError MomentSpec(; lmax_env = [2], sampled = [true],
+                                              nbody = 4, cutoff_pair = 3.0,
+                                              cutoff_star = [3.0, -1.0])  # negative
         # the M3-1 assert: environment spin factors only on sampled species
         @test_throws ArgumentError MomentSpec(; lmax_env = [2, 1],
                                               sampled = [true, false],
@@ -649,7 +674,7 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
                          cutoff_pair = 1.8, cutoff_star = 1.1, lsum = 4,
                          isotropy = true)
         mb4c = MomentBasis(csc, sp4; backend = _MBFixedSG(sgc))
-        nl4 = SCEFitting.build_neighbor_list(csc, sp4.cutoff_star,
+        nl4 = SCEFitting.build_neighbor_list(csc, sp4.cutoff_star[2],
                                              SCEFitting.MinimumImage(); tol = 1e-8)
         @test length(SCEFitting._pointed_star_candidates(csc, nl4, sp4, 4)) ==
               L^3 * binomial(6, 3) * factorial(4)
@@ -665,5 +690,31 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
         # the mark→term index path is value-identical to the full per-SALC evaluation
         @test _design_moment(mb4c, cfgc[1:2], cfgc[1:2]) ==
               _design_moment(mb4c, cfgc[1:2], cfgc[1:2]; member_index = false)
+
+        # Per-star-order radii COMPOSE: a spec with `cutoff_star = [r3, r4]` must carry
+        # exactly the 3-body content of a single-radius `r3` spec and exactly the
+        # 4-body content of a single-radius `r4` spec, with no cross-talk. The oracle
+        # is that composition property, stated from what a per-order cut MEANS — not a
+        # captured column count. (`r3 = 1.5` reaches the 6 + 12 = 18 first two shells,
+        # `r4 = 1.1` only the 6 nearest neighbours, so the two orders really do see
+        # different neighbourhoods and a shared radius could not pass this.)
+        r3, r4 = 1.5, 1.1
+        _spsc(nb, cut) = MomentSpec(; lmax_env = [2], sampled = [true], lmax_mark = 2,
+                                    nbody = nb, cutoff_pair = 1.8, cutoff_star = cut,
+                                    lsum = 4, isotropy = true)
+        mb_mix = MomentBasis(csc, _spsc(4, [r3, r4]); backend = _MBFixedSG(sgc))
+        mb_r3 = MomentBasis(csc, _spsc(3, r3); backend = _MBFixedSG(sgc))
+        mb_r4 = MomentBasis(csc, _spsc(4, r4); backend = _MBFixedSG(sgc))
+        _bodykeys(mb, b) = [k for k in mb.salc_basis.keys if k.body == b]
+        for b = 1:3
+            @test _bodykeys(mb_mix, b) == _bodykeys(mb_r3, b)
+        end
+        @test _bodykeys(mb_mix, 4) == _bodykeys(mb_r4, 4)
+        # ...and the cut is real at both ends: the wide order keeps more than the
+        # narrow one would, the narrow order fewer than the wide one would.
+        @test length(_bodykeys(mb_mix, 3)) > length(_bodykeys(mb_r4, 3))
+        @test length(_bodykeys(mb_mix, 4)) <
+              length(_bodykeys(MomentBasis(csc, _spsc(4, r3);
+                                           backend = _MBFixedSG(sgc)), 4))
     end
 end

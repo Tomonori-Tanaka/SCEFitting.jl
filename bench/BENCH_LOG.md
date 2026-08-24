@@ -22,6 +22,52 @@ Entries are append-only history — keep them after merging.
 
 ---
 
+## Pointed body order: the N = 3 → 4 cost curve, stage by stage — 2026-08-25
+
+**Context**: 2026-08-25 · `main` · local macOS (darwin 24.6, aarch64) · julia 1.12.7 ·
+**threads = 4** · `bench/bench_moment.jl` (new; `make bench-moment`) · fixture: bcc Fe
+3×3×3 (54 atoms, 2592 space-group ops), `lmax_mark = lmax_env = 2`, `lsum = 4`,
+`cutoff_pair = 4.1`, `cutoff_star = [4.1, 2.5]` (3-body to 3NN, 4-body to 1NN).
+
+Not a before/after either: body order 4 did not exist before this spec, and **body
+order 3 is unchanged bit-for-bit** (the pin tier holds that). The N = 3 column is the
+regression baseline for later work; the N = 4 column is what raising the door costs.
+
+| Stage | N = 3 (med) | N = 4 (med) | note |
+|---|---|---|---|
+| (a) star members | 12 ms / 38 MiB | 4 ms / 25 MiB | 76,788 vs 72,576 members |
+| (b) orbit reduction | 26 ms / 45 MiB | 14 ms / 25 MiB | 14 vs 3 orbits |
+| (c) whole `MomentBasis` | **2.07 s / 6.5 GiB** | **5.73 s / 13.3 GiB** | 83 vs 95 SALCs |
+| (d) `moment_resolvability` | 1.30 s / 1.9 GiB | 1.86 s / 2.6 GiB | uncached (see below) |
+| (e) `_design_moment`, 8 cfg | 65 ms / 61 MiB | 73 ms / 72 MiB | |
+| (e) `penalty_metric`, 256 cfg | 1.66 s / 1.9 GiB | 2.00 s / 2.2 GiB | |
+| (f) TTFX (cold process → first basis) | 12.1 s | 17.9 s | child process, `Val`-free path |
+
+**What the split says.** The wall is the **SALC projection**, not the enumeration:
+(a) + (b) is under 2 % of (c) at either order. Raising the door to 4 costs **+3.7 s of
+projection for 12 extra columns** — the Reynolds projector's `eigen(Symmetric(P))` runs
+on a per-block carrier of dimension `assignments × paths × (2L_f+1)`, and the 4-body
+label `(0; 1, 1, 2)` has three assignments where the 3-body ones have one. Design-matrix
+evaluation, by contrast, barely moves (+12 %): once the basis exists, a 4-body column
+costs about what a 3-body one does.
+
+**Per-order radii are doing the work.** At 2.5 Å the 4-body star sees the 8 first
+neighbours, so `C(8,3)·4! = 1344` members per marked atom — *fewer* members than the
+3-body sector at 4.1 Å, where `C(z,2)·3!` runs over three shells. Held at a single
+4.1 Å radius the same 4-body sector is 2,774,736 members and 115,614 P1 orbits (M0
+measurement, 2026-08-24), which is why `cutoff_star` became per star order: the honest
+4-body probe is unreachable without it.
+
+**Measurement note.** `moment_resolvability(mb)` caches its default-`rtol` result on
+the basis, so timing that call reports the cache (0.000 ms). Stage (d) passes
+`rtol = 1e-10` — the same value, explicitly — to take the same work uncached. Anyone
+re-running this must keep that, or the row silently becomes a cache-hit benchmark.
+
+**Follow-ups (not done here).** `_eval_term_mixed` is not `Val(D)`-specialized, and the
+`N!` re-anchoring expands every translation class instead of carrying a multiplicity
+weight; both were deliberately left alone because bit-identity at `N ≤ 3` came first.
+The TTFX gap (12.1 → 17.9 s) is the first place a `Val` barrier would show.
+
 ## Penalty metric: construction cost and λ-path neutrality — 2026-08-24
 
 **Context**: 2026-08-24 · `main` · local macOS (darwin 24.6, aarch64) · julia 1.12.7 ·

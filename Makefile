@@ -9,7 +9,7 @@ export JULIA_NUM_THREADS := $(THREADS)
 .PHONY: test-all test-unit test-aqua test-jet test-oracle test-sunny test-glmnet \
         test-pin test-parity test-examples test-downstream test-ci ci-local docs \
         bench-setup bench-salcbasis bench-clusters bench-design-matrix bench-solver \
-        bench-end-to-end bench-nd2fe14b
+        bench-end-to-end bench-nd2fe14b bench-moment
 
 # ---- core suite (runtests.jl dispatches on TEST_MODE) -----------------------
 
@@ -110,3 +110,6 @@ bench-end-to-end:
 
 bench-nd2fe14b:
 	$(JULIA) --project=bench bench/bench_nd2fe14b.jl
+
+bench-moment:
+	$(JULIA) --project=bench bench/bench_moment.jl

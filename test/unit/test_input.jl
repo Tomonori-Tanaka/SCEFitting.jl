@@ -219,7 +219,7 @@ _ferh_toml(moment::String) = _writetoml(_INPUT_FERH * "\n" * moment)
         @test m.lmax_mark == 2
         @test m.marked == [true, true]
         @test m.cutoff_pair == fill(3.1, 2, 2)
-        @test m.cutoff_star == m.cutoff_pair
+        @test m.cutoff_star == [m.cutoff_pair]   # one entry per star order (nbody = 3)
         @test m.lsum == typemax(Int)              # uncapped
         @test m.isotropy == true                  # NOT the [interaction] default (false)
         @test read_setup(_ferh_toml(_MOMENT_MINIMAL)).spec.isotropy == false
@@ -292,6 +292,23 @@ _ferh_toml(moment::String) = _writetoml(_INPUT_FERH * "\n" * moment)
                                                  "cutoff_pair = { 2 = 3.1 }")))
         @test occursin("duplicate", msg(replace(_MOMENT_MINIMAL, "cutoff_pair = 3.1" =>
                     "cutoff_pair = { \"Fe-Rh\" = 3.0, \"Rh-Fe\" = 3.0, \"*-*\" = 3.0 }")))
+        # `cutoff_star` is the one pointed cutoff that IS per body order. The table must
+        # cover exactly 3:nbody — a partial table would leave an order at the default.
+        let base = _MOMENT_MINIMAL * "nbody = 4\n"
+            got = read_setup(_ferh_toml(base *
+                "[moment.cutoff_star]\n3 = 3.1\n[moment.cutoff_star.4]\n" *
+                "\"Fe-Fe\" = 2.0\n\"*-*\" = 1.0\n")).moment
+            @test got.cutoff_star == [fill(3.1, 2, 2), [2.0 1.0; 1.0 1.0]]
+            # a scalar still broadcasts to every star order
+            @test read_setup(_ferh_toml(base * "cutoff_star = 2.5\n")).moment.cutoff_star ==
+                  [fill(2.5, 2, 2), fill(2.5, 2, 2)]
+            @test occursin("must be exactly",
+                           msg(base * "[moment.cutoff_star]\n3 = 3.1\n"))      # 4 missing
+            @test occursin("must be exactly",
+                           msg(base * "[moment.cutoff_star]\n2 = 3.1\n4 = 1.0\n"))
+            @test occursin("mixes",
+                           msg(base * "[moment.cutoff_star]\n3 = 3.1\n\"*-*\" = 1.0\n"))
+        end
         # wrong value kinds — booleans are Integers in Julia, so they are refused by name
         bad(_MOMENT_MINIMAL * "nbody = \"three\"\n")
         bad(_MOMENT_MINIMAL * "isotropy = \"yes\"\n")
