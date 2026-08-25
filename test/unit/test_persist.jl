@@ -288,4 +288,32 @@ end
         term(twice)["folded"] = repeat(term(twice)["folded"], term(twice)["shape"][1])
         @test_throws ArgumentError MR._basis_from_doc(twice)   # two SPIN on one site
     end
+    @testset "a pre-v6 document with an aperiodic axis is refused" begin
+        # Before schema 6 the stored operations were whatever a backend reported for
+        # the fully periodic cell, and the stored SALCs were projected with THOSE.
+        # This build re-derives the group under the declared periodicity, so pairing
+        # the two would give a basis whose group is not the group its columns came
+        # from — and nothing downstream would notice, because the `SALCBasis`
+        # fingerprint hashes keys, not operations. A document's `pbc` cannot be
+        # changed from the loader, so the only honest answer is to refuse.
+        slab = Crystal(Lattice([3.0 0 0; 0 3.0 0; 0 0 12.0]; pbc = (true, true, false)),
+                       [0.0 0.0; 0.0 0.0; 0.375 0.625], [1, 1], ["Fe"])
+        basis = SCEBasis(slab, BasisSpec(; nbody = 2, cutoff = 3.2, lmax = [1],
+                                         isotropy = true))
+        doc = MR._to_doc(basis)
+        @test Int(doc["schema_version"]) == MR.PERSIST_SCHEMA_VERSION
+        @test MR._basis_from_doc(doc) isa SCEBasis          # at the current version
+        for v in (2, 3, 4, 5)
+            stale = copy(doc)
+            stale["schema_version"] = v
+            @test_throws ArgumentError MR._basis_from_doc(stale)
+        end
+        # the same stale version is fine when every axis is periodic
+        cube = Crystal(Lattice(Matrix(3.0 * I(3))), [0.0 0.0; 0.0 0.0; 0.375 0.625],
+                       [1, 1], ["Fe"])
+        pdoc = MR._to_doc(SCEBasis(cube, BasisSpec(; nbody = 2, cutoff = 3.2,
+                                                   lmax = [1], isotropy = true)))
+        pdoc["schema_version"] = 5
+        @test MR._basis_from_doc(pdoc) isa SCEBasis
+    end
 end

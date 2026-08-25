@@ -1,7 +1,6 @@
 using Test
 using SCEFitting
 using SCEFitting: _assemble_spacegroup, n_ops
-import SCEFitting: analyze_symmetry     # extended below by the stand-in backend
 using StaticArrays
 using LinearAlgebra
 
@@ -10,7 +9,7 @@ using LinearAlgebra
 # available in this environment, and the point of those tests is what the assembler
 # does with a backend's answer, not which answer Spglib gives.
 struct _MirrorZBackend <: SCEFitting.AbstractSymmetryBackend end
-analyze_symmetry(::_MirrorZBackend, c::Crystal; tol::Real = 1e-5) =
+SCEFitting.analyze_symmetry(::_MirrorZBackend, c::Crystal; tol::Real = 1e-5) =
     _assemble_spacegroup(c, [SMatrix{3,3,Float64}(I),
                              SMatrix{3,3,Float64}(Diagonal([1.0, 1.0, -1.0]))],
                          [SVector{3,Float64}(0, 0, 0), SVector{3,Float64}(0, 0, 0)],
@@ -130,12 +129,19 @@ analyze_symmetry(::_MirrorZBackend, c::Crystal; tol::Real = 1e-5) =
         sg_c = analyze_symmetry(_MirrorZBackend(), centred)
         @test n_ops(sg_c) == 2
         @test !occursin("pbc subgroup", sg_c.symbol)
-        mirror = sg_c.ops[findfirst(o -> o.rotation_frac[3, 3] < 0, sg_c.ops)]
+        gi = findfirst(o -> o.rotation_frac[3, 3] < 0, sg_c.ops)
+        mirror = sg_c.ops[gi]
         @test mirror.translation_frac[3] ≈ 1.0
-        for a = 1:3                                  # zero cell shift along z
-            b = sg_c.map_sym[a, 2]
-            z = centred.frac_positions[3, :]
-            @test round(Int, -z[a] + mirror.translation_frac[3] - z[b]) == 0
+        # Stated where it is physical: in Cartesian terms the layers sit at 4.5, 6.0
+        # and 7.5 Å, and the mirror at z = 6 Å sends them to 7.5, 6.0, 4.5 — every
+        # image an atom that is there, with no cell translation added. The backend's
+        # `t_z = 0` representative sends 4.5 Å to −4.5 Å, which is not.
+        cart = cartesian_positions(centred)
+        A = centred.lattice.vectors
+        for a = 1:3
+            img = A * (mirror.rotation_frac * centred.frac_positions[:, a] +
+                       mirror.translation_frac)
+            @test isapprox(img, cart[:, sg_c.map_sym[a, gi]]; atol = 1e-12)
         end
 
         # (b) STRADDLING z = 0: layers at 7/8, 0, 1/8. Under the artificial
@@ -166,6 +172,33 @@ analyze_symmetry(::_MirrorZBackend, c::Crystal; tol::Real = 1e-5) =
         @test SCEBasis(straddle, BasisSpec(; nbody = 2, cutoff = 3.2, lmax = [1],
                                            isotropy = true);
                        backend = _MirrorZBackend()) isa SCEBasis
+    end
+
+    @testset "an aperiodic axis is never wrapped, so positions may span cells" begin
+        # There is no period to wrap with along an aperiodic axis, so `Crystal` leaves
+        # those coordinates as given and a legitimate structure may list positions
+        # outside `[0, 1)` there. Two atoms an exact cell apart are then indivisible to
+        # a mod-1 comparison — which is what the matcher uses to find a candidate — so
+        # the whole-operation integer shift has to be searched over, not read off the
+        # first candidate atom 1 happens to hit.
+        #
+        # `c = 6` Å with atoms at `z = 0` and `z = 1`, i.e. Cartesian 0 and 6 Å.
+        # By hand: the two points are mirror-symmetric about `z = 3` Å, the plane
+        # `z_frac = 1/2`. The backend reports that mirror as the one at `z = 0` with
+        # `t_z = 0` (the same operation modulo `c`), so the physical representative is
+        # `t_z = 1`. Both operations are genuine and neither may be dropped — the
+        # identity least of all.
+        span = Lattice([3.0 0 0; 0 3.0 0; 0 0 6.0]; pbc = (true, true, false))
+        cryst = Crystal(span, [0.0 0.0; 0.0 0.0; 0.0 1.0], [1, 1], ["Fe"])
+        @test cryst.frac_positions[3, :] == [0.0, 1.0]        # not wrapped
+        sg = analyze_symmetry(_MirrorZBackend(), cryst)
+        @test n_ops(sg) == 2
+        @test !occursin("pbc subgroup", sg.symbol)
+        mirror = sg.ops[findfirst(o -> o.rotation_frac[3, 3] < 0, sg.ops)]
+        @test mirror.translation_frac[3] ≈ 1.0
+        @test sg.map_sym[:, findfirst(o -> o.rotation_frac[3, 3] < 0, sg.ops)] == [2, 1]
+        # and the identity is still the identity, not "atom 2 maps to atom 1"
+        @test sg.map_sym[:, findfirst(o -> o.is_translation, sg.ops)] == [1, 2]
     end
 
     @testset "an operation that mixes a periodic and an aperiodic axis is refused" begin

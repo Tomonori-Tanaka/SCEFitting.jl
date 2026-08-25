@@ -34,6 +34,29 @@ release, so everything lives under *Unreleased*.
   `_validate_ops`. Using a subgroup never over-reduces: the basis is larger than the
   fully periodic one, never short. A fully periodic crystal returns before any of this
   and is bit-for-bit unchanged.
+- **An aperiodic axis is never wrapped, so positions may legitimately span cells along
+  it** (`Crystal` wraps only the periodic axes). Two same-species atoms an exact cell
+  apart there are indistinguishable to the mod-1 comparison the matcher uses to find a
+  candidate, which used to make even the IDENTITY fail as "atoms 1 and 2 share the
+  image 1" — under `NoSymmetry()` too, so there was no fallback. The whole-operation
+  shift is therefore searched over the candidates atom 1 can map to, nearest zero
+  first, instead of being read off the first hit; "no consistent shift" is a drop, not
+  an error. That seed list is complete (atom 1 must map to something), so nothing
+  legitimate is lost, and a drop is the conservative direction anyway.
+- **The load-bearing invariant is checked directly.** `_check_zero_aperiodic_shift`
+  asserts, for every kept operation and atom, that `round(W·x_a + t − x_b)` vanishes on
+  each aperiodic axis — the property `_site_image` needs. `_validate_ops` cannot stand
+  in for it: its `_tclose` folds mod 1 on all three axes, so a re-seated operation and
+  the representative it replaced are the same object to it. It is now also run on the
+  kept set whether or not anything was dropped, since re-seating is a change on its own.
+- **`PERSIST_SCHEMA_VERSION` 5 → 6, and a pre-v6 document whose crystal declares an
+  aperiodic axis is refused on load.** Its stored operations are the full group a
+  backend reported for the fully periodic cell and its SALCs were projected with those,
+  while this build re-derives the restricted subgroup — pairing them would give a basis
+  whose group is not the one its columns came from, and nothing downstream would notice
+  (the `SALCBasis` fingerprint hashes keys, not operations). A document's `pbc` cannot
+  be changed from the loader, so the answer is to rebuild the basis. Fully periodic
+  documents of every readable version load unchanged.
 - The dropped count is warned once per `analyze_symmetry` call (no `maxlog`: a user
   building several slabs needs to be told about each), and `symbol` gains a
   `" (pbc subgroup)"` suffix so a group that is not the reported one cannot be mistaken
