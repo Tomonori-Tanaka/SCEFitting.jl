@@ -198,8 +198,12 @@ atoms) at a 3NN star radius, going from three to four bodies takes the member co
 from 76,788 to 2,774,736 (×36) and the symmetry orbits from 12,798 to 115,614 (×9).
 Everything downstream — the orbit reduction, the SALC projection, and
 `_design_moment` on every fit — scales with those. Narrow `cutoff_star` and cap
-`lsum` before raising `nbody`, and expect a cell that resolved at three bodies to
-refuse at four (the tie multiplicity grows as `(tie)^(N−1)`).
+`lsum` before raising `nbody`, and expect a cell that carried a three-body sector to
+carry a thinner four-body one — or none. A star whose `N−1` spokes cannot all land on
+**distinct** reference-cell atoms is not an `N`-body function at all, so it never
+enters the enumeration; on a small cell that can empty the sector, and the build then
+warns by order and `cutoff_star` (see [Spec and basis](#Spec-and-basis) above). The
+columns that do survive are unaffected.
 
 Narrowing `cutoff_star` globally would throw away the three-body reach at the same
 time, which is usually the opposite of what a four-body probe wants, so the radius is

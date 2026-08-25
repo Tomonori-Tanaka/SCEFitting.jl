@@ -200,8 +200,9 @@ end
         big = Lattice(Matrix(20.0 * I(3)))
         fete = Crystal(big, [10.0 8.0 12.0; 10.0 11.5 11.5; 10.0 10.0 10.0] ./ 20.0,
                        [1, 2, 2], ["Fe", "Te"])
-        tri3(M) = candidate_clusters(fete, SCEFitting.build_neighbor_list(fete, M, AllImages()),
-                                     3; selection = AllImages())[3]
+        tri3(M) = candidate_clusters(
+            fete, SCEFitting.build_neighbor_list(fete, M, AllImages()), 3;
+            selection = AllImages())[3]
         @test isempty(tri3([6.0 6.0; 6.0 3.0]))
         @test length(tri3([6.0 6.0; 6.0 6.0])) == 6
 

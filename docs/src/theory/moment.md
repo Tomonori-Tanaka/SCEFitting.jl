@@ -522,8 +522,18 @@ each row's identity (marked atom, the mark's ``(l, \mu)`` on the independent var
 symbolically, the verdict is reached **without looking at any data**: vanishing columns are
 frozen to exact zero, dependent directions are disclosed as min-norm representatives, and
 the decision is a relative cut on the symbolic expansion, never "this value happens to be
-small". A basis in which two environment factors land on the same reference-cell atom is
-refused as unclassifiable, loudly ([`moment_resolvability`](@ref)).
+small".
+
+Two environment factors landing on the same reference-cell atom is a different matter,
+settled one step earlier. Under plain periodic boundary conditions two minimum images of
+one neighbour carry the *same* spin, so the two harmonic factors sit on **one** sphere,
+reduce by Clebsch–Gordan, and the member is a lower-body function wearing an ``N``-body
+label — resolving them would take a generalized-Bloch phase ``e^{i\boldsymbol q\cdot
+\boldsymbol R}`` the pointed basis does not carry. The enumeration therefore refuses the
+shape where it is generated: a star may repeat no reference-cell atom. A body order the
+cell cannot carry then comes back **empty and loud**, instead of costing every sound
+column beside it. [`moment_resolvability`](@ref) keeps the same check as a backstop, for
+a candidate set assembled outside that enumeration.
 
 ## Scope and caveats
 

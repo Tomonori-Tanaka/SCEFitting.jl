@@ -632,6 +632,9 @@ end
 function _build_map_sym(crystal::Crystal, ops::Vector{SymOp}, tol::Real)::Matrix{Int}
     map_sym = Matrix{Int}(undef, n_atoms(crystal), length(ops))
     @inbounds for (o, op) in enumerate(ops)
+        # The matrix band is unread on the strict path — `_op_permutation` returns
+        # before the axis-block test, which is the only thing that reads it — so the
+        # value passed here never enters a comparison.
         map_sym[:, o] = first(_op_permutation(crystal, op, tol, o, true, 0.0))
     end
     return map_sym
