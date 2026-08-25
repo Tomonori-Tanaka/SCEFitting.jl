@@ -6,6 +6,30 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — `select_fit(:cv)` reported the objective divided by the row count (2026-08-25)
+
+- **`select_fit(...; criterion = :cv)` no longer divides the pooled out-of-fold sum by
+  the informative row count.** `_assemble_problem` already row-scales the design by
+  `√((1−w)/n_E)` and `√(w/n_T)`, so a fold's squared holdout residual is already
+  per-row; summed over folds (every row held out exactly once) the total IS
+  `(1−w)·MSE_E + w·MSE_T` — the objective the docstring promises, and the scale
+  `cross_validate`'s `pooled_score` and `select_support`'s `score` report. The extra
+  `./ neff` put the reported number a further factor of `neff` below all three:
+  measured on 60 energy configurations, `select_fit(:cv).score = 1.576e-10` against a
+  `cross_validate` pooled score of `9.759e-9`, a ratio of 61.9 ≈ `n_E`.
+- **No selection changes.** `_select_pareto` is invariant under a positive uniform
+  factor, and the factor is constant along the λ path, so every path this ever selected
+  it still selects. Only the number a caller reads (and any `delta` calibrated against
+  a hand-computed error) was wrong.
+- The docstring now also says plainly that `:cv` and `:gcv` are **not** on a common
+  scale: `:gcv` reports `n·RSS/(n−df)²` over the same already-row-scaled rows, so it
+  runs roughly `n_eff` below the objective. Each criterion ranks its own path; the two
+  numbers must not be compared to each other.
+- Gated two ways in `test_selection.jl`: an exact identity that the assembled
+  squared-residual sum IS `(1−w)·MSE_E + w·MSE_T` (hand-written from the definition in
+  physical units, touching no part of the selection driver), and a scale check against
+  `cross_validate`, which recomputes the same pooled quantity by an unrelated route.
+
 ### Changed (breaking) — `MomentSpec.lsum` is per body order (2026-08-25)
 
 - **`MomentSpec.lsum` is now a `Vector{Int}`, one entry per body order**, indexed by
