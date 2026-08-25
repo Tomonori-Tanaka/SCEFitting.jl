@@ -11,6 +11,7 @@ When starting a new spec, copy from [`_template/`](_template/).
 | [260824-moment-toml-input](260824-moment-toml-input/) | landed (2026-08-24) | Optional `[moment]` TOML section → `MomentSpec`; `MomentBasis(path)` |
 | [260824-penalty-metric](260824-penalty-metric/) | landed (2026-08-25) | Basis-intrinsic penalty metric (both channels), unpenalized μ₀, λ selection for `MomentFit` |
 | [260824-pointed-nbody-general](260824-pointed-nbody-general/) | landed (2026-08-25) | General body order in the pointed enumeration; `nbody` cap raised to 4, `cutoff_star` per star order |
+| [260825-moment-lsum-per-body](260825-moment-lsum-per-body/) | landed (2026-08-25) | Per-body-order `lsum` in the pointed moment spec (`[interaction].lsum`'s spelling) |
 
 (Work before this index was introduced — the v0 rebuild, the SLCE.jl
 carve-out, and the pointed-moment backport — is recorded in `CHANGELOG.md`

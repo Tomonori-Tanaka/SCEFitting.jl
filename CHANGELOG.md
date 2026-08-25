@@ -6,6 +6,31 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed (breaking) — `MomentSpec.lsum` is per body order (2026-08-25)
+
+- **`MomentSpec.lsum` is now a `Vector{Int}`, one entry per body order**, indexed by
+  the order itself (`lsum[N]`, from `N = 1`) and read through `_label_lsum`. The
+  keyword accepts what `BasisSpec`'s `lsum` accepts, through the same resolver
+  (`_resolve_lsum`): a scalar caps every order, body-keyed pairs or a `Dict` cap one
+  order each with unnamed orders staying uncapped, `nothing` caps nothing. A positional
+  vector is refused — with no offset the body-keyed form is unambiguous.
+  BREAKING CHANGE: code that reads the field (`spec.lsum == 4`) must read an entry.
+  Code that *writes* the keyword is unaffected, and a scalar spelling produces a
+  bit-identical basis: the screen is still `Σl` even and `≤ cap`, with the same cap.
+- Why per order: a body order starts at `Σl = 2⌈(N−1)/2⌉` — floors 0, 2, 2, 4 — so one
+  global cap starves the high orders. At `lsum = 4` the 2- and 3-body sectors get two
+  even levels while the 4-body sector gets one, and the number that opens the 4-body
+  sector at its floor is the same number that removes the 3-body sector's `Σl = 6`
+  content (17 columns on the recorded 54-atom bcc Fe basis). The four-body measurement
+  that motivated this could not express "3-body uncapped, 4-body capped" at all and
+  needed a separate control run to undo the confound.
+- `[moment].lsum` accepts the body-keyed table (`[moment.lsum]` with bare-integer
+  keys), which it previously refused by name. Unlike `[moment.cutoff_star]` the table
+  is **partial** — an unnamed order is uncapped, whereas a missing radius would leave a
+  star order silently at `cutoff_pair`.
+- The empty-sector warning now names the cap that is responsible (`lsum[$body]` and its
+  value) the way it already named `cutoff_star[$(body-2)]`.
+
 ### Added — the pointed moment basis takes four bodies (2026-08-25)
 
 - **`Threads.@threads :greedy`** on the `MomentBasis` orbit loop, the

@@ -64,13 +64,17 @@ Schema:
     cutoff_star = 4.1         # optional, default = cutoff_pair: the N-1 mark-environment
                               #   spokes of a star, nbody >= 3 (env-env edges free).
                               #   Per star order via a body-keyed table (below)
-    lsum        = 4           # optional, default uncapped: total spin rank per label
+    lsum        = 4           # optional, default uncapped: total spin rank per label.
+                              #   Per body order via a body-keyed table (below) — a
+                              #   sector starts at Sigma_l = 2*ceil((N-1)/2), so one
+                              #   global cap starves the high orders
     isotropy    = true        # optional, default true (L_S = 0 only) — NOTE the default
                               #   differs from [interaction].isotropy (false)
 
     # Label-keyed alternatives (same rules as [interaction]). `cutoff_pair` takes no
     # body-order table — it is the 2-body radius. `cutoff_star` does: keys must cover
-    # exactly 3:nbody, and each value is a scalar or a species-pair table.
+    # exactly 3:nbody, and each value is a scalar or a species-pair table. `lsum` takes
+    # one too, keyed by the body order itself (1-based, partial tables allowed).
     #
     #     [moment.lmax_env]
     #     "*" = 2
@@ -85,6 +89,10 @@ Schema:
     #     [moment.cutoff_star.4]    # ... or a species-pair table for one order
     #     "Fe-Fe" = 2.5
     #     "*-*"   = 0.0
+    #
+    #     [moment.lsum]             # per body order; unnamed orders stay uncapped
+    #     3 = 6                     # (the [interaction].lsum spelling)
+    #     4 = 4
 
 The `[moment]` section is read into a `MomentSpec` (every value is handed to the
 `MomentSpec` keyword constructor, which does all the validation); unknown keys are
@@ -149,13 +157,28 @@ function _lmax_from_input(x)
     return Int[Int(v) for v in x]
 end
 
+# One body-keyed `lsum` table reader for BOTH sections: the two `lsum` keywords are
+# the same spelling on purpose, so the key syntax and its refusal live in one place.
+# Range and duplicate checks belong to `_resolve_lsum`, not here.
+function _lsum_table_from_input(x::AbstractDict, section::String)::Vector{Pair{Int,Int}}
+    out = Pair{Int,Int}[]
+    for (k, v) in x
+        ks = String(k)
+        _is_bodykey(ks) || throw(ArgumentError(
+            "[$section].lsum: key $(repr(k)) is not a body order (keys are bare " *
+            "integers: 1, 2, …)"))
+        v isa Integer || throw(ArgumentError(
+            "[$section].lsum.$ks must be an integer; got $(repr(v))"))
+        push!(out, parse(Int, ks) => Int(v))
+    end
+    return out
+end
+
 function _lsum_from_input(x)
     x isa Real && return Int(x)
     x isa AbstractDict || throw(ArgumentError(
         "[interaction].lsum must be an integer or a body-order table"))
-    return [(_is_bodykey(k) ? parse(Int, k) :
-             throw(ArgumentError("[interaction].lsum: key $(repr(k)) is not a " *
-                                 "body order"))) => Int(v) for (k, v) in x]
+    return _lsum_table_from_input(x, "interaction")
 end
 
 _pairtable_from_input(x::AbstractDict, ctx::String) =
@@ -280,12 +303,15 @@ function _moment_scalar(d, key::String, ::Type{T}, kind::String, default) where 
     return v
 end
 
-function _moment_lsum_from_input(d)::Union{Nothing,Int}
+function _moment_lsum_from_input(d)::Union{Nothing,Int,Vector{Pair{Int,Int}}}
     haskey(d, "lsum") || return nothing
-    d["lsum"] isa AbstractDict &&
-        throw(ArgumentError("[moment].lsum is one total spin rank per label — no " *
-                            "body-order table here (unlike [interaction].lsum)"))
-    return _moment_scalar(d, "lsum", Int, "an integer", nothing)
+    x = d["lsum"]
+    # A table is body-keyed, exactly like `[interaction].lsum`, and read by the same
+    # function. Only the key SYNTAX is checked; which orders are in range is
+    # `MomentSpec`'s (one validation locus).
+    x isa AbstractDict ||
+        return _moment_scalar(d, "lsum", Int, "an integer or a body-order table", nothing)
+    return _lsum_table_from_input(x, "moment")
 end
 
 function _moment_from_input(d, labels::Vector{String})::MomentSpec

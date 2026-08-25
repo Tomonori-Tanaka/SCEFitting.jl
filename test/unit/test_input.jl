@@ -220,7 +220,7 @@ _ferh_toml(moment::String) = _writetoml(_INPUT_FERH * "\n" * moment)
         @test m.marked == [true, true]
         @test m.cutoff_pair == fill(3.1, 2, 2)
         @test m.cutoff_star == [m.cutoff_pair]   # one entry per star order (nbody = 3)
-        @test m.lsum == typemax(Int)              # uncapped
+        @test m.lsum == fill(typemax(Int), 3)     # uncapped, one entry per body order
         @test m.isotropy == true                  # NOT the [interaction] default (false)
         @test read_setup(_ferh_toml(_MOMENT_MINIMAL)).spec.isotropy == false
     end
@@ -287,7 +287,10 @@ _ferh_toml(moment::String) = _writetoml(_INPUT_FERH * "\n" * moment)
         @test occursin("not sampled", msg(replace(_MOMENT_MINIMAL, "[1, 0]" => "[1, 1]")))
         # bare scalar lmax_env, body-order tables, duplicate unordered pair key
         bad(replace(_MOMENT_MINIMAL, "[1, 0]" => "1"))
-        bad(_MOMENT_MINIMAL * "lsum = { 2 = 4 }\n")
+        @test occursin("not a body order",
+                       msg(_MOMENT_MINIMAL * "lsum = { \"Fe\" = 4 }\n"))
+        @test occursin("must be an integer",
+                       msg(_MOMENT_MINIMAL * "lsum = { 2 = 4.5 }\n"))
         @test occursin("body-order", msg(replace(_MOMENT_MINIMAL, "cutoff_pair = 3.1" =>
                                                  "cutoff_pair = { 2 = 3.1 }")))
         @test occursin("duplicate", msg(replace(_MOMENT_MINIMAL, "cutoff_pair = 3.1" =>
@@ -308,6 +311,13 @@ _ferh_toml(moment::String) = _writetoml(_INPUT_FERH * "\n" * moment)
                            msg(base * "[moment.cutoff_star]\n2 = 3.1\n4 = 1.0\n"))
             @test occursin("mixes",
                            msg(base * "[moment.cutoff_star]\n3 = 3.1\n\"*-*\" = 1.0\n"))
+            # `lsum` is body-keyed too, but from order 1 and PARTIAL: unnamed orders
+            # stay uncapped (the [interaction].lsum spelling, not cutoff_star's).
+            let m = read_setup(_ferh_toml(base * "[moment.lsum]\n3 = 6\n4 = 4\n")).moment
+                @test m.lsum == [typemax(Int), typemax(Int), 6, 4]
+            end
+            @test read_setup(_ferh_toml(base * "lsum = 4\n")).moment.lsum == fill(4, 4)
+            @test occursin("outside 1:4", msg(base * "[moment.lsum]\n5 = 4\n"))
         end
         # wrong value kinds — booleans are Integers in Julia, so they are refused by name
         bad(_MOMENT_MINIMAL * "nbody = \"three\"\n")

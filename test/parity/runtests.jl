@@ -278,6 +278,34 @@ _skip(msg) = (@warn msg; @test_skip false)
             w4 = column_parity(X4a, mb4a.salc_basis.keys, X4b, mb4b.salc_basis.keys)
             @printf("  nbody4 p=%3d (%d four-body)  column parity: worst %.2e\n",
                     SCEFitting.n_salcs(mb4a), n4a, w4)
+
+            # ---- the per-body `lsum` path, cross-package -------------------------
+            # The scalar spelling above cannot detect a divergence in the per-order
+            # vector, so spell it out once. No new literals: what is asserted is the
+            # cross-package equality plus the composition property — at `[3 => 6,
+            # 4 => 4]` the 4-body content must equal the scalar-4 spec's and the
+            # 3-body content must strictly contain it (Σl = 6 three-body labels the
+            # single cap removes). The strictness is what makes this non-vacuous.
+            spb(M) = M.MomentSpec(; lmax_env = [2, 2], sampled = [true, true],
+                                  lmax_mark = 2, nbody = 4, cutoff_pair = 4.6,
+                                  cutoff_star = 2.6, lsum = [3 => 6, 4 => 4],
+                                  marked = [true, false])
+            mbpa = SCEFitting.MomentBasis(xa, spb(SCEFitting); backend = FixedA(sga))
+            mbpb = SLCE.MomentBasis(xb, spb(SLCE); backend = FixedB(sgb))
+            bodyset(ks, b) = Set(keytuple(k) for k in ks if k.body == b)
+            for b = 1:4
+                @test bodyset(mbpa.salc_basis.keys, b) == bodyset(mbpb.salc_basis.keys, b)
+            end
+            # same regression-pin discipline as the `43` above: a change detector,
+            # captured 2026-08-25 on this fixture, not evidence of correctness
+            @test SCEFitting.n_salcs(mbpa) == SLCE.n_salcs(mbpb) == 45
+            @test bodyset(mbpa.salc_basis.keys, 4) == bodyset(mb4a.salc_basis.keys, 4)
+            @test bodyset(mbpa.salc_basis.keys, 3) ⊋ bodyset(mb4a.salc_basis.keys, 3)
+            Xpa = SCEFitting._design_moment(mbpa, cfgs, [copy(e) for e in cfgs])
+            Xpb = SLCE._design_moment(mbpb, cfgs, [copy(e) for e in cfgs])
+            wp = column_parity(Xpa, mbpa.salc_basis.keys, Xpb, mbpb.salc_basis.keys)
+            @printf("  nbody4 per-body lsum p=%3d  column parity: worst %.2e\n",
+                    SCEFitting.n_salcs(mbpa), wp)
         end
     end
 end

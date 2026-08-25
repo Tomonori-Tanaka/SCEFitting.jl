@@ -241,7 +241,10 @@ capability consumed by both the introspection and the Sunny interop.
   envelope) — with env–env edges free, with
   `candidate_clusters`' all-orderings
   multiplicity convention (`_orbits_from_members` is `build_clusters`' factored
-  core); even-Σl (TR) only; `isotropy = true` keeps `L_S = 0` (upstream's
+  core); even-Σl (TR) only, capped by `lsum` **per body order** (`lsum[N]`, indexed by
+  the order itself and read through `_label_lsum`; a scalar broadcasts, body-keyed
+  pairs name orders, unnamed orders stay uncapped — `BasisSpec.lsum`'s spelling and
+  resolver, `_resolve_lsum`); `isotropy = true` keeps `L_S = 0` (upstream's
   `soc = false`). `nbody ∈ 1:4` — the enumeration is general in `N`, the cap is where
   the oracles stop; a body order that no label can reach (`Σl = 2⌈(N−1)/2⌉` is its
   floor) is dropped with a warning and `show` reports the realized order.

@@ -209,7 +209,26 @@ spec = MomentSpec(; lmax_env = [2], sampled = [true], nbody = 4,
 (The body-keyed form `cutoff_star = [3 => 4.1, 4 => 2.5]`, or a `Dict`, says the same
 thing without asking you to get the offset right; it is what the TOML reader emits.)
 
-On that same 54-atom bcc Fe cell the second entry is what decides whether the
+`lsum` is per body order for the same reason, and the reason is sharper here because it
+is structural rather than a matter of cost. A body order starts at `Σl = 2⌈(N−1)/2⌉`, so
+the floors are 0, 2, 2, 4: at a global `lsum = 4` the two- and three-body sectors get two
+even levels (`Σl = 2, 4`) and the four-body sector gets one. The single number that opens
+the four-body sector at its floor is the same number that cuts the three-body sector's
+`Σl = 6` content away — on the 54-atom bcc Fe cell above, 17 columns of it. Name the
+orders separately instead:
+
+```julia
+spec = MomentSpec(; lmax_env = [2], sampled = [true], nbody = 4,
+                  cutoff_pair = 4.1, cutoff_star = [3 => 4.1, 4 => 2.5],
+                  lsum = [3 => 6, 4 => 4])   # 3-body keeps Σl = 6; 4-body stops at 4
+```
+
+The entries are indexed by the body order itself — `lsum[N]`, from `N = 1`, unlike
+`cutoff_star[N-2]` — and orders the table does not name stay uncapped. That partiality
+is also why `lsum` takes **no positional vector** even though `cutoff_star` does: a
+positional list cannot say "cap order 4 only". A scalar caps every order.
+
+On that same 54-atom bcc Fe cell `cutoff_star`'s second entry is what decides whether the
 four-body sector is reachable at all. At the first shell it is 72,576 star members
 reducing to 3 symmetry orbits and 12 columns; held at the 3NN radius the same sector
 is 2,774,736 members and 115,614 orbits — a column count in the tens of thousands

@@ -280,7 +280,7 @@ Easy to break silently — confirm before touching the algorithm.
   (`_canonicalize_members`) — keep that branch alive as long as v3 model files
   circulate, and never write a non-canonical basis.
 - **BasisSpec sugar resolution ↔ canonical consumers** (`sce/truncation.jl`,
-  `sce/model.jl`, `io/input.jl`): the ergonomic forms (label keys, `"*"` wildcards,
+  `sce/model.jl`, `io/input.jl`, **`basis/momentbasis.jl`**): the ergonomic forms (label keys, `"*"` wildcards,
   body-keyed tables, unordered `"A-B"` pair keys, specificity resolution) are expanded
   ONCE, in the `BasisSpec` keyword constructor; everything downstream —
   `SCEBasis`'s fan-out (`_superset_cutoff` → `build_neighbor_list`,
@@ -289,7 +289,11 @@ Easy to break silently — confirm before touching the algorithm.
   specificity rule → update the TOML reader (`_cutoff_from_input` etc. for
   `[interaction]`, and `_moment_from_input` / `_moment_cutoff_from_input` for
   `[moment]`, which reuse `_resolve_species_table` / `_resolve_pair_table`), the
-  BasisSpec docstring, and `test/unit/test_truncation.jl` together.
+  BasisSpec docstring, and `test/unit/test_truncation.jl` together. **`_resolve_lsum`
+  has two callers**: `BasisSpec` and `MomentSpec`. The two `lsum` keywords are the same
+  spelling on purpose, so touching the resolver's accepted forms or error text moves
+  both channels — and `test/unit/test_momentbasis.jl`'s per-body gates assert the shared
+  refusals.
 - **The pointed moment basis rides the decor engine, and three conventions keep it
   honest** (`basis/momentbasis.jl` ↔ `basis/salcbasis.jl` `_orbit_salcs_decors`'s
   `admit` kwarg ↔ `clusters/orbits.jl` `_orbits_from_members` ↔
@@ -574,7 +578,7 @@ the one that bites.
 | Penalty metric: the moment λ-selection API | `penalty_metric` and the metric machinery are ported (SLCE `57fc4fc`), but there is no `cross_validate(::MomentDataset, …)`, no `MomentCVResult`, and no `gcv` / `effective_dof` for `MomentFit` | all of those, plus `_moment_diag_problem` / `_gcv_neff(::MomentFit)` / `_cv_fold_count` | **Exists only here.** The metric itself is now in both, so `estimators.jl` / `selection.jl` / `metric.jl` can be diffed again — but the moment channel's λ selection cannot be ported upstream by copying `momentfit.jl`, and `_effective_dof_free` (upstream's spelling of `_edof_free`) is reachable there only through the internal, which is exactly what its gate exercises |
 | Penalty-metric spellings | `_group_adaptive_weights!`, `_effective_dof_gram` / `_effective_dof_free`, `cost_exponent`, `FixedCoefficients`, the `row_groups` / `nullspace` keywords of `solve_coefficients` | `_gar_weights!`, `_edof` / `_edof_free`, `theta`, `PrecomputedPilot`, the `groups` keyword | Same formulas, different names — port LOGIC, never signatures. Upstream additionally compresses the penalty as `Z'·Diagonal(D)·Z` under an ASR / freeze reparameterization (there is no reparameterization here), so its `metric` is indexed by the **basis** columns while the design handed to the solver may be narrower |
 | Admission | `_admit_assignment(t, species, …)` — a production, species-resolved rule | only the `admit` hook; callers (tests) transcribe the per-species `lmax` | The pointed builder's own mark-aware rule is the `admit` closure in `basis/momentbasis.jl`'s constructor (D4, landed); upstream's `_admit_assignment` is the reference, not a drop-in |
-| `[moment]` TOML section | none (no TOML moment input; the spec is spelled `soc`) | `read_setup(path).moment::Union{Nothing,MomentSpec}`, `MomentBasis(path)` (`io/input.jl`) | Exists only here. A port upstream must flip the key to `soc` with the OPPOSITE polarity; this reader refuses a `soc` key by name |
+| `[moment]` TOML section | none (no TOML moment input; the spec is spelled `soc`) | `read_setup(path).moment::Union{Nothing,MomentSpec}`, `MomentBasis(path)` (`io/input.jl`) | Exists only here. A port upstream must flip the key to `soc` with the OPPOSITE polarity; this reader refuses a `soc` key by name. The two body-keyed tables in the section follow OPPOSITE rules and the choice does not follow from the code: `[moment.cutoff_star]` must cover `3:nbody` EXACTLY (a missing radius would fall back to `cutoff_pair`, a number unrelated to that order), `[moment.lsum]` is PARTIAL (a missing cap means no cap, the documented default). A port must re-decide that, not copy it |
 | Function-space reduction | none | `_function_vector` / `_reduce_orbit_salcs` (pure-spin only; refuses decorated SALCs, message = wiring checklist) | Exists only here; upstream ports nothing back |
 | `SolidHarmonics` | values + Euclidean gradient API (`solid_harmonics_grad[!]`, `grad_Rlm`) + `solid_harmonic_poly` (the ASR and lattice-side builders) | **values only** (347 → 240 lines); the value recurrence is upstream's line for line | No force rows here; do not re-port the gradient "because upstream has it" — count what the production path actually reads (`R₀₀ ≡ 1`) |
 | Self-image fitting door | `_refuse_self_image_basis` (`slce/model.jl`) at both dataset doors since `c7a4d26`, PLUS a refusal through `unresolvable_columns` on the displacement channel | `_refuse_self_image_basis` (`sce/model.jl`) at both `SCEDataset` constructors, before any design is built | **Converged on the door itself**; the residual is upstream's extra displacement-channel path, which screens a channel this package does not have. Basis BUILDING stays open in both (tiling templates) |
@@ -594,8 +598,14 @@ deviation is `0.00e+00`, so the door is a change detector in both directions rat
 than a note in this table. SLCE `6bd3faa` likewise carries the per-star-order
 `cutoff_star` (same four accepted shapes, same `_star_cutoff` /
 `_star_cutoff_envelope`). Note what the parity case does NOT cover: it passes a
-**scalar** radius, so the per-order VECTOR path has no cross-package change detector —
-the composition gates in each package's own `test_momentbasis.jl` are what hold it.
+**scalar** radius, so `cutoff_star`'s per-order VECTOR path has no cross-package change
+detector — the composition gates in each package's own `test_momentbasis.jl` are what
+hold it. Per-body **`lsum`** does have one: the same `nbody = 4` case rebuilds at
+`lsum = [3 => 6, 4 => 4]` (45 columns pinned, `0.00e+00`) and asserts the composition property
+across the two packages — the 4-body content equals the scalar-`4` spec's, the 3-body
+content strictly contains it. `MomentSpec.lsum` is a `Vector{Int}` indexed by the body
+order ITSELF (`lsum[N]`, read through `_label_lsum`), NOT by `N - 2` like
+`cutoff_star`; both packages resolve it with the energy side's `_resolve_lsum`.
 
 ## Tests
 

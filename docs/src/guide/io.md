@@ -104,7 +104,8 @@ marked      = ["Fe"]       # optional, default every species: whose moments are 
 cutoff_pair = 4.1          # REQUIRED: mark–environment bond radius (Å); `inf` = whole WS cell
 cutoff_star = 4.1          # optional, default = cutoff_pair: a star's N-1 mark spokes
                            #   (or a body-keyed table, one entry per star order)
-lsum        = 4            # optional, default uncapped
+lsum        = 4            # optional, default uncapped: Σl cap per label
+                           #   (or a PARTIAL body-keyed table; see below)
 isotropy    = true         # optional, default true (L_S = 0 only)
 ```
 
@@ -129,6 +130,21 @@ order is left silently at the default:
 "Fe-Fe" = 2.5
 "*-*"   = 0.0
 ```
+
+`lsum` takes a body-keyed table too, but keyed by the body order itself (from 1, not
+from 3) and **partial**: an order the table does not name stays uncapped.
+
+```toml
+[moment.lsum]               # 3-body up to Σl = 6, 4-body up to 4; 1- and 2-body uncapped
+3 = 6
+4 = 4
+```
+
+The two tables differ on purpose. A missing radius would silently leave a star order at
+`cutoff_pair` — a number with no relation to what that order needs — so `cutoff_star`
+must cover `3:nbody` exactly; a missing cap just means "no cap", which is both safe and
+the documented default. Sub-tables must come after the bare `[moment]` keys, as always
+in TOML.
 
 Unknown keys are refused, and so is the upstream spelling `soc` (use `isotropy`; the
 polarities are opposite). Two things to keep in mind:

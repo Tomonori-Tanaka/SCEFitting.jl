@@ -436,6 +436,47 @@ _mb_unit(rng, nat) = (m = randn(rng, 3, nat);
         @test labs(sp3, 3) == Set([(1, 1, 100)])
         @test_throws ArgumentError MomentSpec(; lmax_env = [2], sampled = [true],
                                               cutoff_pair = 3.0, lsum = -1)
+        # (4b) `lsum` PER BODY ORDER. Oracle: the same hand enumeration, one cap at a
+        # time. With `lmax_env = [2]`, `lmax_mark = 2` the labels of body order N are
+        # {mark rank lm ∈ 0:2} × {non-decreasing env multiset e ∈ 1:2 of length N−1}
+        # with `Σl = lm + Σe` even, so by hand
+        #   N = 1: Σl ∈ {0, 2}                                              → 2 labels
+        #   N = 2: Σl ∈ {2 (lm0e2), 2 (lm1e1), 4 (lm2e2)}                   → 3
+        #   N = 3: Σl ∈ {2, 4, 4, 4, 6}   (env sums 2,3,4 × lm 0,1,2)       → 5, one at 6
+        #   N = 4: Σl ∈ {4, 4, 6, 6, 6, 8} (env sums 3..6 × lm 0,1,2)       → 6
+        #          (two at 4, three at 6, one at 8)
+        # so a cap of 4 keeps 2/3/4/2 and a cap of 6 keeps 2/3/5/5. Note where the two
+        # caps bite: 4 opens the 4-body sector at its floor while cutting the 3-body
+        # sector's Σl = 6 content away — the starvation a single global cap cannot avoid.
+        nlab(spec) = [length(SCEFitting._moment_labels(spec, N)) for N = 1:spec.nbody]
+        sp4(ls) = MomentSpec(; lmax_env = [2], sampled = [true], lmax_mark = 2,
+                             nbody = 4, cutoff_pair = 3.0, cutoff_star = 3.0, lsum = ls)
+        @test nlab(sp4(nothing)) == [2, 3, 5, 6]
+        @test nlab(sp4(4)) == [2, 3, 4, 2]
+        @test nlab(sp4(6)) == [2, 3, 5, 5]
+        # the mixed cap the global one cannot express: 3-body at 6, 4-body at 4
+        @test nlab(sp4([3 => 6, 4 => 4])) == [2, 3, 5, 2]
+        @test nlab(sp4(Dict(3 => 6, 4 => 4))) == [2, 3, 5, 2]
+        # COMPOSITION (oracle: the per-order spec must carry, order by order, exactly
+        # what the matching single-value spec carries — checked as label SETS, in both
+        # directions, and the two orders must actually differ so this is not vacuous)
+        let mixed = sp4([3 => 6, 4 => 4])
+            @test labs(mixed, 3) == labs(sp4(6), 3)
+            @test labs(mixed, 4) == labs(sp4(4), 4)
+            @test labs(sp4(6), 4) != labs(sp4(4), 4)      # the orders really differ
+            @test !isempty(labs(mixed, 4))
+        end
+        # a scalar broadcasts to every order — the pre-per-order behavior, unchanged
+        @test sp4(4).lsum == fill(4, 4)
+        @test sp4(nothing).lsum == fill(SCEFitting.LSUM_UNCAPPED, 4)
+        @test labs(sp4(4), 3) == labs(sp4([1 => 4, 2 => 4, 3 => 4, 4 => 4]), 3)
+        # validation is the energy side's resolver, so the refusals are shared
+        @test_throws ArgumentError sp4([5 => 4])          # body order out of range
+        @test_throws ArgumentError sp4([3 => 4, 3 => 4])  # duplicate body order
+        @test_throws ArgumentError sp4([3 => -1])         # negative cap
+        @test_throws ArgumentError sp4([0, 4, 4, 4])   # positional vector: refused
+        # an order the spec never asked for has no cap to read
+        @test_throws ArgumentError SCEFitting._moment_labels(sp4(4), 5)
         mls = MomentBasis(xt, MomentSpec(; lmax_env = [2, 2], sampled = [true, true],
                                          lmax_mark = 2, nbody = 2, cutoff_pair = 3.3,
                                          lsum = 2); backend = bk)
