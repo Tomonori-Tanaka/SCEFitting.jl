@@ -782,7 +782,10 @@ Consult as needed before working.
   regression rule.
 - `examples/heisenberg_chain.jl` — runnable end-to-end (recovers `J`);
   `examples/kagome_threebody.jl` — 3-body / multi-term SALCs, energy+torque
-  co-fit; `examples/persist_and_input.jl` — save / load / `input.toml`.
+  co-fit; `examples/persist_and_input.jl` — save / load / `input.toml`;
+  `examples/cross_observable_bcc_fe.jl` — the DFT cross-observable gate (real
+  bcc Fe energies vs constrained-field torques; the one convention step no
+  internal test can close).
 - `references/` — supporting literature (notes tracked, PDFs local-only).
 - Published docs: <https://tomonori-tanaka.github.io/SCEFitting.jl/dev/>
   (theory pages hold the conventions behind the code).

@@ -70,6 +70,9 @@ r2_energy(sce_fit)                      # ≈ 1.0
 
 Standalone runnable versions are in [`examples/heisenberg_chain.jl`](examples/heisenberg_chain.jl)
 and [`examples/kagome_threebody.jl`](examples/kagome_threebody.jl) (3-body / multi-term SALCs).
+[`examples/cross_observable_bcc_fe.jl`](examples/cross_observable_bcc_fe.jl) runs the
+cross-observable check on real DFT data: fit the bcc Fe energies alone and predict the
+constrained-field torques, then the other way round.
 
 ### Persistence and input files
 

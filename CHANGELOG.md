@@ -30,6 +30,23 @@ release, so everything lives under *Unreleased*.
   physical units, touching no part of the selection driver), and a scale check against
   `cross_validate`, which recomputes the same pooled quantity by an unrelated route.
 
+### Added — the DFT cross-observable gate (2026-08-25)
+
+- **`examples/cross_observable_bcc_fe.jl`**, run by CI's *runnable examples* job.
+  Every existing torque gate closes a loop the package draws itself: the analytic
+  Heisenberg torque pins `predict_torque` and the torque design against `−e × ∇E`, and
+  the unit suite pins `predict_torque` against finite differences of `predict_energy`.
+  None of them can see the one step that leaves the package — VASP writes a constraining
+  field `B_a`, `SpinDatum` turns it into `τ_a = m_a × B_a`, and no internal check can
+  tell whether that is the same torque as `−e_a × ∂E/∂e_a` of the energies in the same
+  file. A sign or a factor there fits happily and is wrong by that factor.
+- The example fits the real bcc Fe 4×4×4 fixture (128 atoms, 50 constrained
+  configurations) on each observable alone and predicts the other: R² 0.98051 on the
+  torques from an energy-only fit, 0.98642 on the energies from a torque-only fit, and
+  a least-squares scale `c = 0.87291` between the two coefficient vectors. Rescaling
+  the targets by −1, 2 and 0.5 each trips at least two of the three gates (the `c` band
+  trips on all three), so the convention is confirmed with orders of headroom.
+
 ### Changed (breaking) — `MomentSpec.lsum` is per body order (2026-08-25)
 
 - **`MomentSpec.lsum` is now a `Vector{Int}`, one entry per body order**, indexed by

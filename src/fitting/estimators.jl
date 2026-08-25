@@ -672,8 +672,9 @@ see no provenance and pass it. Rebuilding through the basis-aware constructor in
 re-runs [`penalty_metric`](@ref) at every point of the sweep. This does neither.
 
 ```julia
-est  = GroupAdaptiveRidge(basis; lambda = 1.0, theta = 1.0)
-fits = [fit(SCEFit, ds, SCEFitting.with_lambda(est, l)) for l in lambdas]
+estimator = GroupAdaptiveRidge(basis; lambda = 1.0, theta = 1.0)
+sce_fits  = [fit(SCEFit, dataset, SCEFitting.with_lambda(estimator, lambda))
+             for lambda in lambdas]
 ```
 """
 with_lambda(e::Ridge, lambda::Real)::Ridge =
