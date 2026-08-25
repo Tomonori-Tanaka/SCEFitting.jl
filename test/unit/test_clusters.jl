@@ -91,8 +91,8 @@ SCEFitting.analyze_symmetry(b::_FixedGroupBackend, ::Crystal; tol::Real = 1e-5) 
         @test length(wide.pairs) == length(nl.pairs)      # the list itself is unchanged
         @test !isempty(candidate_clusters(crystal, wide, 2; cutoff = [M])[2])
         # a relative band outside [0, 1) is not a tolerance
-        @test_throws ArgumentError SCEFitting.NeighborList(2.0, nl.pairs, 1.5)
-        @test_throws ArgumentError SCEFitting.NeighborList(2.0, nl.pairs, -1e-9)
+        @test_throws ArgumentError SCEFitting.NeighborList(fill(2.0, 1, 1), nl.pairs, 1.5)
+        @test_throws ArgumentError SCEFitting.NeighborList(fill(2.0, 1, 1), nl.pairs, -1e-9)
     end
 
     # The orbit builder must REFUSE a candidate list that is not closed under the
