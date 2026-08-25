@@ -8,35 +8,53 @@ release, so everything lives under *Unreleased*.
 
 ### Fixed — mechanical audit items: interchange round-off, TOML kinds, IRLS reporting (2026-08-25)
 
-- **The reference-geometry gate compares positions with a band, not exactly.**
+- **Every geometry comparison a reader makes now holds to a band, not exactly.**
   `read_extxyz(...; reference)` measured spin-only vs joint by `all(iszero, pos - refc)`,
   where `refc` is a freshly recomputed `vectors * frac`. This is an interchange format
   (the same dialect as SLCE.jl), so the file's writer is routinely a different build and
   the last bits differ; a 1-ulp (~2e-15 Å) mismatch was reported as *"positions differ
   from the reference crystal's — displaced (joint spin–lattice) data are not
   representable in this pure-spin package"*, a claim about the physics that was false.
-  Both comparisons now use the lattice check's absolute band (`_REF_GEOM_ATOL = 1e-8`),
-  orders below the ≳ 1e-3 Å displacement the distinction is about. The frame-to-frame
-  comparison stays exact on purpose — one writer, one file.
+  Frame-to-frame, lattice, and file-against-reference now all use one absolute band,
+  **`_REF_GEOM_ATOL = 1e-6 Å`**, and each refusal reports the deviation it measured.
+  The value is set by the format, not by round-off: ASE's extxyz writer defaults to
+  `%16.8f`, a text grid whose own rounding reaches 5e-9 Å, so a band at 1e-8 Å would
+  leave a factor of two and a six-decimal producer would reproduce the very verdict the
+  band removes. 1e-6 Å clears an eight-decimal grid by ~200× and still sits three orders
+  below the ≳ 1e-3 Å displacement the distinction is about. **It is therefore also a
+  floor**: a structure displaced by less than 1e-6 Å is not representable through a file
+  and reads as sitting at the reference.
 - **`SpinDatum` screens every field for finiteness**, not only `moments_bare` and
   `constraint_axes`. The file readers screen numbers as they parse, but an adapter that
   builds a `SpinDatum` directly — the production path — reached the constructor with
   whatever the SCF produced, and one diverged frame turned every fitted coefficient into
   `NaN` with nothing naming the configuration. `directions` is deliberately still left
   to the dataset constructor, which checks norm, pole margin and finiteness together.
-- **`[interaction]` refuses a boolean where a number belongs.** `Bool <: Real` and
-  `Bool <: Integer`, so `cutoff = true` was read as 1.0 Å, `lsum = true` and
+- **Every numeric and boolean door of the TOML input is kind-checked.** `Bool <: Real`
+  and `Bool <: Integer`, so `cutoff = true` was read as 1.0 Å and `lsum = true` /
   `nbody = true` as 1 — a silently different model. `[moment]` already refused this in
-  three places; the asymmetry was not a decision. Both sections now share
-  `_is_toml_int` / `_is_toml_number`, and `[interaction].isotropy` requires a real
-  boolean the way `[moment].isotropy` does.
+  three places; the asymmetry was not a decision. The whole file now shares
+  `_is_toml_int` / `_is_toml_number`:
+    - the integer doors require a TOML **integer**, so `nbody = 2.0` and `lmax = [2.0]`
+      are refused too, as is a quoted `lmax = "2"` — which used to iterate the string
+      and load as the codepoint `[50]`;
+    - the boolean doors require a TOML **boolean**, from the other side:
+      `[interaction].isotropy = 1` and `[structure].pbc = [1, 1, 1]` are refused;
+    - `[structure]`'s own geometry (`lattice`, `positions`, `species`) and
+      `[interaction].tie_tol` go through the same tests, naming the offending entry;
+    - `[symmetry].tol` is spglib's symprec, a **cartesian distance in Å**, and nothing
+      downstream bounded it — `tol = true` meant a 1 Å symprec, which merges
+      inequivalent sites and reports a larger group, so the basis is silently a
+      different one. It is now required to lie in `(0, 0.1]`.
 - **A reweighted ridge that exits on `max_iter` says so.** Both IRLS loops discarded
   the last relative change and reported nothing on hitting the iteration cap. That
   matters beyond the coefficients: `islinear` is `true` for `AdaptiveRidge` /
   `GroupAdaptiveRidge`, so `gcv` and `effective_dof` rebuild the penalty diagonal FROM
   the returned coefficients and score the smoother it implies — a smoother that was
-  never solved. Deliberately without `maxlog`, so a λ path reports every non-convergent
-  point.
+  never solved. A direct solve warns on the spot, deliberately without `maxlog` so a
+  later non-convergence is never hidden by an earlier one; `select_fit`, which runs one
+  solve per λ and another per (fold, λ), instead **counts** them and reports once —
+  how much of the path is affected is the part a user can act on.
 - The pointed moment basis's self-image comment claimed the `allunique` guard was a
   second lock, "since a minimum-image neighbor list has no self-pairs". That is a
   statement about the *centre's* neighbours, and the `N!` re-anchoring walks the mark

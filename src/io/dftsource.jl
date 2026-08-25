@@ -70,6 +70,13 @@ was before the channel existed):
   from `constraint_axes` — keyed here, deliberately never by which fields happen
   to be present).
 
+`energy`, `magmoms`, `field` and `torques` must be **finite**, and the message names
+the offending atom and value: a file reader screens each number as it parses, but an
+adapter that builds a `SpinDatum` directly does not, and one diverged SCF frame
+otherwise turns every fitted coefficient into `NaN` with nothing naming the
+configuration. `directions` is checked at the dataset boundary instead, where norm,
+pole margin and finiteness are validated together in one message.
+
 Build it from raw per-atom moment vectors and the constraining field with
 `SpinDatum(energy, moments, field)` (which derives directions, magnitudes, and
 torques; the trio passes through as keywords), or construct the fields directly
@@ -97,17 +104,21 @@ struct SpinDatum <: AbstractTrainingDatum
         # (`_embset_number`, `_xyz_number`), but an adapter that builds a `SpinDatum`
         # directly — the production path — reaches this constructor with whatever the
         # SCF produced. One diverged frame otherwise turns every fitted coefficient
-        # into `NaN` without naming the configuration that caused it.
+        # into `NaN` without naming the configuration that caused it — so the message
+        # names the offending atom and value, not just the field.
         # `directions` is deliberately NOT screened here: the direction door is the
         # dataset constructor, which checks norm, pole margin and finiteness together
         # (a bare finiteness test here would pre-empt its message with a poorer one).
         isfinite(energy) || throw(ArgumentError("`energy` is not finite ($energy)"))
-        all(isfinite, magmoms) ||
-            throw(ArgumentError("`magmoms` contains non-finite entries"))
-        all(isfinite, field) ||
-            throw(ArgumentError("`field` contains non-finite entries"))
-        all(isfinite, torques) ||
-            throw(ArgumentError("`torques` contains non-finite entries"))
+        let a = findfirst(!isfinite, magmoms)
+            a === nothing ||
+                throw(ArgumentError("`magmoms[$a]` = $(magmoms[a]) is not finite"))
+        end
+        for (name, ch) in (("field", field), ("torques", torques))
+            k = findfirst(!isfinite, ch)
+            k === nothing || throw(ArgumentError(
+                "`$name` column $(k[2]) is not finite ($(ch[:, k[2]]))"))
+        end
         if moments_bare !== nothing
             size(moments_bare) == (3, nat) || throw(ArgumentError(
                 "`moments_bare` must be 3 × $nat (got $(size(moments_bare)))"))

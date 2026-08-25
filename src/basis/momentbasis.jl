@@ -905,12 +905,13 @@ function _moment_resolvability(mb::MomentBasis, rtol::Float64)
         # the substituted evaluation axis as if it were a spin, and the site-index
         # exclusion cannot see that. This is the ONLY lock on that door. The minimum-image
         # neighbor list having no self-pairs does not close it: that is a statement about
-        # the CENTRE's own neighbors, and the `N!` re-anchoring in `_star_clusters` walks
-        # the mark around the star, so an environment of the original centre becomes the
-        # mark and another environment can sit on an image of it. Nor does the spoke test
-        # inside `admit`: `_dmin2_matrix` leaves the diagonal at `Inf` (the list drops
-        # `i == j`), so `edges² ≤ dmin2_star[a, a]·fac²` is identically true and only the
-        # raw radius applies there. Do not remove the `mem.atoms[mark_site]` term.
+        # the CENTRE's own neighbors, and the `N!` re-anchoring in
+        # `_pointed_star_candidates` walks the mark around the star, so an environment of
+        # the original centre becomes the mark and another environment can sit on an image
+        # of it. Nor does the spoke test inside `admit`: `_dmin2_matrix` leaves the
+        # diagonal at `Inf` (the list drops `i == j`), so the `dmin2_star[a,a]` spoke
+        # test is identically true and only the raw radius applies. Do not remove the
+        # `mem.atoms[mark_site]` term.
         allunique(vcat(env_atoms, mem.atoms[mark_site])) ||
             throw(UnclassifiableBasis("pointed SALC $j (key $(s.key)) has a member " *
                                       "with two spin factors on one reference-cell " *

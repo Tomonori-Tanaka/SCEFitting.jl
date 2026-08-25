@@ -120,9 +120,21 @@ using Random
         # a genuine last-bit difference, not a no-op the gate never sees
         @test cartesian_positions(near) != cartesian_positions(xt)
         @test length(read_extxyz(f; reference = near)) == 2
+        # Pinned at the band's OWN scale, keyed to the constant: ten times the band
+        # must still be refused. A pair of assertions five decades apart would not
+        # notice a re-tune; this one fails the day someone answers a round-off
+        # complaint by widening the band without thinking.
+        atol = SCEFitting._REF_GEOM_ATOL
+        frac[3, 2] = xt.frac_positions[3, 2] + 10 * atol / 3.0
+        just_out = Crystal(xt.lattice, frac, xt.species, xt.species_labels)
+        @test_throws ArgumentError read_extxyz(f; reference = just_out)
+        frac[3, 2] = xt.frac_positions[3, 2] + 0.1 * atol / 3.0
+        just_in = Crystal(xt.lattice, frac, xt.species, xt.species_labels)
+        @test length(read_extxyz(f; reference = just_in)) == 2
         frac[3, 2] = xt.frac_positions[3, 2] + 1e-3 / 3.0     # 1e-3 A displacement
         far = Crystal(xt.lattice, frac, xt.species, xt.species_labels)
-        @test_throws ArgumentError read_extxyz(f; reference = far)
+        err = try; read_extxyz(f; reference = far); nothing; catch e; e; end
+        @test err isa ArgumentError && occursin("reference", err.msg)
     end
 
     @testset "loud checks: claims never override measurements" begin

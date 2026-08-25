@@ -49,6 +49,9 @@ Schema:
     [symmetry]                                            # optional section
     backend = "spglib"                                    # "none" (default) or "spglib"
     tol     = 1.0e-5                                       # optional, default 1e-5
+                                                          #   spglib's symprec, a
+                                                          #   CARTESIAN distance (Å);
+                                                          #   must lie in (0, 0.1]
 
     [moment]                      # optional section: the pointed site-moment basis
     nbody       = 3           # optional, default 3 (1 to 4). Star members grow as
@@ -116,13 +119,14 @@ function _crystal_from_input(d)::Crystal
         length(v) == 3 ||
             throw(ArgumentError("[structure].lattice vector $k must have 3 components"))
         for i = 1:3
-            A[i, k] = Float64(v[i])   # entry k = k-th lattice vector = column k of the matrix
+            # entry k = k-th lattice vector = column k of the matrix
+            A[i, k] = _toml_number(v[i], "[structure].lattice[$k][$i]")
         end
     end
     pbc = if haskey(d, "pbc")
         p = d["pbc"]
         length(p) == 3 || throw(ArgumentError("[structure].pbc must have 3 entries"))
-        (Bool(p[1]), Bool(p[2]), Bool(p[3]))
+        ntuple(k -> _toml_bool(p[k], "[structure].pbc[$k]"), 3)
     else
         (true, true, true)
     end
@@ -137,16 +141,42 @@ function _crystal_from_input(d)::Crystal
         length(p) == 3 ||
             throw(ArgumentError("[structure].positions[$a] must have 3 components"))
         for i = 1:3
-            fr[i, a] = Float64(p[i])
+            fr[i, a] = _toml_number(p[i], "[structure].positions[$a][$i]")
         end
     end
 
-    species = Int[Int(s) for s in _input_require(d, "species", "structure")]
+    species = Int[_toml_int(s, "[structure].species") for
+                  s in _input_require(d, "species", "structure")]
     length(species) == nat ||
         throw(ArgumentError("[structure].species has $(length(species)) entries for $nat atoms"))
     labels = String[String(s) for s in _input_require(d, "species_labels", "structure")]
     return Crystal(lattice, fr, species, labels)   # Crystal validates species range etc.
 end
+
+# TOML integers arrive as `Int` and `Bool <: Integer`, so `isa Integer` would let
+# `true` through as 1; likewise `Bool <: Real`, so a radius written `cutoff = true`
+# would become 1.0 Å. Every numeric door in this file goes through these two kind
+# tests, and every boolean door tests `isa Bool` rather than converting — `pbc = [1,1,1]`
+# and `isotropy = 1` are refused for the same reason, from the other side.
+# Upper bound on `[symmetry].tol`. It is spglib's symprec, a CARTESIAN distance in Å;
+# a value near a bond length merges inequivalent sites, so the reported group is not
+# the crystal's. 0.1 Å is already far past any coordinate noise worth symmetrizing.
+const _SYMPREC_MAX = 1e-1
+
+_is_toml_int(v) = v isa Int
+_is_toml_number(v) = v isa Real && !(v isa Bool)
+
+# A number / integer / boolean read from a named key, refusing the wrong TOML kind.
+_toml_number(v, what::String)::Float64 =
+    _is_toml_number(v) ? Float64(v) :
+    throw(ArgumentError("$what must be a number; got $(repr(v))"))
+_toml_int(v, what::String)::Int =
+    _is_toml_int(v) ? Int(v) :
+    throw(ArgumentError("$what must be an integer; got $(repr(v))"))
+_toml_bool(v, what::String)::Bool =
+    v isa Bool ? v :
+    throw(ArgumentError("$what must be a boolean (`true` / `false`, not 0/1); " *
+                        "got $(repr(v))"))
 
 # TOML sub-tables arrive as Dict{String,Any}; body-order keys are digit strings
 # ("2"), species/pair keys anything else. Convert to the BasisSpec sugar forms.
@@ -169,9 +199,7 @@ function _lsum_table_from_input(x::AbstractDict, section::String)::Vector{Pair{I
         _is_bodykey(ks) || throw(ArgumentError(
             "[$section].lsum: key $(repr(k)) is not a body order (keys are bare " *
             "integers: 1, 2, …)"))
-        _is_toml_int(v) || throw(ArgumentError(
-            "[$section].lsum.$ks must be an integer; got $(repr(v))"))
-        push!(out, parse(Int, ks) => Int(v))
+        push!(out, parse(Int, ks) => _toml_int(v, "[$section].lsum.$ks"))
     end
     return out
 end
@@ -197,11 +225,11 @@ function _cutoff_from_input(x)
     ks = collect(keys(x))
     if all(_is_bodykey, ks)          # body-keyed: scalar or pair table per order
         return [parse(Int, k) => (_is_toml_number(v) ? Float64(v) :
-                                  v isa Real ?
+                                  v isa AbstractDict ?
+                                  _pairtable_from_input(v, "[interaction].cutoff.$k") :
                                   throw(ArgumentError("[interaction].cutoff.$k must " *
                                                       "be a number or a species-pair " *
-                                                      "table; got $(repr(v))")) :
-                                  _pairtable_from_input(v, "[interaction].cutoff.$k"))
+                                                      "table; got $(repr(v))")))
                 for (k, v) in x]
     elseif !any(_is_bodykey, ks)     # one species-pair table for every order
         return _pairtable_from_input(x, "[interaction].cutoff")
@@ -214,21 +242,12 @@ function _interaction_from_input(d, labels::Vector{String})::BasisSpec
         throw(ArgumentError("[interaction].pair_cutoff was replaced by `cutoff` " *
                             "(a scalar is equivalent; see the input-schema docstring " *
                             "for per-body / per-pair tables)"))
-    nbody_in = _input_require(d, "nbody", "interaction")
-    _is_toml_int(nbody_in) ||
-        throw(ArgumentError("[interaction].nbody must be an integer; got $(repr(nbody_in))"))
-    nbody = Int(nbody_in)
+    nbody = _toml_int(_input_require(d, "nbody", "interaction"), "[interaction].nbody")
     lmax = _lmax_from_input(_input_require(d, "lmax", "interaction"))
     cutoff = _cutoff_from_input(_input_require(d, "cutoff", "interaction"))
     lsum = haskey(d, "lsum") ? _lsum_from_input(d["lsum"]) : nothing
-    isotropy = if haskey(d, "isotropy")
-        d["isotropy"] isa Bool ||
-            throw(ArgumentError("[interaction].isotropy must be a boolean; got " *
-                                "$(repr(d["isotropy"]))"))
-        d["isotropy"]
-    else
-        false
-    end
+    isotropy = haskey(d, "isotropy") ?
+               _toml_bool(d["isotropy"], "[interaction].isotropy") : false
     return BasisSpec(labels; nbody = nbody, lmax = lmax, cutoff = cutoff, lsum = lsum,
                      isotropy = isotropy)
 end
@@ -268,13 +287,6 @@ function _species_list_from_input(x, labels::Vector{String}, what::String)::Vect
                         "every species) or an array of booleans, not $(repr(x))"))
 end
 
-# TOML integers arrive as `Int`; `Bool <: Integer`, so `isa Integer` would let `true`
-# through as 1 — the kind test is on the concrete type. Likewise `Bool <: Real`, so a
-# radius written `cutoff = true` would become 1.0 Å; every numeric door of BOTH
-# sections goes through these two.
-_is_toml_int(v) = v isa Int
-_is_toml_number(v) = v isa Real && !(v isa Bool)
-
 function _moment_lmax_env_from_input(x, labels::Vector{String})::Vector{Int}
     what = "[moment].lmax_env"
     (x isa AbstractVector || x isa AbstractDict) ||
@@ -287,7 +299,7 @@ end
 function _moment_cutoff_from_input(x, labels::Vector{String}, key::String)
     what = "[moment].$key"
     _is_toml_number(x) && return Float64(x)
-    x isa Real && throw(ArgumentError("$what must be a number; got $(repr(x))"))
+    x isa Bool && throw(ArgumentError("$what must be a number; got $(repr(x))"))
     x isa AbstractDict ||
         throw(ArgumentError("$what must be a number or a species-pair table"))
     any(_is_bodykey, keys(x)) &&
@@ -396,6 +408,12 @@ site-moment truncation from the optional `[moment]` section (`nothing` when the
 section is absent). Training data and the estimator are **not** part of the file
 (see [`SCEDataset`](@ref) / [`fit`](@ref)). See also `SCEBasis(path)` and
 `MomentBasis(path)`.
+Every value is **kind-checked**, and the TOML kind is the contract: `nbody`, `lmax` and
+`lsum` take TOML integers (`nbody = 2.0` is refused, not rounded), `cutoff`, `tol` and
+`tie_tol` take TOML numbers, and `isotropy` (and `[structure].pbc`) takes a TOML boolean — `1` is not a boolean
+and `true` is not a number, in either direction. `Bool <: Real` in Julia, so without
+this a radius written `cutoff = true` would silently become 1.0 Å.
+
 """
 function read_setup(path::AbstractString)::@NamedTuple{crystal::Crystal,
                                                        spec::BasisSpec,
@@ -420,10 +438,19 @@ function read_setup(path::AbstractString)::@NamedTuple{crystal::Crystal,
     # needed a widened band must be reproducible from its own file — it rides in
     # `[interaction]` next to `images` (validated by the `SCEBasis` constructor).
     tie_tol = haskey(doc["interaction"], "tie_tol") ?
-        Float64(doc["interaction"]["tie_tol"]) : _SAME_DIST_RTOL
+        _toml_number(doc["interaction"]["tie_tol"], "[interaction].tie_tol") :
+        _SAME_DIST_RTOL
     sym = get(doc, "symmetry", Dict{String,Any}())
     backend = haskey(sym, "backend") ? _backend_from_name(sym["backend"]) : NoSymmetry()
-    tol = haskey(sym, "tol") ? Float64(sym["tol"]) : 1e-5
+    # `tol` is spglib's symprec (Å). Nothing downstream bounds it — at 1 Å spglib
+    # merges inequivalent sites and reports a larger group, so the basis is silently a
+    # different one. `tol = true` used to spell exactly that.
+    tol = haskey(sym, "tol") ? _toml_number(sym["tol"], "[symmetry].tol") : 1e-5
+    (tol > 0 && tol <= _SYMPREC_MAX) || throw(ArgumentError(
+        "[symmetry].tol is a cartesian distance (Å) and must lie in " *
+        "(0, $_SYMPREC_MAX]; got $tol. A symprec of that size merges inequivalent " *
+        "sites, so the reported space group — and every orbit built from it — is " *
+        "not the crystal's"))
     moment = haskey(doc, "moment") ?
         _moment_from_input(doc["moment"], crystal.species_labels) : nothing
     return (; crystal, spec, backend, tol, images, tie_tol, moment)

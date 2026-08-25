@@ -235,7 +235,11 @@ approximation). Each subproblem is the analytic weighted ridge
 without the extension.
 
 The iteration stops when the relative infinity-norm change in the coefficient vector
-drops below `tol`, or after `max_iter` reweighting steps. `lambda = 0` reduces to
+drops below `tol`, or after `max_iter` reweighting steps — in which case it **warns**:
+the returned coefficients are not a fixed point of the reweighting, and since
+`islinear` is `true` here, `gcv` / `effective_dof` rebuild the penalty diagonal from
+them and would otherwise score a smoother that was never solved. (`select_fit` counts
+those exits over its whole λ grid and reports them once instead.) `lambda = 0` reduces to
 [`OLS`](@ref). The penalty acts directly on the coefficients (no `standardize`
 keyword): the per-cluster `(4π)^(N/2)` basis scale already places them on the
 conventional spin-model scale, so a single `epsilon` is a roughly uniform magnitude
@@ -302,7 +306,8 @@ exactly for singleton groups with unit weights).
 (every label present; for an SCE fit use `SCEFitting.salc_groups`); it is unrelated to
 the per-**row** `groups` keyword of [`solve_coefficients`](@ref), which this estimator
 ignores. `group_weights` has length `G`. Both vectors are copied at construction.
-`lambda = 0` reduces to [`OLS`](@ref). Like `AdaptiveRidge`, the converged fit is a
+`lambda = 0` reduces to [`OLS`](@ref). The stopping rule and the non-convergence
+warning are `AdaptiveRidge`'s. Like `AdaptiveRidge`, the converged fit is a
 linear smoother in the fixed-weight sense ([`islinear`](@ref) is `true`), so
 [`gcv`](@ref) applies. Iterating to convergence drives whole groups toward zero; follow
 with [`refit`](@ref) to select the support and de-bias the survivors, or drive the λ
@@ -519,19 +524,15 @@ function solve_coefficients(est::AdaptiveRidge, X::AbstractMatrix, y::AbstractVe
     beta = Symmetric(XtX + est.lambda * Diagonal(m)) \ Xty
     D = Vector{Float64}(undef, p)
     sm = sqrt.(m)                    # the stopping rule's coordinates, hoisted
-    rel = Inf
-    converged = false
+    rel = Inf                        # loop scope, so the exit reason survives it
     for _ = 1:est.max_iter
         @. D = m / (m * beta^2 + est.epsilon)
         beta_new = Symmetric(XtX + est.lambda * Diagonal(D)) \ Xty
         rel = _irls_rel_change(beta_new, beta, sm)
         beta = beta_new
-        if rel < est.tol
-            converged = true
-            break
-        end
+        rel < est.tol && break
     end
-    converged || _warn_irls(:AdaptiveRidge, rel, est.tol, est.max_iter, est.lambda)
+    rel < est.tol || _warn_irls(:AdaptiveRidge, rel, est.tol, est.max_iter, est.lambda)
     return beta
 end
 
@@ -586,7 +587,9 @@ function _solve_gar(XtX::Matrix{Float64}, Xty::Vector{Float64}, lambda::Float64,
                     column_groups::Vector{Int}, group_weights::Vector{Float64},
                     group_sizes::Vector{Int}, metric::Vector{Float64},
                     epsilon::Float64, max_iter::Int, tol::Float64;
-                    beta0::Union{Nothing,Vector{Float64}} = nothing)::Vector{Float64}
+                    beta0::Union{Nothing,Vector{Float64}} = nothing,
+                    nonconvergent::Union{Nothing,Base.RefValue{Int}} =
+                        nothing)::Vector{Float64}
     p = length(Xty)
     D = Vector{Float64}(undef, p)
     normsq = Vector{Float64}(undef, length(group_weights))
@@ -606,20 +609,23 @@ function _solve_gar(XtX::Matrix{Float64}, Xty::Vector{Float64}, lambda::Float64,
     else
         copy(beta0)
     end
-    rel = Inf
-    converged = false
+    rel = Inf                        # loop scope, so the exit reason survives it
     for _ = 1:max_iter
         _gar_weights!(D, beta, column_groups, group_weights, group_sizes, metric,
                       epsilon, normsq)
         beta_new = Symmetric(XtX + lambda * Diagonal(D)) \ Xty
         rel = _irls_rel_change(beta_new, beta, sm)
         beta = beta_new
-        if rel < tol
-            converged = true
-            break
-        end
+        rel < tol && break
     end
-    converged || _warn_irls(:GroupAdaptiveRidge, rel, tol, max_iter, lambda)
+    # A caller solving a whole λ path hands in a counter instead: one solve's warning
+    # repeated across 25 λ × 5 folds is noise the user cannot act on, while the count
+    # is exactly what they need. A direct solve (no counter) warns on the spot.
+    if rel >= tol
+        nonconvergent === nothing ?
+            _warn_irls(:GroupAdaptiveRidge, rel, tol, max_iter, lambda) :
+            (nonconvergent[] += 1)
+    end
     return beta
 end
 

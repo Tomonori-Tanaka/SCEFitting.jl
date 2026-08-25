@@ -7,7 +7,7 @@
 #   * The structure (lattice + positions) is ALWAYS stored, even for spin-only data —
 #     self-containment structurally removes the "which POSCAR pairs with which
 #     EMBSET" provenance-bug class. The redundancy costs a few MB.
-#   * spin-only vs joint is decided FROM THE DATA (positions bitwise identical across
+#   * spin-only vs joint is decided FROM THE DATA (positions agreeing across
 #     frames → spin-only), never from a flag; a `config_type` claim is allowed but a
 #     mismatch with the measured answer is a loud error. THIS package is pure spin:
 #     a joint file (displaced frames, `forces` columns, or a `joint` claim) is
@@ -150,13 +150,6 @@ function _xyz_properties(spec::AbstractString, path::AbstractString,
     return props
 end
 
-# Absolute band (Å) for comparing a file's geometry against a reference `Crystal`.
-# Interchange format: the writer is routinely a different build, and the reference
-# cartesian positions are a recomputed `vectors * frac`, so the comparison must
-# tolerate round-off. It stays far below the ≳ 1e-3 Å displacement the spin-only /
-# joint distinction is about.
-const _REF_GEOM_ATOL = 1e-8
-
 _xyz_number(s::AbstractString, what::String, path::AbstractString)::Float64 = begin
     v = tryparse(Float64, s)
     (v === nothing || !isfinite(v)) &&
@@ -246,6 +239,21 @@ end
 
 # ── reader ─────────────────────────────────────────────────────────────────────────
 
+# Absolute band (Å) for every geometry comparison a reader makes: frame against frame,
+# and file against a reference `Crystal`. This is an INTERCHANGE format, so none of the
+# three quantities involved is exact — the writer is routinely a different build, the
+# reference cartesians are a recomputed `vectors * frac`, and the file carries only as
+# many decimals as its writer printed. That last one sets the scale: ASE's extxyz writer
+# defaults to `%16.8f`, a text grid of 1e-8 Å whose rounding error reaches 5e-9 Å, so a
+# band at 1e-8 Å would leave a factor of two and a producer printing six decimals would
+# reproduce exactly the false verdict the band exists to prevent. 1e-6 Å clears an
+# eight-decimal grid by ~200x and still sits three orders below the ≳ 1e-3 Å displacement
+# the spin-only / joint distinction is about — at 1e-6 Å a Φ ~ 10 eV/Å² force is
+# ~1e-5 eV/Å, far under DFT noise. It is therefore also a FLOOR: a displacement smaller
+# than this is not representable through a file, and reads as sitting at the reference.
+const _REF_GEOM_ATOL = 1e-6
+
+
 """
     read_extxyz(path; reference = nothing, zero_moment_atol = 1e-10,
                 sign_gate_min = 5e-3, axis_angle_p99_max = 5.0) -> Vector{SpinDatum}
@@ -261,12 +269,19 @@ eV), `constraint_mode` (`1`/`4`, required when `mconstr` columns are present),
 `reference_id`) are accepted and ignored — a `SpinDatum` carries no provenance.
 
 **spin-only vs joint is measured, not read**, and this package holds spin-only data
-only: every frame's positions must be bitwise identical, a `forces` column must be
-absent, and a `config_type=joint` claim is refused — all by name, pointing at
-SLCE.jl, which reads joint files. A file is never silently flattened to its spins.
-With a `reference::Crystal`, the stored lattice, species and positions must match it
-exactly (the writer prints shortest-round-trip, so a file this package wrote matches
-bit for bit); without one the file is taken on its own terms — which for a
+only: every frame's positions must agree, a `forces` column must be absent, and a
+`config_type=joint` claim is refused — all by name, pointing at SLCE.jl, which reads
+joint files. A file is never silently flattened to its spins.
+
+Every geometry comparison — frame against frame, and, with a `reference::Crystal`,
+the stored lattice and positions against it — holds to an absolute **1e-6 Å** band,
+not exactly. This is an interchange format: the writer is routinely a different
+build printing a finite number of decimals, and the reference cartesians are a
+recomputed `vectors * frac`, so an exact test would answer a question about the
+physics with a question about arithmetic. The band sits three orders below the
+≳ 1e-3 Å displacement the refusal is about, and is therefore also a floor — a
+structure displaced by less than 1e-6 Å reads as sitting at the reference. Species
+must match exactly. Without a reference the file is taken on its own terms — which for a
 **single-frame** file means a displaced structure cannot be told from a reference
 one (there is no second frame to differ from): pass `reference` whenever that
 distinction matters.
@@ -346,8 +361,16 @@ function read_extxyz(path::AbstractString;
 
     # spin-only vs joint: measured from positions — and only spin-only is admissible
     ref_pos = frames[1].cols["pos"]
-    all(fr.cols["pos"] == ref_pos for fr in frames) ||
-        throw(ArgumentError("extxyz $path: positions differ across frames" * joint_msg))
+    # Banded like every other geometry comparison here (`_REF_GEOM_ATOL`). "One writer,
+    # one file" does not make this one exact: a producer that recomputes or re-wraps
+    # positions per frame prints a different last decimal for the same structure, and an
+    # exact test then answers a question about the physics with a question about
+    # formatting. Banding it also keeps the two verdicts consistent — a file must not be
+    # spin-only with a `reference` and joint without one.
+    frame_dev = maximum(fr -> maximum(abs, fr.cols["pos"] - ref_pos), frames)
+    frame_dev <= _REF_GEOM_ATOL ||
+        throw(ArgumentError("extxyz $path: positions differ across frames " *
+                            "(max |Δ| = $frame_dev Å > $_REF_GEOM_ATOL)" * joint_msg))
     if reference !== nothing
         size(reference.frac_positions, 2) == nat ||
             throw(ArgumentError("extxyz $path: $nat atoms per frame, reference " *
@@ -357,22 +380,21 @@ function read_extxyz(path::AbstractString;
             throw(ArgumentError("extxyz $path: species differ from the reference " *
                                 "crystal ($(frames[1].species[1]) … vs " *
                                 "$(reflab[1]) …)"))
-        maximum(abs, Matrix(reference.lattice.vectors) - A1) <= _REF_GEOM_ATOL ||
+        lat_dev = maximum(abs, Matrix(reference.lattice.vectors) - A1)
+        lat_dev <= _REF_GEOM_ATOL ||
             throw(ArgumentError("extxyz $path: Lattice differs from the reference " *
-                                "crystal's lattice"))
-        # The same absolute band as the lattice above, and for the same reason: this
-        # is an INTERCHANGE format, so the file's writer is routinely a different
-        # build, while `refc` is a freshly recomputed `vectors * frac` whose last bits
-        # depend on the StaticArrays/Julia version and the dispatch path taken. An
-        # exact comparison turned a 1-ulp (~2e-15 Å) mismatch into "these are joint
-        # spin-lattice data", which is a statement about the physics and was false:
-        # a displacement one means to separate here is ≳ 1e-3 Å, orders away from
-        # either scale. (The frame-to-frame comparison above stays exact on purpose —
-        # one writer, one file, bit-identity is the intent there.)
+                                "crystal's lattice (max |Δ| = $lat_dev Å > " *
+                                "$_REF_GEOM_ATOL)"))
+        # Banded, not exact: an exact comparison answered a question about the physics
+        # ("these are joint spin–lattice data") with a question about arithmetic — see
+        # `_REF_GEOM_ATOL`. The deviation is reported so a user just outside the band
+        # can tell a different structure from a band that is too tight.
         refc = Matrix(cartesian_positions(reference))
-        maximum(abs, ref_pos - refc) <= _REF_GEOM_ATOL ||
+        pos_dev = maximum(abs, ref_pos - refc)
+        pos_dev <= _REF_GEOM_ATOL ||
             throw(ArgumentError("extxyz $path: positions differ from the reference " *
-                                "crystal's" * joint_msg))
+                                "crystal's (max |Δ| = $pos_dev Å > $_REF_GEOM_ATOL)" *
+                                joint_msg))
     end
 
     # config_type: an optional claim, checked against the measurement (spin-only)
