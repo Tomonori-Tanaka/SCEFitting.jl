@@ -102,7 +102,7 @@ function _assemble_spacegroup(crystal::Crystal,
 end
 
 """
-    _restrict_to_pbc(crystal, ops, symbol, tol) -> (ops, symbol)
+    _restrict_to_pbc(crystal, ops, symbol, tol) -> (ops, symbol, permutations)
 
 Keep only the operations that are symmetries of the crystal under its DECLARED
 periodicity, returning them with a symbol that says so.
