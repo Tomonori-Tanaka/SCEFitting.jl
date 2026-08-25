@@ -5,9 +5,9 @@ using LinearAlgebra, Random
 
 rng = MersenneTwister(2026)
 randspin()    = (v = randn(rng, 3); v / norm(v))
-randcfg(nat)  = mapreduce(_ -&gt; randspin(), hcat, 1:nat)</code></pre><h2 id="The-crystal-and-the-basis"><a class="docs-heading-anchor" href="#The-crystal-and-the-basis">The crystal and the basis</a><a id="The-crystal-and-the-basis-1"></a><a class="docs-heading-anchor-permalink" href="#The-crystal-and-the-basis" title="Permalink"></a></h2><p>A 4-atom chain along <span>$z$</span> (spaced so neighbors differ), with a nearest-neighbor, 2-body, isotropic interaction — the Heisenberg channel only.</p><pre><code class="language-julia hljs">lat   = Lattice([8.0 0 0; 0 8.0 0; 0 0 10.0])
-frac  = [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75]
-chain = Crystal(lat, frac, [1, 1, 1, 1], [&quot;Fe&quot;])
+randcfg(nat)  = mapreduce(_ -&gt; randspin(), hcat, 1:nat)</code></pre><h2 id="The-crystal-and-the-basis"><a class="docs-heading-anchor" href="#The-crystal-and-the-basis">The crystal and the basis</a><a id="The-crystal-and-the-basis-1"></a><a class="docs-heading-anchor-permalink" href="#The-crystal-and-the-basis" title="Permalink"></a></h2><p>A 4-atom chain along <span>$z$</span> (spaced so neighbors differ), with a nearest-neighbor, 2-body, isotropic interaction — the Heisenberg channel only.</p><pre><code class="language-julia hljs">lattice = Lattice([8.0 0 0; 0 8.0 0; 0 0 10.0])
+frac    = [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75]
+chain   = Crystal(lattice, frac, [1, 1, 1, 1], [&quot;Fe&quot;])
 
 interaction = BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1], isotropy = true)
 basis       = SCEBasis(chain, interaction; backend = SpglibBackend())
@@ -15,10 +15,11 @@ basis       = SCEBasis(chain, interaction; backend = SpglibBackend())
 (space_group = basis.spacegroup.symbol, n_salc = n_salcs(basis))</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">(space_group = &quot;P4/mmm&quot;, n_salc = 1)</code></pre><h3 id="The-lattice-and-its-unit-cell"><a class="docs-heading-anchor" href="#The-lattice-and-its-unit-cell">The lattice and its unit cell</a><a id="The-lattice-and-its-unit-cell-1"></a><a class="docs-heading-anchor-permalink" href="#The-lattice-and-its-unit-cell" title="Permalink"></a></h3><p>The figure is drawn straight from the <code>chain</code> crystal and its neighbor list — the same geometry the basis is built on, so it cannot drift from what is computed. Sites are the <a href="../../api/#SCEFitting.cartesian_positions"><code>cartesian_positions</code></a>; bonds are the <a href="../../api/#SCEFitting.build_neighbor_list"><code>build_neighbor_list</code></a> pairs; the shaded strip is the <strong>unit (calculation) cell</strong> of length <span>$c$</span>.</p><pre><code class="language-julia hljs">using CairoMakie
 CairoMakie.activate!(type = &quot;png&quot;)
 
-cart = cartesian_positions(chain)                                  # 3 × 4, sites along z
-nl   = SCEFitting.build_neighbor_list(chain, SCEFitting._superset_cutoff(interaction), MinimumImage())
-z    = cart[3, :]
-cell = chain.lattice.vectors[3, 3]                                 # c = 10 Å, the calculation cell
+cart      = cartesian_positions(chain)                             # 3 × 4, sites along z
+neighbors = SCEFitting.build_neighbor_list(
+    chain, SCEFitting._superset_cutoff(interaction), MinimumImage())
+z         = cart[3, :]
+cell      = chain.lattice.vectors[3, 3]                            # c = 10 Å, the cell
 
 fig = Figure(size = (820, 300))
 ax  = Axis(fig[1, 1]; aspect = DataAspect(),
@@ -30,15 +31,15 @@ vlines!(ax, [0, cell]; color = (:gray, 0.55), linestyle = :dot)
 text!(ax, cell / 2, -0.52; text = &quot;unit cell (calculation cell), c = $(round(Int, cell)) Å&quot;,
       align = (:center, :top), color = :gray25, fontsize = 13)
 
-intra = unique([minmax(p.i, p.j) for p in nl.pairs if p.shift[3] == 0])
-wrap  = unique([minmax(p.i, p.j) for p in nl.pairs if p.shift[3] != 0])
+intra = unique([minmax(p.i, p.j) for p in neighbors.pairs if p.shift[3] == 0])
+wrap  = unique([minmax(p.i, p.j) for p in neighbors.pairs if p.shift[3] != 0])
 for (i, j) in intra                                                # nearest-neighbor bonds in-cell
     lines!(ax, [z[i], z[j]], [0.0, 0.0]; color = :gray25, linewidth = 4)
 end
 for (i, j) in wrap                                                 # bond that closes across the boundary
     cx, rx, ry = (z[i] + z[j]) / 2, abs(z[j] - z[i]) / 2, 1.15
-    ts = range(0, π; length = 80)
-    lines!(ax, cx .+ rx .* cos.(ts), ry .* sin.(ts);
+    angles = range(0, π; length = 80)
+    lines!(ax, cx .+ rx .* cos.(angles), ry .* sin.(angles);
            color = :darkorange, linewidth = 3, linestyle = :dash)
     text!(ax, cx, ry + 0.05; text = &quot;periodic bond  $(i)–$(j)&quot;,
           align = (:center, :bottom), color = :darkorange, fontsize = 13)
@@ -58,10 +59,10 @@ configs = [randcfg(4) for _ = 1:40]
 E = [J_true * sum(dot(c[:, m.atoms[1]], c[:, m.atoms[2]]) for m in heis.members)
      for c in configs]
 
-f = fit(SCEFit, SCEDataset(basis, configs, E), OLS())
-J_recovered = 2 * sqrt(3) * coef(f)[1]
+sce_fit = fit(SCEFit, SCEDataset(basis, configs, E), OLS())
+J_recovered = 2 * sqrt(3) * coef(sce_fit)[1]
 
-(r2 = round(r2_energy(f); digits = 12), J_true, J_recovered)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">(r2 = 1.0, J_true = 0.0137, J_recovered = 0.013700000000000007)</code></pre><p>The fit is exact and recovers the coupling. The factor <span>$2\sqrt 3$</span> is the fixed normalization between the physical coupling and the fitted SALC coefficient — a useful sanity check: a Heisenberg model must satisfy <span>$J = 2\sqrt 3\,j_\varphi$</span>.</p><h2 id="Adding-the-torque"><a class="docs-heading-anchor" href="#Adding-the-torque">Adding the torque</a><a id="Adding-the-torque-1"></a><a class="docs-heading-anchor-permalink" href="#Adding-the-torque" title="Permalink"></a></h2><p>The same coupling fixes the per-atom torque <span>$\boldsymbol\tau_a = -\hat{\boldsymbol e}_a \times \partial E/\partial\hat{\boldsymbol e}_a$</span> (the physical / Landau–Lifshitz torque). For the Heisenberg energy, <span>$\partial E/\partial\hat{\boldsymbol e}_a$</span> is a sum of neighbor spins.</p><pre><code class="language-julia hljs">function heis_torque(c, J)
+(r2 = round(r2_energy(sce_fit); digits = 12), J_true, J_recovered)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">(r2 = 1.0, J_true = 0.0137, J_recovered = 0.013700000000000007)</code></pre><p>The fit is exact and recovers the coupling. The factor <span>$2\sqrt 3$</span> is the fixed normalization between the physical coupling and the fitted SALC coefficient — a useful sanity check: a Heisenberg model must satisfy <span>$J = 2\sqrt 3\,j_\varphi$</span>.</p><h2 id="Adding-the-torque"><a class="docs-heading-anchor" href="#Adding-the-torque">Adding the torque</a><a id="Adding-the-torque-1"></a><a class="docs-heading-anchor-permalink" href="#Adding-the-torque" title="Permalink"></a></h2><p>The same coupling fixes the per-atom torque <span>$\boldsymbol\tau_a = -\hat{\boldsymbol e}_a \times \partial E/\partial\hat{\boldsymbol e}_a$</span> (the physical / Landau–Lifshitz torque). For the Heisenberg energy, <span>$\partial E/\partial\hat{\boldsymbol e}_a$</span> is a sum of neighbor spins.</p><pre><code class="language-julia hljs">function heis_torque(c, J)
     nat = size(c, 2); G = zeros(3, nat)
     for m in heis.members
         i, j = m.atoms[1], m.atoms[2]
@@ -72,5 +73,6 @@ J_recovered = 2 * sqrt(3) * coef(f)[1]
 end
 torques = [heis_torque(c, J_true) for c in configs]
 
-fc = fit(SCEFit, SCEDataset(basis, configs, E, torques), OLS(); torque_weight = 0.5)
-(r2_energy = round(r2_energy(fc); digits = 12), r2_torque = round(r2_torque(fc); digits = 12))</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">(r2_energy = 1.0, r2_torque = 1.0)</code></pre><p>Both observables are reproduced. Because <a href="../../api/#SCEFitting.predict_torque"><code>predict_torque</code></a> is the analytic derivative of the surface <a href="../../api/#SCEFitting.predict_energy"><code>predict_energy</code></a> evaluates, the recovered model predicts the torque on a fresh configuration too:</p><pre><code class="language-julia hljs">isapprox(predict_torque(fc, configs[1]), torques[1]; atol = 1e-8)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">true</code></pre><h2 id="Where-this-generalizes"><a class="docs-heading-anchor" href="#Where-this-generalizes">Where this generalizes</a><a id="Where-this-generalizes-1"></a><a class="docs-heading-anchor-permalink" href="#Where-this-generalizes" title="Permalink"></a></h2><ul><li>Drop <code>isotropy = true</code> to keep the anisotropic (<code>Lf &gt; 0</code>) channels — the Dzyaloshinskii– Moriya and symmetric-Γ bilinears.</li><li>Raise <code>lmax</code> to <code>[2]</code> for biquadratic / single-ion channels.</li><li>Raise <code>nbody</code> to <code>3</code> for the <a href="../kagome_threebody/">kagome three-body tutorial</a>.</li><li>Swap <code>OLS()</code> for <code>Ridge</code>, <code>Lasso</code>, or <code>ElasticNet</code> (see <a href="../../guide/fitting/">Data and fitting</a>).</li></ul></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Tutorials</a><a class="docs-footer-nextpage" href="../kagome_threebody/">Kagome three-body »</a><div class="flexbox-break"></div><p class="footer-message">Built with <a href="https://documenter.juliadocs.org">Documenter.jl</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Tuesday 25 August 2026 02:52">Tuesday 25 August 2026</span>. Using Julia version 1.12.7.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+cofit = fit(SCEFit, SCEDataset(basis, configs, E, torques), OLS(); torque_weight = 0.5)
+(r2_energy = round(r2_energy(cofit); digits = 12),
+ r2_torque = round(r2_torque(cofit); digits = 12))</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">(r2_energy = 1.0, r2_torque = 1.0)</code></pre><p>Both observables are reproduced. Because <a href="../../api/#SCEFitting.predict_torque"><code>predict_torque</code></a> is the analytic derivative of the surface <a href="../../api/#SCEFitting.predict_energy"><code>predict_energy</code></a> evaluates, the recovered model predicts the torque on a fresh configuration too:</p><pre><code class="language-julia hljs">isapprox(predict_torque(cofit, configs[1]), torques[1]; atol = 1e-8)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">true</code></pre><h2 id="Where-this-generalizes"><a class="docs-heading-anchor" href="#Where-this-generalizes">Where this generalizes</a><a id="Where-this-generalizes-1"></a><a class="docs-heading-anchor-permalink" href="#Where-this-generalizes" title="Permalink"></a></h2><ul><li>Drop <code>isotropy = true</code> to keep the anisotropic (<code>Lf &gt; 0</code>) channels — the Dzyaloshinskii– Moriya and symmetric-Γ bilinears.</li><li>Raise <code>lmax</code> to <code>[2]</code> for biquadratic / single-ion channels.</li><li>Raise <code>nbody</code> to <code>3</code> for the <a href="../kagome_threebody/">kagome three-body tutorial</a>.</li><li>Swap <code>OLS()</code> for <code>Ridge</code>, <code>Lasso</code>, or <code>ElasticNet</code> (see <a href="../../guide/fitting/">Data and fitting</a>).</li></ul></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Tutorials</a><a class="docs-footer-nextpage" href="../kagome_threebody/">Kagome three-body »</a><div class="flexbox-break"></div><p class="footer-message">Built with <a href="https://documenter.juliadocs.org">Documenter.jl</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Tuesday 25 August 2026 06:07">Tuesday 25 August 2026</span>. Using Julia version 1.12.7.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
