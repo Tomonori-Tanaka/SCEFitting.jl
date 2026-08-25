@@ -67,6 +67,24 @@ struct _EmptySource <: AbstractDFTSource end   # no read_configs method on purpo
         @test !has_torque(ds)
     end
 
+    @testset "SpinDatum refuses a non-finite entry in every field" begin
+        # The file readers screen each number as they parse it, but an adapter that
+        # builds a `SpinDatum` directly -- the production path -- hands over whatever
+        # the SCF produced. A diverged frame otherwise turns every fitted coefficient
+        # into NaN with nothing naming the configuration.
+        dirs = [0.0 0.0; 0.0 0.0; 1.0 1.0]
+        mags = [1.0, 1.0]
+        zero32 = zeros(3, 2)
+        @test SpinDatum(-1.0, dirs, mags, zero32, zero32) isa SpinDatum
+        for bad in (NaN, Inf, -Inf)
+            spoiled = [bad 0.0; 0.0 0.0; 0.0 0.0]
+            @test_throws ArgumentError SpinDatum(bad, dirs, mags, zero32, zero32)
+            @test_throws ArgumentError SpinDatum(-1.0, dirs, [bad, 1.0], zero32, zero32)
+            @test_throws ArgumentError SpinDatum(-1.0, dirs, mags, spoiled, zero32)
+            @test_throws ArgumentError SpinDatum(-1.0, dirs, mags, zero32, spoiled)
+        end
+    end
+
     @testset "zero-moment guard: referenced atoms must stay magnetic" begin
         lat = Lattice(Matrix(3.0 * I(3)))
         # Fe + B; B is removed from the basis via lmax = 0 (non-magnetic species),

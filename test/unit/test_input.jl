@@ -100,6 +100,32 @@ _writetoml(s) = (p = tempname() * ".toml"; write(p, s); p)
         @test inp.backend isa SpglibBackend
     end
 
+    @testset "[interaction] refuses a boolean where a number belongs" begin
+        # `Bool <: Real` and `Bool <: Integer`, so an unguarded `Int(v)` / `isa Real`
+        # reads `cutoff = true` as 1.0 A and `nbody = true` as 1 -- a silently
+        # different model, not an error. The [moment] section already refuses this;
+        # the asymmetry was not a decision.
+        for (key, line) in (("cutoff", "cutoff = true"),
+                            ("nbody", "nbody = true"),
+                            ("lmax", "lmax = [true]"),
+                            ("isotropy", "isotropy = 1"))
+            bad = replace(_INPUT_FULL, Regex("^" * key * " = .*\$", "m") => line)
+            @test bad != _INPUT_FULL                     # the substitution really fired
+            @test_throws ArgumentError read_setup(_writetoml(bad))
+        end
+        # the body-keyed and species-pair table forms of `cutoff`
+        nocut = replace(_INPUT_FULL, "cutoff = 1.5\n" => "")
+        for tbl in ("[interaction.cutoff]\n2 = true\n",
+                    "[interaction.cutoff]\n\"Fe-Fe\" = true\n")
+            @test_throws ArgumentError read_setup(_writetoml(nocut * tbl))
+        end
+        # `lsum`, as a bare scalar and as a body-order table
+        @test_throws ArgumentError read_setup(_writetoml(
+            replace(_INPUT_FULL, "isotropy = false" => "isotropy = false\nlsum = true")))
+        @test_throws ArgumentError read_setup(_writetoml(
+            _INPUT_FULL * "\n[interaction.lsum]\n2 = true\n"))
+    end
+
     @testset "error paths" begin
         only_interaction = "[interaction]\nnbody = 1\ncutoff = 1.5\nlmax = [2]\n"
         @test_throws ArgumentError read_setup(_writetoml(only_interaction))   # no [structure]

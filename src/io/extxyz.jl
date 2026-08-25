@@ -150,6 +150,13 @@ function _xyz_properties(spec::AbstractString, path::AbstractString,
     return props
 end
 
+# Absolute band (Å) for comparing a file's geometry against a reference `Crystal`.
+# Interchange format: the writer is routinely a different build, and the reference
+# cartesian positions are a recomputed `vectors * frac`, so the comparison must
+# tolerate round-off. It stays far below the ≳ 1e-3 Å displacement the spin-only /
+# joint distinction is about.
+const _REF_GEOM_ATOL = 1e-8
+
 _xyz_number(s::AbstractString, what::String, path::AbstractString)::Float64 = begin
     v = tryparse(Float64, s)
     (v === nothing || !isfinite(v)) &&
@@ -350,11 +357,20 @@ function read_extxyz(path::AbstractString;
             throw(ArgumentError("extxyz $path: species differ from the reference " *
                                 "crystal ($(frames[1].species[1]) … vs " *
                                 "$(reflab[1]) …)"))
-        maximum(abs, Matrix(reference.lattice.vectors) - A1) <= 1e-8 ||
+        maximum(abs, Matrix(reference.lattice.vectors) - A1) <= _REF_GEOM_ATOL ||
             throw(ArgumentError("extxyz $path: Lattice differs from the reference " *
                                 "crystal's lattice"))
+        # The same absolute band as the lattice above, and for the same reason: this
+        # is an INTERCHANGE format, so the file's writer is routinely a different
+        # build, while `refc` is a freshly recomputed `vectors * frac` whose last bits
+        # depend on the StaticArrays/Julia version and the dispatch path taken. An
+        # exact comparison turned a 1-ulp (~2e-15 Å) mismatch into "these are joint
+        # spin-lattice data", which is a statement about the physics and was false:
+        # a displacement one means to separate here is ≳ 1e-3 Å, orders away from
+        # either scale. (The frame-to-frame comparison above stays exact on purpose —
+        # one writer, one file, bit-identity is the intent there.)
         refc = Matrix(cartesian_positions(reference))
-        all(iszero, ref_pos - refc) ||
+        maximum(abs, ref_pos - refc) <= _REF_GEOM_ATOL ||
             throw(ArgumentError("extxyz $path: positions differ from the reference " *
                                 "crystal's" * joint_msg))
     end

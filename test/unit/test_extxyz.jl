@@ -105,6 +105,26 @@ using Random
         @test err isa ArgumentError && occursin("reference", err.msg)
     end
 
+    @testset "the reference-geometry gate bands round-off, not displacement" begin
+        # This is an INTERCHANGE format, so the file's writer is routinely a different
+        # build, and the reference side is a freshly recomputed `vectors * frac` whose
+        # last bits depend on the arithmetic path. The distinction the gate exists to
+        # make -- spin-only vs displaced (joint) -- lives at >~ 1e-3 A, orders above
+        # either. Both scales are asserted so the band cannot drift into either one.
+        data = [mkdat(i) for i = 1:2]
+        f = joinpath(tmp, "band.extxyz")
+        write_extxyz(f, data, xt)
+        frac = Matrix(xt.frac_positions)
+        frac[3, 2] += eps(1.5) / 3.0            # one ulp of a 1.5 A coordinate
+        near = Crystal(xt.lattice, frac, xt.species, xt.species_labels)
+        # a genuine last-bit difference, not a no-op the gate never sees
+        @test cartesian_positions(near) != cartesian_positions(xt)
+        @test length(read_extxyz(f; reference = near)) == 2
+        frac[3, 2] = xt.frac_positions[3, 2] + 1e-3 / 3.0     # 1e-3 A displacement
+        far = Crystal(xt.lattice, frac, xt.species, xt.species_labels)
+        @test_throws ArgumentError read_extxyz(f; reference = far)
+    end
+
     @testset "loud checks: claims never override measurements" begin
         data = [mkdat(i) for i = 1:2]
         f = joinpath(tmp, "claims.extxyz")
@@ -378,8 +398,9 @@ using Random
 
         # a triclinic cell with asymmetric positions: the lattice string is
         # column-major (columns = lattice vectors, the ASE / SLCE convention) and
-        # the reference check holds bit for bit — a transposed writer or reader
-        # would fail here where the cubic fixtures cannot tell
+        # the reference check holds — a transposed writer or reader would fail here
+        # (by whole angstroms, far outside the round-off band) where the cubic
+        # fixtures cannot tell
         Atri = [3.0 0.3 0.2; 0.0 3.4 0.5; 0.0 0.0 3.9]
         xtri = Crystal(Lattice(Atri), [0.1 0.6; 0.2 0.7; 0.3 0.9], [1, 2], ["Fe", "Ge"])
         ftri = joinpath(tmp, "tri.extxyz")

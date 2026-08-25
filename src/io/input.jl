@@ -152,7 +152,9 @@ end
 # ("2"), species/pair keys anything else. Convert to the BasisSpec sugar forms.
 _is_bodykey(k::AbstractString) = !isnothing(match(r"^\d+$", k))
 
-function _lmax_from_input(x)
+function _lmax_from_input(x, what::String = "[interaction].lmax")
+    all(_is_toml_int, x isa AbstractDict ? values(x) : x) ||
+        throw(ArgumentError("$what entries must be integers; got $(repr(x))"))
     x isa AbstractDict && return [String(k) => Int(v) for (k, v) in x]
     return Int[Int(v) for v in x]
 end
@@ -167,7 +169,7 @@ function _lsum_table_from_input(x::AbstractDict, section::String)::Vector{Pair{I
         _is_bodykey(ks) || throw(ArgumentError(
             "[$section].lsum: key $(repr(k)) is not a body order (keys are bare " *
             "integers: 1, 2, …)"))
-        v isa Integer || throw(ArgumentError(
+        _is_toml_int(v) || throw(ArgumentError(
             "[$section].lsum.$ks must be an integer; got $(repr(v))"))
         push!(out, parse(Int, ks) => Int(v))
     end
@@ -175,23 +177,30 @@ function _lsum_table_from_input(x::AbstractDict, section::String)::Vector{Pair{I
 end
 
 function _lsum_from_input(x)
-    x isa Real && return Int(x)
+    _is_toml_int(x) && return Int(x)
+    x isa Real && throw(ArgumentError(
+        "[interaction].lsum must be an integer or a body-order table; got $(repr(x))"))
     x isa AbstractDict || throw(ArgumentError(
         "[interaction].lsum must be an integer or a body-order table"))
     return _lsum_table_from_input(x, "interaction")
 end
 
 _pairtable_from_input(x::AbstractDict, ctx::String) =
-    [String(k) => (v isa Real ? Float64(v) :
-                   throw(ArgumentError("$ctx: $(repr(k)) must be a number"))) for (k, v) in x]
+    [String(k) => (_is_toml_number(v) ? Float64(v) :
+                   throw(ArgumentError("$ctx: $(repr(k)) must be a number; got " *
+                                       "$(repr(v))"))) for (k, v) in x]
 
 function _cutoff_from_input(x)
-    x isa Real && return Float64(x)
-    x isa AbstractDict ||
-        throw(ArgumentError("[interaction].cutoff must be a number or a table"))
+    _is_toml_number(x) && return Float64(x)
+    x isa AbstractDict || throw(ArgumentError(
+        "[interaction].cutoff must be a number or a table; got $(repr(x))"))
     ks = collect(keys(x))
     if all(_is_bodykey, ks)          # body-keyed: scalar or pair table per order
-        return [parse(Int, k) => (v isa Real ? Float64(v) :
+        return [parse(Int, k) => (_is_toml_number(v) ? Float64(v) :
+                                  v isa Real ?
+                                  throw(ArgumentError("[interaction].cutoff.$k must " *
+                                                      "be a number or a species-pair " *
+                                                      "table; got $(repr(v))")) :
                                   _pairtable_from_input(v, "[interaction].cutoff.$k"))
                 for (k, v) in x]
     elseif !any(_is_bodykey, ks)     # one species-pair table for every order
@@ -205,11 +214,21 @@ function _interaction_from_input(d, labels::Vector{String})::BasisSpec
         throw(ArgumentError("[interaction].pair_cutoff was replaced by `cutoff` " *
                             "(a scalar is equivalent; see the input-schema docstring " *
                             "for per-body / per-pair tables)"))
-    nbody = Int(_input_require(d, "nbody", "interaction"))
+    nbody_in = _input_require(d, "nbody", "interaction")
+    _is_toml_int(nbody_in) ||
+        throw(ArgumentError("[interaction].nbody must be an integer; got $(repr(nbody_in))"))
+    nbody = Int(nbody_in)
     lmax = _lmax_from_input(_input_require(d, "lmax", "interaction"))
     cutoff = _cutoff_from_input(_input_require(d, "cutoff", "interaction"))
     lsum = haskey(d, "lsum") ? _lsum_from_input(d["lsum"]) : nothing
-    isotropy = haskey(d, "isotropy") ? Bool(d["isotropy"]) : false
+    isotropy = if haskey(d, "isotropy")
+        d["isotropy"] isa Bool ||
+            throw(ArgumentError("[interaction].isotropy must be a boolean; got " *
+                                "$(repr(d["isotropy"]))"))
+        d["isotropy"]
+    else
+        false
+    end
     return BasisSpec(labels; nbody = nbody, lmax = lmax, cutoff = cutoff, lsum = lsum,
                      isotropy = isotropy)
 end
@@ -250,8 +269,11 @@ function _species_list_from_input(x, labels::Vector{String}, what::String)::Vect
 end
 
 # TOML integers arrive as `Int`; `Bool <: Integer`, so `isa Integer` would let `true`
-# through as 1 — the kind test is on the concrete type.
+# through as 1 — the kind test is on the concrete type. Likewise `Bool <: Real`, so a
+# radius written `cutoff = true` would become 1.0 Å; every numeric door of BOTH
+# sections goes through these two.
 _is_toml_int(v) = v isa Int
+_is_toml_number(v) = v isa Real && !(v isa Bool)
 
 function _moment_lmax_env_from_input(x, labels::Vector{String})::Vector{Int}
     what = "[moment].lmax_env"
@@ -259,15 +281,13 @@ function _moment_lmax_env_from_input(x, labels::Vector{String})::Vector{Int}
         throw(ArgumentError("$what must be a per-species integer array or a label " *
                             "table (a bare scalar is not accepted, as for " *
                             "[interaction].lmax)"))
-    all(_is_toml_int, x isa AbstractDict ? values(x) : x) ||
-        throw(ArgumentError("$what entries must be integers"))
-    return _resolve_species_table(_lmax_from_input(x), length(labels), labels, what)
+    return _resolve_species_table(_lmax_from_input(x, what), length(labels), labels, what)
 end
 
 function _moment_cutoff_from_input(x, labels::Vector{String}, key::String)
     what = "[moment].$key"
-    x isa Bool && throw(ArgumentError("$what must be a number; got $(repr(x))"))
-    x isa Real && return Float64(x)
+    _is_toml_number(x) && return Float64(x)
+    x isa Real && throw(ArgumentError("$what must be a number; got $(repr(x))"))
     x isa AbstractDict ||
         throw(ArgumentError("$what must be a number or a species-pair table"))
     any(_is_bodykey, keys(x)) &&

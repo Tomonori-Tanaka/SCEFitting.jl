@@ -519,14 +519,40 @@ function solve_coefficients(est::AdaptiveRidge, X::AbstractMatrix, y::AbstractVe
     beta = Symmetric(XtX + est.lambda * Diagonal(m)) \ Xty
     D = Vector{Float64}(undef, p)
     sm = sqrt.(m)                    # the stopping rule's coordinates, hoisted
+    rel = Inf
+    converged = false
     for _ = 1:est.max_iter
         @. D = m / (m * beta^2 + est.epsilon)
         beta_new = Symmetric(XtX + est.lambda * Diagonal(D)) \ Xty
         rel = _irls_rel_change(beta_new, beta, sm)
         beta = beta_new
-        rel < est.tol && break
+        if rel < est.tol
+            converged = true
+            break
+        end
     end
+    converged || _warn_irls(:AdaptiveRidge, rel, est.tol, est.max_iter, est.lambda)
     return beta
+end
+
+# A reweighted-ridge run that exits on `max_iter` rather than on its stopping rule has
+# not solved its own fixed point, and the surrogate is non-convex, so the returned
+# coefficients are wherever the iteration happened to be. That matters beyond the
+# coefficients: `islinear` is `true` for these estimators, which lets `gcv` and
+# `effective_dof` rebuild the penalty diagonal FROM the returned `beta` and score the
+# smoother it implies — a smoother that was never solved. Nothing recorded the exit
+# reason before this, so the condition was unreportable. Deliberately without `maxlog`:
+# a λ path would then report only its first non-convergent λ, and — since `maxlog` is
+# per call site per session — a test could not observe the warning twice.
+function _warn_irls(which::Symbol, rel::Float64, tol::Float64, max_iter::Int,
+                    lambda::Float64)
+    @warn "$which: the reweighted-ridge iteration hit max_iter = $max_iter without " *
+          "meeting its stopping rule (last relative change $rel vs tol = $tol, " *
+          "lambda = $lambda). The returned coefficients are not a fixed point of the " *
+          "reweighting, and `gcv` / `effective_dof` rebuild the penalty diagonal from " *
+          "them, so those diagnostics score a smoother that was never solved. Raise " *
+          "`max_iter`, loosen `tol`, or raise `epsilon` (the weight-map floor)."
+    return nothing
 end
 
 # The group-adaptive-ridge weight map — the ONLY definition of the group-form update
@@ -580,14 +606,20 @@ function _solve_gar(XtX::Matrix{Float64}, Xty::Vector{Float64}, lambda::Float64,
     else
         copy(beta0)
     end
+    rel = Inf
+    converged = false
     for _ = 1:max_iter
         _gar_weights!(D, beta, column_groups, group_weights, group_sizes, metric,
                       epsilon, normsq)
         beta_new = Symmetric(XtX + lambda * Diagonal(D)) \ Xty
         rel = _irls_rel_change(beta_new, beta, sm)
         beta = beta_new
-        rel < tol && break
+        if rel < tol
+            converged = true
+            break
+        end
     end
+    converged || _warn_irls(:GroupAdaptiveRidge, rel, tol, max_iter, lambda)
     return beta
 end
 

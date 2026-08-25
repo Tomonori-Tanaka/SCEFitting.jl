@@ -6,6 +6,51 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — mechanical audit items: interchange round-off, TOML kinds, IRLS reporting (2026-08-25)
+
+- **The reference-geometry gate compares positions with a band, not exactly.**
+  `read_extxyz(...; reference)` measured spin-only vs joint by `all(iszero, pos - refc)`,
+  where `refc` is a freshly recomputed `vectors * frac`. This is an interchange format
+  (the same dialect as SLCE.jl), so the file's writer is routinely a different build and
+  the last bits differ; a 1-ulp (~2e-15 Å) mismatch was reported as *"positions differ
+  from the reference crystal's — displaced (joint spin–lattice) data are not
+  representable in this pure-spin package"*, a claim about the physics that was false.
+  Both comparisons now use the lattice check's absolute band (`_REF_GEOM_ATOL = 1e-8`),
+  orders below the ≳ 1e-3 Å displacement the distinction is about. The frame-to-frame
+  comparison stays exact on purpose — one writer, one file.
+- **`SpinDatum` screens every field for finiteness**, not only `moments_bare` and
+  `constraint_axes`. The file readers screen numbers as they parse, but an adapter that
+  builds a `SpinDatum` directly — the production path — reached the constructor with
+  whatever the SCF produced, and one diverged frame turned every fitted coefficient into
+  `NaN` with nothing naming the configuration. `directions` is deliberately still left
+  to the dataset constructor, which checks norm, pole margin and finiteness together.
+- **`[interaction]` refuses a boolean where a number belongs.** `Bool <: Real` and
+  `Bool <: Integer`, so `cutoff = true` was read as 1.0 Å, `lsum = true` and
+  `nbody = true` as 1 — a silently different model. `[moment]` already refused this in
+  three places; the asymmetry was not a decision. Both sections now share
+  `_is_toml_int` / `_is_toml_number`, and `[interaction].isotropy` requires a real
+  boolean the way `[moment].isotropy` does.
+- **A reweighted ridge that exits on `max_iter` says so.** Both IRLS loops discarded
+  the last relative change and reported nothing on hitting the iteration cap. That
+  matters beyond the coefficients: `islinear` is `true` for `AdaptiveRidge` /
+  `GroupAdaptiveRidge`, so `gcv` and `effective_dof` rebuild the penalty diagonal FROM
+  the returned coefficients and score the smoother it implies — a smoother that was
+  never solved. Deliberately without `maxlog`, so a λ path reports every non-convergent
+  point.
+- The pointed moment basis's self-image comment claimed the `allunique` guard was a
+  second lock, "since a minimum-image neighbor list has no self-pairs". That is a
+  statement about the *centre's* neighbours, and the `N!` re-anchoring walks the mark
+  around the star, so an environment of the original centre becomes the mark and
+  another environment can sit on an image of it — the guard is the only lock. The
+  spoke test in `admit` is not a second one either: `_dmin2_matrix` leaves its diagonal
+  at `Inf`, so that comparison is identically true for exactly this case. Comments only;
+  no behaviour change.
+- `with_lambda` gained the tests it had none of — a `fieldnames` sweep asserting that
+  λ moves and every other field, the penalty metric and its provenance included, is
+  carried through. The package documents this as unobservable through a fit (a dropped
+  metric is indistinguishable from a deliberate uniform one), so the contract is
+  asserted structurally.
+
 ### Fixed — a neighbour list keeps its species-pair radii, not their maximum (2026-08-25)
 
 - **`NeighborList.cutoff` is now the symmetric per-species-pair radius matrix the list

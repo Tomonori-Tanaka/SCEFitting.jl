@@ -92,6 +92,22 @@ struct SpinDatum <: AbstractTrainingDatum
                        constraint_axes::Union{Matrix{Float64},Nothing},
                        constraint_mode::Union{Int,Nothing})
         nat = size(directions, 2)
+        # Finiteness on every field, not only on the two that carry value constraints
+        # of their own below. The file readers screen each number as they parse it
+        # (`_embset_number`, `_xyz_number`), but an adapter that builds a `SpinDatum`
+        # directly — the production path — reaches this constructor with whatever the
+        # SCF produced. One diverged frame otherwise turns every fitted coefficient
+        # into `NaN` without naming the configuration that caused it.
+        # `directions` is deliberately NOT screened here: the direction door is the
+        # dataset constructor, which checks norm, pole margin and finiteness together
+        # (a bare finiteness test here would pre-empt its message with a poorer one).
+        isfinite(energy) || throw(ArgumentError("`energy` is not finite ($energy)"))
+        all(isfinite, magmoms) ||
+            throw(ArgumentError("`magmoms` contains non-finite entries"))
+        all(isfinite, field) ||
+            throw(ArgumentError("`field` contains non-finite entries"))
+        all(isfinite, torques) ||
+            throw(ArgumentError("`torques` contains non-finite entries"))
         if moments_bare !== nothing
             size(moments_bare) == (3, nat) || throw(ArgumentError(
                 "`moments_bare` must be 3 × $nat (got $(size(moments_bare)))"))
