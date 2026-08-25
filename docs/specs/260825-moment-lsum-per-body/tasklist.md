@@ -59,7 +59,7 @@ that do not apply.
 - [x] If public API changed: `SPEC.md` and `docs/src/api.md` updated.
 - [x] ~~If a hot path was touched: before / after recorded in `bench/BENCH_LOG.md`.~~
       (遮蔽述語 1 行、列数は変わらない)
-- [ ] Tier 2 review panel run (numerical / maintainability / performance /
+- [x] Tier 2 review panel run (numerical / maintainability / performance /
       API axes) and findings resolved.
 - [x] ~~If module names or Makefile targets changed: `.claude/agents/` swept.~~
 - [x] ~~If this diverges from SLCE.jl: divergence ledger row in `CLAUDE.md`.~~
@@ -67,8 +67,28 @@ that do not apply.
 - [x] `CHANGELOG.md` `[Unreleased]` updated.
 - [x] `Status:` line in this file and the table in `docs/specs/README.md`
       updated in sync.
-- [ ] Implementation commit hash appended below.
+- [x] Implementation commit hash appended below.
 
 ## Commits
 
-<!-- filled in as milestones land -->
+- SCEFitting `4a25ec9` — `feat(basis): per-body-order lsum in the pointed moment spec`
+- SLCE `765ecea` — 同上(TOML 半分を除く逐語移植)
+
+## レビュー(tier 2、2026-08-25)
+
+4 軸を並列で実施。numerical 1 major / maintainability 1 blocker + 5 major /
+API 3 major / performance 0。**全件着地**。主なもの:
+
+- **手計算オラクルの Σl 多重集合が誤り**(N=4 は `{4,4,6,6,6,8}`、`{4,4,4,6,6,8}` ではない)。
+  アサーション側が正しく、コメント側が矛盾していた — 導出コメントがオラクルなので blocker。
+- **`length(lsum) == nbody` を誰も強制していなかった**。フィールド型どおりの位置指定
+  構築子はキーワード構築子を迂回するので、内部構築子で 2 本のベクトル長を表明。
+  `_star_cutoff` にも `_label_lsum` と対称の境界チェックを追加。
+- **空セクタ警告が内部添字を印字していた**(`cutoff_star[2]` — 利用者の入力に存在しない
+  添字)。体数で名指しするよう変更。無制限のキャップを「上げろ」と言う分岐も削除。
+- **TOML の 2 つの lsum リーダーが黙って分岐していた**(値の型チェックの厳しさとメッセージ
+  文言)。`_lsum_table_from_input(x, section)` 1 本に集約。
+- **位置指定ベクトルの拒否理由が逆向き**だった(「オフセットが無いから曖昧でない」は
+  受理する理由)。実際の理由 = **表が部分指定**であること、に書き換え。
+- 発散台帳の `[moment]` TOML 行に、同一セクション内の 2 つの表が**逆の規則**
+  (`cutoff_star` は過不足なし / `lsum` は部分指定可)である旨と、移植時に再判断が要る旨を追記。
