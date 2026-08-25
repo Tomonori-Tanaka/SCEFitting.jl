@@ -6,6 +6,42 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — an aperiodic axis now restricts the space group (2026-08-25)
+
+- **`analyze_symmetry` intersects the backend's group with the crystal's declared
+  periodicity.** A backend analyses the cell as a fully periodic 3D crystal — Spglib is
+  not told about `Lattice(...; pbc)` and has no way to be — while the neighbour list
+  refuses to emit an image along an aperiodic axis. `_build_map_sym` then folded mod 1
+  on all three axes unconditionally, so an operation that closes only through the
+  artificial periodicity was accepted and surfaced downstream as
+  `build_clusters`' closure assertion, blamed on "the image selection and the tie
+  tolerance" — a cause it does not have. Reproduced on a three-layer slab straddling
+  `z = 0` with `pbc = (true, true, false)`; the same slab placed at the centre of the
+  cell, and either placement fully periodic, built fine.
+- Operations whose rotation mixes a periodic with an aperiodic axis are refused on the
+  rotation alone: they send a lattice translation into a direction with none to receive
+  it, so the declared translation lattice is not mapped onto itself.
+- **Translations are re-seated, not just filtered.** A backend reports `t` modulo a
+  lattice translation, which along an aperiodic axis is not an identification one may
+  make — exactly one representative is the operation the finite structure has. A slab
+  centred at `z = 1/2` has a mirror there, and Spglib is entitled to report it as the
+  mirror at `z = 0` with `t_z = 0`; the assembler now searches for the single integer
+  shift along the aperiodic axes that makes every atom match exactly, and keeps the
+  operation with that representative. So the centred slab keeps its full group, and
+  `_site_image` produces a zero cell shift along the aperiodic axes by construction.
+- The kept set is a **subgroup** (the aperiodic match is exact, so it composes; the
+  identity satisfies it; a bijection's inverse does too) and is re-validated with
+  `_validate_ops`. Using a subgroup never over-reduces: the basis is larger than the
+  fully periodic one, never short. A fully periodic crystal returns before any of this
+  and is bit-for-bit unchanged.
+- The dropped count is warned once per `analyze_symmetry` call (no `maxlog`: a user
+  building several slabs needs to be told about each), and `symbol` gains a
+  `" (pbc subgroup)"` suffix so a group that is not the reported one cannot be mistaken
+  for it. `guide/basis.md`, the `Lattice` docstring and the `analyze_symmetry` docstring
+  say all of this, including the alternative: for a vacuum-padded slab meant as a 3D
+  crystal, keep `pbc = (true, true, true)` — the vacuum and the cutoff already keep the
+  images apart.
+
 ### Fixed — `select_fit(:cv)` reported the objective divided by the row count (2026-08-25)
 
 - **`select_fit(...; criterion = :cv)` no longer divides the pooled out-of-fold sum by

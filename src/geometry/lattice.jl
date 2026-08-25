@@ -8,7 +8,11 @@ A (possibly partially) periodic Bravais lattice.
   vectors `a₁ a₂ a₃` (Å).
 
 # Keyword arguments
-- `pbc = (true, true, true)`: periodicity along each lattice direction.
+- `pbc = (true, true, true)`: periodicity along each lattice direction. An aperiodic
+  axis suppresses the neighbor list's images along it, leaves fractional positions
+  unwrapped there (there is no period to wrap with), and restricts the space group to
+  the operations that do not close through that axis — see
+  [`analyze_symmetry`](@ref).
 
 # Notes
 The reciprocal matrix is `inv(vectors)`; its **rows** `bᵢ` satisfy `aᵢ·bⱼ = δᵢⱼ`
