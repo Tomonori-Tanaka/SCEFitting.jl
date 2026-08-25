@@ -254,8 +254,10 @@ capability consumed by both the introspection and the Sunny interop.
   substitution (exact — one mark per label), threaded per column, a mark→term index
   value-identical to the full evaluation. `moment_resolvability` (D9′): symbolic
   signature rank in the independent variables `(a, ê_a, e)`, null combinations naming
-  dependent columns, mark-class census; refuses repeated-image environment members
-  (`UnclassifiableBasis`) rather than overcounting. Validated by independent
+  dependent columns, mark-class census. A repeated-atom star (two images of one
+  neighbor, or an environment on an image of the mark) is refused by
+  `_pointed_star_candidates` at the enumeration; this gate's `UnclassifiableBasis`
+  is the backstop for a candidate source that skips that rule. Validated by independent
   references (`test_momentbasis.jl`): FeGe B20 star closed form = 6.0 × a geometric
   triangle enumeration, shell-sum normalization 2√3, G_i covariance with axes,
   bitwise TR, substitution locality, symbolic ≡ random-design rank. The 1-body

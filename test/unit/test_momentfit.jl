@@ -653,15 +653,18 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
     end
 
     @testset "the dataset door is hard on an unclassifiable basis" begin
-        # the primitive-cell STAR basis keeps repeated-image environment members
-        # (upstream parity); moment_resolvability refuses it, and MomentDataset
-        # propagates that refusal instead of building a design it cannot vouch for
+        # `_pointed_star_candidates` refuses a repeated-atom star, so the primitive
+        # cell's own star basis is classifiable now. The door is still what keeps such
+        # a basis away from a design, so hand it one built the way a candidate source
+        # that skips that rule would build it.
         sstar = MomentSpec(; lmax_env = [2, 2], sampled = [true, true], lmax_mark = 2,
                            nbody = 3, cutoff_pair = 3.3, cutoff_star = 3.3)
         mstar = MomentBasis(xt, sstar; backend = bk)
+        @test SCEFitting.moment_resolvability(mstar) isa NamedTuple
         e = _mb_unit(rng, nat)
         @test_throws SCEFitting.UnclassifiableBasis _quiet(() -> MomentDataset(
-            mstar, [_mf_datum(e; M = randn(rng, 3, nat), mode = 4)]; gate_eps = 1e6,
+            fold_members_onto_one_atom(mstar),
+            [_mf_datum(e; M = randn(rng, 3, nat), mode = 4)]; gate_eps = 1e6,
             coverage_floor = 0.0))
     end
 
@@ -1003,20 +1006,26 @@ _mf_fit(ds) = @test_logs (:warn, r"rank deficient") (:warn, r"rank deficient") f
     end
 
     @testset "salc_groups: same mark atoms, different mark sites split" begin
-        # Review-found merge case (upstream): a canonical member carrying two
-        # periodic images of one atom projects two distinct mark placements onto
-        # the SAME reference-cell atom set — an atom-set-only key folds them. On
-        # this cell the two columns also alias on periodic data (|cos| = 1; the
-        # resolvability layer discloses that dependency separately), but the
-        # group key is STRUCTURAL: mark class, never column values.
-        crm = Crystal(Lattice(Matrix(Diagonal([3.0, 4.0, 5.0]))),
-                      [0.0 0.5; 0.0 0.0; 0.0 0.0], [1, 1], ["Fe"])
+        # Review-found merge case: a canonical member carrying two periodic
+        # images of one atom projects two distinct mark placements onto the SAME
+        # reference-cell atom set — an atom-set-only key folds them. The key stays
+        # structural (mark class, never column values), and its SITE component stays
+        # too, because a candidate source that does not apply
+        # `_pointed_star_candidates`' distinct-atoms rule can still hand this shape
+        # in. That is now the only way to reach it — with distinct atoms a member's
+        # site↔atom map is a bijection, so different mark sites imply different mark
+        # atoms — so the fixture is a real 3-body basis folded onto one atom rather
+        # than a cell that produces the shape by itself.
+        crm = Crystal(Lattice(Matrix(Diagonal([6.0, 4.0, 5.0]))),
+                      [0.0 0.25 0.5 0.75; 0.0 0.0 0.0 0.0; 0.0 0.0 0.0 0.0],
+                      [1, 1, 1, 1], ["Fe"])
         sgm = _assemble_spacegroup(crm, [SMatrix{3,3,Float64}(Matrix(1.0 * I(3)))],
                                    [SVector{3,Float64}(0, 0, 0)], "P1-img", 1;
                                    tol = 1e-5)
         spm = MomentSpec(; lmax_env = [1], sampled = [true], lmax_mark = 1,
                          nbody = 3, cutoff_pair = 3.3, cutoff_star = 3.3)
-        mbm = MomentBasis(crm, spm; backend = _MBFixedSG(sgm))
+        mbm = fold_members_onto_one_atom(
+            MomentBasis(crm, spm; backend = _MBFixedSG(sgm)))
         salm = SCEFitting.salcs(mbm)
         glm = SCEFitting.salc_groups(mbm)
         # NOTE: `_marksets` re-derives the key the same way `salc_groups` does,

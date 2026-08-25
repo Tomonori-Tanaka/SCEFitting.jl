@@ -59,9 +59,13 @@ side's compact-cluster rule is deliberate: a star has a distinguished centre, so
 environment site is fixed by the mark's cell plus its own spoke and two orbits cannot
 carry the same monomial — **as long as every spoke has a unique minimum image**. Where
 a spoke does not (a Wigner–Seitz tie at the cell boundary), that uniqueness is exactly
-what fails, the tie-induced member multiplicity grows as `(tie)^(N−1)`, and
-[`moment_resolvability`](@ref) is what catches the degeneracy — by refusing, never by
-overcounting.
+what fails: two of the star's sites land on ONE reference-cell atom, both spin factors
+read the same direction, and the "N-body" member is really a lower-body function. Such
+a star is **not enumerated** — the same rule the energy side applies under
+`MinimumImage` — so the cell keeps the stars it can resolve. If that empties a body
+order the basis says so with a warning naming the order and `cutoff_star`; the remedy
+is a reference cell in which the tied images are distinct atoms, or a smaller
+`cutoff_star` for that order.
 
 `cutoff_star` may be given **per star order**: a vector of `nbody - 2` entries, one
 per order, entry `i` for body order `i + 2` (a scalar or a species-pair matrix
