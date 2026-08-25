@@ -140,9 +140,9 @@ whose default is a torque fit. (`torque_weight` interpolates: `0.0` is energy-on
 
 ```@example case1
 dataset = SCEDataset(basis, data; use_torque = true)
-f = fit(SCEFit, dataset, OLS(); torque_weight = 1.0)
+sce_fit = fit(SCEFit, dataset, OLS(); torque_weight = 1.0)
 
-(n_coef = length(coef(f)), n_configs = nobs(f))
+(n_coef = length(coef(sce_fit)), n_configs = nobs(sce_fit))
 ```
 
 ## Validation
@@ -152,10 +152,10 @@ In-sample fit quality: root-mean-square errors on the energy and torque, the ene
 
 ```@example case1
 using Printf
-@printf("RMSE energy : %.2f meV\n", rmse_energy(f) * 1000)
-@printf("R^2  energy : %.5f\n",     r2_energy(f))
-@printf("RMSE torque : %.2f meV\n", rmse_torque(f) * 1000)
-@printf("j0          : %.4f eV\n",  intercept(f))
+@printf("RMSE energy : %.2f meV\n", rmse_energy(sce_fit) * 1000)
+@printf("R^2  energy : %.5f\n",     r2_energy(sce_fit))
+@printf("RMSE torque : %.2f meV\n", rmse_torque(sce_fit) * 1000)
+@printf("j0          : %.4f eV\n",  intercept(sce_fit))
 ```
 
 The torque — the fit's primary target — is reproduced to high accuracy (``R^2_\tau \approx 0.998``),
@@ -169,9 +169,9 @@ using CairoMakie
 CairoMakie.activate!(type = "png")
 
 E_obs  = [d.energy for d in data]
-E_pred = predict_energy(f, [d.directions for d in data])
+E_pred = predict_energy(sce_fit, [d.directions for d in data])
 T_obs  = reduce(vcat, vec(d.torques) for d in data)
-T_pred = reduce(vcat, vec(predict_torque(f, d.directions)) for d in data)
+T_pred = reduce(vcat, vec(predict_torque(sce_fit, d.directions)) for d in data)
 
 fig = Figure(size = (820, 410))
 function parity!(ax, obs, pred)
@@ -207,33 +207,34 @@ carries a factor of one half:
 energy as ``+\hat{\boldsymbol e}_i\cdot M\,\hat{\boldsymbol e}_j``).
 
 ```@example case1
-terms = bilinear_terms(f |> SCEPredictor)
+terms = bilinear_terms(sce_fit |> SCEPredictor)
 carts = cartesian_positions(crystal)
 A     = lattice.vectors
 
 # one (distance, J) per pair, then average within each distance shell
-rec = [(norm(carts[:, j] + A * Float64.(R) - carts[:, i]), -tr(M) / 6)
+pair_couplings = [(norm(carts[:, j] + A * Float64.(R) - carts[:, i]), -tr(M) / 6)
        for ((i, j, R), M) in terms.pairs]
-sort!(rec, by = first)
-function shells(rec)
+sort!(pair_couplings, by = first)
+function shells(pair_couplings)
     out = Tuple{Float64,Float64}[]
     k = 1
-    while k <= length(rec)
-        d0 = rec[k][1]; js = Float64[]
-        while k <= length(rec) && abs(rec[k][1] - d0) < 1e-3
-            push!(js, rec[k][2]); k += 1
+    while k <= length(pair_couplings)
+        d0 = pair_couplings[k][1]; js = Float64[]
+        while k <= length(pair_couplings) && abs(pair_couplings[k][1] - d0) < 1e-3
+            push!(js, pair_couplings[k][2]); k += 1
         end
         push!(out, (d0, sum(js) / length(js)))
     end
     return out
 end
-sh = shells(rec)
+shell_couplings = shells(pair_couplings)
 
 fig = Figure(size = (680, 420))
 ax  = Axis(fig[1, 1]; xlabel = "pair distance (Å)", ylabel = "J (meV)",
            title = "bcc Fe — isotropic exchange,  ℋ = −Σ Jᵢⱼ êᵢ·êⱼ")
 hlines!(ax, [0]; color = :gray, linestyle = :dash)
-stem!(ax, first.(sh), last.(sh) .* 1000; color = :crimson, markersize = 9)
+stem!(ax, first.(shell_couplings), last.(shell_couplings) .* 1000;
+      color = :crimson, markersize = 9)
 fig
 ```
 
@@ -264,10 +265,10 @@ is rescaled, and is unused here).
 ```@example case1
 using Sunny
 
-model = SCEPredictor(f)
+model = SCEPredictor(sce_fit)
 sys = to_sunny(model; spins = 1.1, placement = :primitive)   # :auto → :coupling for S_eff = 1.1
 Sunny.polarize_spins!(sys, (0, 0, 1))                        # ferromagnetic ground state
-swt = Sunny.SpinWaveTheory(sys; measure = nothing)
+spinwave = Sunny.SpinWaveTheory(sys; measure = nothing)
 nothing # hide
 ```
 
@@ -279,12 +280,13 @@ comes out in the energy unit of the couplings (eV), scaled to meV.
 ```@example case1
 recip = 2π * inv(Matrix(sys.crystal.latvecs))'      # reciprocal primitive vectors (Å⁻¹)
 a = 2.8298
-hs = Dict("Γ" => [0, 0, 0], "H" => (2π/a) .* [1, 0, 0],
+q_points = Dict("Γ" => [0, 0, 0], "H" => (2π/a) .* [1, 0, 0],
           "N" => (2π/a) .* [1/2, 1/2, 0], "P" => (2π/a) .* [1/2, 1/2, 1/2])
 to_rlu(q) = recip \ collect(q)                      # Cartesian Å⁻¹ → primitive RLU
-seq = ["Γ", "H", "N", "Γ", "P", "H"]
-path = Sunny.q_space_path(sys.crystal, [to_rlu(hs[s]) for s in seq], 400; labels = seq)
-disp = 1000 .* Sunny.dispersion(swt, path)          # eV → meV
+path_labels = ["Γ", "H", "N", "Γ", "P", "H"]
+path = Sunny.q_space_path(sys.crystal, [to_rlu(q_points[s]) for s in path_labels],
+                          400; labels = path_labels)
+disp = 1000 .* Sunny.dispersion(spinwave, path)          # eV → meV
 
 fig = Figure(size = (720, 420))
 ax  = Axis(fig[1, 1]; ylabel = "ℏω (meV)", xticks = path.xticks,
@@ -301,9 +303,10 @@ against experiment, compare the ``\Gamma\text{–}N`` branch to inelastic-neutro
 measurements[^expt] (digitized in [`febcc_spinwave.csv`](case1_inputs/febcc_spinwave.csv)):
 
 ```@example case1
-gn = Sunny.q_space_path(sys.crystal, [to_rlu(hs["Γ"]), to_rlu(hs["N"])], 200)
-disp_gn = 1000 .* Sunny.dispersion(swt, gn)
-q_gn = [norm(recip * collect(q)) for q in gn.qs]    # |q| along Γ–N (Å⁻¹)
+path_gamma_n = Sunny.q_space_path(sys.crystal,
+                                  [to_rlu(q_points["Γ"]), to_rlu(q_points["N"])], 200)
+disp_gn = 1000 .* Sunny.dispersion(spinwave, path_gamma_n)
+q_gn = [norm(recip * collect(q)) for q in path_gamma_n.qs]    # |q| along Γ–N (Å⁻¹)
 
 rows = [split(strip(l, ['﻿', ' ']), ',') for l in eachline(joinpath(inputs, "febcc_spinwave.csv"))
         if !isempty(strip(l)) && !startswith(strip(l, ['﻿', ' ']), "#")]

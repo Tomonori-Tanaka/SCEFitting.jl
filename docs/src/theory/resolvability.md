@@ -49,11 +49,13 @@ spin data and need not be independent:
 
 For a body-centered cubic cell, the cross pair sits at all eight corners at once:
 
-```@example res
+```@example resolvability
 using SCEFitting
-cr = Crystal(Lattice([3.0 0 0; 0 3.0 0; 0 0 3.0]), [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["Fe"])
-nl = SCEFitting.build_neighbor_list(cr, Inf, MinimumImage())   # public-unexported: qualify
-length([p for p in nl.pairs if (p.i, p.j) == (1, 2)])     # 8 equidistant corner images
+crystal = Crystal(Lattice([3.0 0 0; 0 3.0 0; 0 0 3.0]),
+                  [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 1], ["Fe"])
+# public-unexported: qualify
+neighbors = SCEFitting.build_neighbor_list(crystal, Inf, MinimumImage())
+length([p for p in neighbors.pairs if (p.i, p.j) == (1, 2)])     # 8 equidistant corner images
 ```
 
 Self-pairs (``i = i + R``) are dropped: both ends share ``\hat{\boldsymbol e}_i``, so the

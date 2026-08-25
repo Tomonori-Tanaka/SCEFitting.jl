@@ -16,7 +16,7 @@ self-contained, human-readable **TOML** document. (They are intentionally *not* 
 the names clash with FileIO / JLD2 / CSV — so qualify them.)
 
 ```julia
-SCEFitting.save("model.toml", SCEPredictor(f))      # or save("basis.toml", basis)
+SCEFitting.save("model.toml", SCEPredictor(sce_fit))      # or save("basis.toml", basis)
 model = SCEFitting.load(SCEPredictor, "model.toml")
 predict_energy(model, configs)
 ```
@@ -110,8 +110,8 @@ isotropy    = true         # optional, default true (L_S = 0 only)
 ```
 
 ```julia
-basis = SCEBasis("input.toml")
-mb    = MomentBasis("input.toml")   # same [symmetry] and [interaction].tie_tol
+basis        = SCEBasis("input.toml")
+moment_basis = MomentBasis("input.toml")   # same [symmetry] and [interaction].tie_tol
 ```
 
 Every value is handed to the [`MomentSpec`](@ref) keyword constructor, which owns the
@@ -177,8 +177,8 @@ The rows are in design-matrix column order, the same order as [`coef`](@ref) and
 
 ```julia
 using DataFrames
-df = DataFrame(coeftable(f))        # or CSV.write("J.csv", coeftable(f))
-intercept(f)                        # the reference energy j0 (not a row)
+coef_df = DataFrame(coeftable(sce_fit))   # or CSV.write("J.csv", coeftable(sce_fit))
+intercept(sce_fit)                        # the reference energy j0 (not a row)
 ```
 
 The boundary is deliberate: the library owns the mapping from internal storage

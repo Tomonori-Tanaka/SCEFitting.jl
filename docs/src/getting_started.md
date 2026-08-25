@@ -36,9 +36,9 @@ import Spglib                       # activate the SpglibBackend extension
 using LinearAlgebra, Random
 
 # A 4-atom chain of magnetic atoms along z.
-lat   = Lattice([8.0 0 0; 0 8.0 0; 0 0 10.0])
-frac  = [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75]
-chain = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
+lattice = Lattice([8.0 0 0; 0 8.0 0; 0 0 10.0])
+frac    = [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75]
+chain   = Crystal(lattice, frac, [1, 1, 1, 1], ["Fe"])
 
 # Nearest-neighbor, 2-body, isotropic (Heisenberg) channel only.
 interaction = BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1], isotropy = true)
@@ -60,8 +60,8 @@ configs = [randcfg(4) for _ = 1:40]
 E = [J_true * sum(dot(c[:, m.atoms[1]], c[:, m.atoms[2]]) for m in heis.members)
      for c in configs]
 
-f = fit(SCEFit, SCEDataset(basis, configs, E), OLS())
-(; r2 = r2_energy(f), J = 2 * sqrt(3) * coef(f)[1], J_true)
+sce_fit = fit(SCEFit, SCEDataset(basis, configs, E), OLS())
+(; r2 = r2_energy(sce_fit), J = 2 * sqrt(3) * coef(sce_fit)[1], J_true)
 ```
 
 The fit is exact (``R^2 = 1``) and recovers the coupling: the SALC normalization makes
@@ -70,7 +70,7 @@ fitted coefficient.
 
 `fit` returns an [`SCEFit`](@ref) — the heavyweight result that keeps the dataset and
 answers diagnostics. When you only need to predict or persist, convert it to the
-lightweight [`SCEPredictor`](@ref) with `SCEPredictor(f)` (see [Persistence and I/O](guide/io.md)).
+lightweight [`SCEPredictor`](@ref) with `SCEPredictor(sce_fit)` (see [Persistence and I/O](guide/io.md)).
 
 ## Add the torque
 
@@ -92,12 +92,12 @@ function heis_torque(c, J)
 end
 torques = [heis_torque(c, J_true) for c in configs]
 
-fc = fit(SCEFit, SCEDataset(basis, configs, E, torques), OLS(); torque_weight = 0.5)
-(; r2_energy = r2_energy(fc), r2_torque = r2_torque(fc))
+cofit = fit(SCEFit, SCEDataset(basis, configs, E, torques), OLS(); torque_weight = 0.5)
+(; r2_energy = r2_energy(cofit), r2_torque = r2_torque(cofit))
 ```
 
-`predict_torque(fc, config)` now returns the analytic derivative of the same energy
-surface `predict_energy(fc, config)` evaluates — the two are consistent by construction.
+`predict_torque(cofit, config)` now returns the analytic derivative of the same energy
+surface `predict_energy(cofit, config)` evaluates — the two are consistent by construction.
 
 ## Where to go next
 

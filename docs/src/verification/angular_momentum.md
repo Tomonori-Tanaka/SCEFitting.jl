@@ -177,11 +177,11 @@ function wignerD_deviations(; lmax = 4, nrot = 20, npts = 5, seed = 7)
             inversion_parity = parity)
 end
 
-wd = wignerD_deviations()
+wigner_dev = wignerD_deviations()
 ```
 
 ```@example am
-maximum(wd) <= 1e-9 || error("Wigner-D verification failed")
+maximum(wigner_dev) <= 1e-9 || error("Wigner-D verification failed")
 println("all Wigner-D checks pass at the 1e-9 tolerance ",
         "(200 operations × l ≤ 4 × 5 fresh directions)")
 ```

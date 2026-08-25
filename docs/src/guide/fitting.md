@@ -40,8 +40,8 @@ cheap:
 
 ```julia
 train, test = dataset[1:80], dataset[81:end]   # ranges, index vectors, Bool masks, :
-f = fit(SCEFit, train, OLS())
-rmse_holdout = sqrt(sum(abs2, predict_energy(f, test.configs) .- test.y_E) / length(test))
+sce_fit = fit(SCEFit, train, OLS())
+rmse_holdout = sqrt(sum(abs2, predict_energy(sce_fit, test.configs) .- test.y_E) / length(test))
 
 more = SCEDataset(basis2, new_configs, new_energies)
 dataset = vcat(dataset, more)     # basis2 must be the same basis (fingerprint-checked)
@@ -59,9 +59,9 @@ problem is handed to [`solve_coefficients`](@ref). Every estimator therefore ret
 the slope coefficients and adds no intercept of its own.
 
 ```julia
-f  = fit(SCEFit, dataset, OLS())
-J  = coef(f)         # the fitted coefficients jϕ, in SALCKey order
-j0 = intercept(f)    # the reference energy
+sce_fit = fit(SCEFit, dataset, OLS())
+J       = coef(sce_fit)         # the fitted coefficients jϕ, in SALCKey order
+j0      = intercept(sce_fit)    # the reference energy
 ```
 
 ## Energy + torque co-fit
@@ -82,8 +82,8 @@ and the torque block by ``\sqrt{w/n_T}``, then stacked. `j0` does not enter the 
 block, so it stays an energy-only quantity.
 
 ```julia
-f = fit(SCEFit, SCEDataset(basis, configs, energies, torques), OLS(); torque_weight = 0.5)
-(r2_energy(f), r2_torque(f))
+sce_fit = fit(SCEFit, SCEDataset(basis, configs, energies, torques), OLS(); torque_weight = 0.5)
+(r2_energy(sce_fit), r2_torque(sce_fit))
 ```
 
 The [Getting started](../getting_started.md#Add-the-torque) page runs a full co-fit
@@ -140,18 +140,18 @@ configurations — removes that, leaving only the prior you state deliberately t
 `theta`.
 
 ```julia
-est = GroupAdaptiveRidge(basis; lambda = 1e-5, theta = 1.0)   # metric attached
+estimator = GroupAdaptiveRidge(basis; lambda = 1e-5, theta = 1.0)   # metric attached
 m   = penalty_metric(basis; torque_weight = 0.3)              # or build it yourself
 est_w = GroupAdaptiveRidge(basis; lambda = 1e-5, torque_weight = 0.3)
 fit(SCEFit, dataset, est_w; torque_weight = 0.3)              # weights must agree
 est_plain = GroupAdaptiveRidge(salc_groups(basis), weights; lambda = 1e-5)  # uniform
 
 # a λ sweep: build the metric ONCE and move it along the path
-fits = [fit(SCEFit, dataset, SCEFitting.with_lambda(est, l)) for l in lambdas]
+fits = [fit(SCEFit, dataset, SCEFitting.with_lambda(estimator, l)) for l in lambdas]
 ```
 
 Use `SCEFitting.with_lambda` rather than rebuilding the estimator by hand. A hand
-rebuild (`GroupAdaptiveRidge(est.column_groups, est.group_weights; lambda = l)`)
+rebuild (`GroupAdaptiveRidge(estimator.column_groups, estimator.group_weights; lambda = l)`)
 silently drops the metric, and a dropped metric is indistinguishable from a deliberate
 uniform one — no door will complain. Rebuilding through the basis-aware constructor
 instead re-runs `penalty_metric` at every point, which is the expensive half: the
@@ -241,7 +241,7 @@ fsparse = fit(SCEFit, dataset, Lasso())     # selects a support (some jϕ exactl
 fdebias = refit(fsparse)                     # OLS on that support — unshrunk survivors
 ```
 
-A column survives when its scaled-magnitude contribution `|coef(f)[j]|·‖X[:, j]‖` exceeds
+A column survives when its scaled-magnitude contribution `|coef(sce_fit)[j]|·‖X[:, j]‖` exceeds
 `threshold` (default `0`, i.e. exactly the nonzero support); pass a positive `threshold` to
 prune further. `refit` reuses the dataset and `torque_weight` of the input fit, so the
 co-fit whitening is identical.
@@ -255,9 +255,9 @@ the surviving groups, not the coefficient count. The workflow prices each group 
 front and lets the penalty act at exactly that granularity:
 
 ```julia
-est  = GroupAdaptiveRidge(basis; lambda = 1.0, theta = 1.0)   # cost-proportional weights
-path = select_fit(dataset, est; lambdas = 10.0 .^ range(2, -8; length = 25))
-fbest = refit(path.fit; threshold = path.threshold)   # de-bias exactly the alive support
+estimator = GroupAdaptiveRidge(basis; lambda = 1.0, theta = 1.0)  # cost-proportional
+path      = select_fit(dataset, estimator; lambdas = 10.0 .^ range(2, -8; length = 25))
+fbest     = refit(path.fit; threshold = path.threshold)  # de-bias the alive support
 ```
 
 (The reweighted ridge crushes dead groups to tiny — not exactly zero — values, so
@@ -294,8 +294,8 @@ evaluation dataset, and applies the same Pareto rule:
 
 ```julia
 train, held = dataset[1:80], dataset[81:100]        # dataset slicing
-f     = fit(SCEFit, train, GroupAdaptiveRidge(basis; lambda = 1e-5, theta = 1.0))
-front = select_support(f; npoints = 25, evalset = held, delta = 0.05)
+sce_fit = fit(SCEFit, train, GroupAdaptiveRidge(basis; lambda = 1e-5, theta = 1.0))
+front   = select_support(sce_fit; npoints = 25, evalset = held, delta = 0.05)
 front.fit                                           # the selected de-biased refit
 ```
 
@@ -312,10 +312,10 @@ configuration-grouped K-fold CV of any `fit` call, refitting each fold from scra
 scoring the held-out configurations in prediction space:
 
 ```julia
-cv = cross_validate(dataset, GroupAdaptiveRidge(basis; lambda = 1e-5);
+cv_result = cross_validate(dataset, GroupAdaptiveRidge(basis; lambda = 1e-5);
                     torque_weight = 1.0, nfolds = 5)
-cv.pooled_rmse_energy, cv.pooled_rmse_torque   # both error axes, out-of-fold
-cv.score                                       # per-fold (1−w)·MSE_E + w·MSE_T
+cv_result.pooled_rmse_energy, cv_result.pooled_rmse_torque   # both error axes, out-of-fold
+cv_result.score                                       # per-fold (1−w)·MSE_E + w·MSE_T
 ```
 
 Both RMSEs are reported whenever the dataset carries torque data, **independent of
@@ -333,14 +333,14 @@ or to rank estimators on an equal footing. It differs from
 A fitted [`SCEFit`](@ref) answers the usual questions:
 
 ```julia
-r2_energy(f);  rmse_energy(f)        # in-sample energy R² / RMSE
-r2_torque(f);  rmse_torque(f)        # torque equivalents (need a co-fit dataset)
-nobs(f)                              # number of energy observations
-dof(f)                               # degrees of freedom: length(coef(f)) + 1
-rss_energy(f);  rss_torque(f)        # residual sums of squares
-residuals_energy(f);  residuals_torque(f)   # the raw residual vectors
-effective_dof(f)                     # hat-matrix trace + 1 (linear estimators)
-gcv(f)                               # generalized cross-validation score
+r2_energy(sce_fit);  rmse_energy(sce_fit)        # in-sample energy R² / RMSE
+r2_torque(sce_fit);  rmse_torque(sce_fit)        # torque equivalents (need a co-fit dataset)
+nobs(sce_fit)                              # number of energy observations
+dof(sce_fit)                               # degrees of freedom: length(coef(sce_fit)) + 1
+rss_energy(sce_fit);  rss_torque(sce_fit)        # residual sums of squares
+residuals_energy(sce_fit);  residuals_torque(sce_fit)   # the raw residual vectors
+effective_dof(sce_fit)                     # hat-matrix trace + 1 (linear estimators)
+gcv(sce_fit)                               # generalized cross-validation score
 ```
 
 For a *linear* estimator (`islinear`: `OLS` / `Ridge` / `AdaptiveRidge` /
@@ -352,8 +352,8 @@ score `n·RSS/(n − df)²` built on it, the fast λ-selection criterion used by
 [`select_fit`](@ref).
 
 The energy and torque blocks are reported separately throughout (the rebuild does not fold
-them into one combined residual): `residuals_energy(f)` is `y_E − (j0 + X_E·jϕ)` and
-`residuals_torque(f)` is `y_T − X_T·jϕ` over the flattened torque components.
+them into one combined residual): `residuals_energy(sce_fit)` is `y_E − (j0 + X_E·jϕ)` and
+`residuals_torque(sce_fit)` is `y_T − X_T·jϕ` over the flattened torque components.
 
 The generic names — [`predict`](@ref), [`residuals`](@ref), [`r2`](@ref), plus `coef` /
 `fit` / `nobs` / `dof` / `coeftable` / `islinear` — **extend StatsAPI** (imported, not

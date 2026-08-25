@@ -360,13 +360,13 @@ the per-orbit intercepts — and a validating prediction door whose default
 moment basis / fit / model by name (design record §4.2).
 
 Diagnostics ride on the same rows: the coverage-band residual profile along the
-marked-sublattice order parameter `|⟨e⟩|` (`ds.order`), the pair-consistent
+marked-sublattice order parameter `|⟨e⟩|` (`moment_data.order`), the pair-consistent
 local-field coordinates `(‖h₁‖, ê·ĥ)` with a training-vs-new coverage monitor,
 and the simple-feature nested floor (per-orbit intercept + Legendre shell sums on
 exactly the fit's kept rows, with an inclusion report instead of an assumed
-bound). `salc_groups(mb)` (the pointed method of the selection helper documented
+bound). `salc_groups(moment_basis)` (the pointed method of the selection helper documented
 above — mark-class granularity, never the energy-side `(body, orbit_id, decors)`
-key alone) and `GroupAdaptiveRidge(mb; lambda)` (unit weights) give group-adaptive
+key alone) and `GroupAdaptiveRidge(moment_basis; lambda)` (unit weights) give group-adaptive
 shrinkage; `fit` reduces such an estimator to the active columns with the freeze.
 
 ```@docs

@@ -28,9 +28,9 @@ A 4-atom chain along ``z`` (spaced so neighbors differ), with a nearest-neighbor
 isotropic interaction — the Heisenberg channel only.
 
 ```@example heis
-lat   = Lattice([8.0 0 0; 0 8.0 0; 0 0 10.0])
-frac  = [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75]
-chain = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
+lattice = Lattice([8.0 0 0; 0 8.0 0; 0 0 10.0])
+frac    = [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75]
+chain   = Crystal(lattice, frac, [1, 1, 1, 1], ["Fe"])
 
 interaction = BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1], isotropy = true)
 basis       = SCEBasis(chain, interaction; backend = SpglibBackend())
@@ -49,10 +49,11 @@ strip is the **unit (calculation) cell** of length ``c``.
 using CairoMakie
 CairoMakie.activate!(type = "png")
 
-cart = cartesian_positions(chain)                                  # 3 × 4, sites along z
-nl   = SCEFitting.build_neighbor_list(chain, SCEFitting._superset_cutoff(interaction), MinimumImage())
-z    = cart[3, :]
-cell = chain.lattice.vectors[3, 3]                                 # c = 10 Å, the calculation cell
+cart      = cartesian_positions(chain)                             # 3 × 4, sites along z
+neighbors = SCEFitting.build_neighbor_list(
+    chain, SCEFitting._superset_cutoff(interaction), MinimumImage())
+z         = cart[3, :]
+cell      = chain.lattice.vectors[3, 3]                            # c = 10 Å, the cell
 
 fig = Figure(size = (820, 300))
 ax  = Axis(fig[1, 1]; aspect = DataAspect(),
@@ -64,15 +65,15 @@ vlines!(ax, [0, cell]; color = (:gray, 0.55), linestyle = :dot)
 text!(ax, cell / 2, -0.52; text = "unit cell (calculation cell), c = $(round(Int, cell)) Å",
       align = (:center, :top), color = :gray25, fontsize = 13)
 
-intra = unique([minmax(p.i, p.j) for p in nl.pairs if p.shift[3] == 0])
-wrap  = unique([minmax(p.i, p.j) for p in nl.pairs if p.shift[3] != 0])
+intra = unique([minmax(p.i, p.j) for p in neighbors.pairs if p.shift[3] == 0])
+wrap  = unique([minmax(p.i, p.j) for p in neighbors.pairs if p.shift[3] != 0])
 for (i, j) in intra                                                # nearest-neighbor bonds in-cell
     lines!(ax, [z[i], z[j]], [0.0, 0.0]; color = :gray25, linewidth = 4)
 end
 for (i, j) in wrap                                                 # bond that closes across the boundary
     cx, rx, ry = (z[i] + z[j]) / 2, abs(z[j] - z[i]) / 2, 1.15
-    ts = range(0, π; length = 80)
-    lines!(ax, cx .+ rx .* cos.(ts), ry .* sin.(ts);
+    angles = range(0, π; length = 80)
+    lines!(ax, cx .+ rx .* cos.(angles), ry .* sin.(angles);
            color = :darkorange, linewidth = 3, linestyle = :dash)
     text!(ax, cx, ry + 0.05; text = "periodic bond  $(i)–$(j)",
           align = (:center, :bottom), color = :darkorange, fontsize = 13)
@@ -110,10 +111,10 @@ configs = [randcfg(4) for _ = 1:40]
 E = [J_true * sum(dot(c[:, m.atoms[1]], c[:, m.atoms[2]]) for m in heis.members)
      for c in configs]
 
-f = fit(SCEFit, SCEDataset(basis, configs, E), OLS())
-J_recovered = 2 * sqrt(3) * coef(f)[1]
+sce_fit = fit(SCEFit, SCEDataset(basis, configs, E), OLS())
+J_recovered = 2 * sqrt(3) * coef(sce_fit)[1]
 
-(r2 = round(r2_energy(f); digits = 12), J_true, J_recovered)
+(r2 = round(r2_energy(sce_fit); digits = 12), J_true, J_recovered)
 ```
 
 The fit is exact and recovers the coupling. The factor ``2\sqrt 3`` is the fixed
@@ -139,8 +140,9 @@ function heis_torque(c, J)
 end
 torques = [heis_torque(c, J_true) for c in configs]
 
-fc = fit(SCEFit, SCEDataset(basis, configs, E, torques), OLS(); torque_weight = 0.5)
-(r2_energy = round(r2_energy(fc); digits = 12), r2_torque = round(r2_torque(fc); digits = 12))
+cofit = fit(SCEFit, SCEDataset(basis, configs, E, torques), OLS(); torque_weight = 0.5)
+(r2_energy = round(r2_energy(cofit); digits = 12),
+ r2_torque = round(r2_torque(cofit); digits = 12))
 ```
 
 Both observables are reproduced. Because [`predict_torque`](@ref) is the analytic
@@ -148,7 +150,7 @@ derivative of the surface [`predict_energy`](@ref) evaluates, the recovered mode
 the torque on a fresh configuration too:
 
 ```@example heis
-isapprox(predict_torque(fc, configs[1]), torques[1]; atol = 1e-8)
+isapprox(predict_torque(cofit, configs[1]), torques[1]; atol = 1e-8)
 ```
 
 ## Where this generalizes

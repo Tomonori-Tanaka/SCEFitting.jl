@@ -19,12 +19,12 @@ fractional atomic positions, integer species labels, and per-species names.
 using SCEFitting
 import Spglib
 
-lat = Lattice([3.0 0 0; 0 3.0 0; 0 0 3.0])           # columns are the cell vectors aᵢ
-cr  = Crystal(lat,
-              [0.0 0.5; 0.0 0.5; 0.0 0.5],            # 3 × n_atoms fractional positions
-              [1, 1],                                 # species index per atom
-              ["Fe"])                                 # label per species
-(n_atoms(cr), cr.species_labels)
+lattice = Lattice([3.0 0 0; 0 3.0 0; 0 0 3.0])           # columns are the cell vectors aᵢ
+crystal = Crystal(lattice,
+                  [0.0 0.5; 0.0 0.5; 0.0 0.5],       # 3 × n_atoms fractional positions
+                  [1, 1],                            # species index per atom
+                  ["Fe"])                            # label per species
+(n_atoms(crystal), crystal.species_labels)
 ```
 
 Periodic directions default to all three axes; pass `pbc = (true, true, false)` to a
@@ -90,8 +90,9 @@ transferred from a supercell fit.
 
 ```@example basis
 # `build_neighbor_list` is public but unexported — call it qualified.
-nl = SCEFitting.build_neighbor_list(cr, Inf, MinimumImage())   # full Wigner–Seitz cell
-length([p for p in nl.pairs if (p.i, p.j) == (1, 2)])  # the 8-fold body-diagonal corner tie
+# the full Wigner–Seitz cell
+neighbors = SCEFitting.build_neighbor_list(crystal, Inf, MinimumImage())
+length([p for p in neighbors.pairs if (p.i, p.j) == (1, 2)])  # the 8-fold body-diagonal corner tie
 ```
 
 This is a load-bearing distinction with subtleties at the cell boundary (and for `N ≥ 3`
@@ -110,7 +111,7 @@ products onto the space-group-invariant SALCs. The backend is pluggable:
   Provided by an extension: `import Spglib` activates it.
 
 ```@example basis
-basis = SCEBasis(cr, interaction; backend = SpglibBackend())
+basis = SCEBasis(crystal, interaction; backend = SpglibBackend())
 (basis.spacegroup.symbol, basis.spacegroup.number, n_salcs(basis))
 ```
 

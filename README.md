@@ -49,9 +49,9 @@ import Spglib                     # load it to activate the SpglibBackend extens
 using LinearAlgebra
 
 # A 4-atom chain of identical spins along z
-lat = Lattice([8.0 0 0; 0 8.0 0; 0 0 10.0])
+lattice = Lattice([8.0 0 0; 0 8.0 0; 0 0 10.0])
 frac = [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75]
-chain = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
+chain = Crystal(lattice, frac, [1, 1, 1, 1], ["Fe"])
 
 # nearest-neighbor 2-body interaction, isotropic (Heisenberg) channel only
 interaction = BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1], isotropy = true)
@@ -63,9 +63,9 @@ heis = SCEFitting.salcs(basis)[1]   # public-but-unexported: call it qualified
 J = 0.0137
 E = [J * sum(c[:, m.atoms[1]]' * c[:, m.atoms[2]] for m in heis.members) for c in configs]
 
-f = fit(SCEFit, SCEDataset(basis, configs, E), OLS())
-r2_energy(f)                      # ≈ 1.0
-2 * sqrt(3) * coef(f)[1]          # ≈ J  (recovered coupling)
+sce_fit = fit(SCEFit, SCEDataset(basis, configs, E), OLS())
+r2_energy(sce_fit)                      # ≈ 1.0
+2 * sqrt(3) * coef(sce_fit)[1]          # ≈ J  (recovered coupling)
 ```
 
 Standalone runnable versions are in [`examples/heisenberg_chain.jl`](examples/heisenberg_chain.jl)
@@ -75,14 +75,14 @@ and [`examples/kagome_threebody.jl`](examples/kagome_threebody.jl) (3-body / mul
 
 `fit` returns an `SCEFit` — the heavyweight result that keeps the data and answers
 diagnostics (`r2_energy`, `residuals_energy`, …). For prediction and storage, wrap it
-in the lightweight, persistable `SCEPredictor` with `SCEPredictor(f)`.
+in the lightweight, persistable `SCEPredictor` with `SCEPredictor(sce_fit)`.
 
 Save a fitted model (or just a basis) to a self-contained, human-readable **TOML**
 document and reload it later. Coefficients re-pair to the basis by `SALCKey`, so a
 reloaded model predicts identically:
 
 ```julia
-SCEFitting.save("model.toml", SCEPredictor(f))     # or save("basis.toml", basis)
+SCEFitting.save("model.toml", SCEPredictor(sce_fit))     # or save("basis.toml", basis)
 model = SCEFitting.load(SCEPredictor, "model.toml")
 predict_energy(model, configs)
 ```
@@ -118,15 +118,15 @@ See [`examples/persist_and_input.jl`](examples/persist_and_input.jl) for the ful
 
 ### Inspecting fitted coefficients
 
-`coeftable(f)` returns a Tables.jl source (one row per SALC: `body`, `orbit_id`,
+`coeftable(sce_fit)` returns a Tables.jl source (one row per SALC: `body`, `orbit_id`,
 `decors` — the sorted decoration label as a string, which for this package's pure-spin
 keys reads exactly like the old `ls` column, `"1,1,2"` —, `L_S`, `Lf`, `block`, `J`), so
 the coefficients drop into any table / IO package:
 
 ```julia
 using DataFrames
-df = DataFrame(coeftable(f))       # or CSV.write("J.csv", coeftable(f))
-intercept(f)                       # the reference energy j0 (not a row)
+coef_df = DataFrame(coeftable(sce_fit))   # or CSV.write("J.csv", coeftable(sce_fit))
+intercept(sce_fit)                        # the reference energy j0 (not a row)
 ```
 
 Standard diagnostics are split by observable: `r2_energy` / `rmse_energy` / `rss_energy` /
@@ -265,7 +265,7 @@ adaptive-Lasso estimators, and **Sunny.jl export** are implemented as extensions
 constrained-noncollinear DFT data) are fitted on a pointed — site-marked — SALC basis:
 `MomentSpec` / `MomentBasis` with a structural periodic-resolvability gate, `MomentDataset`
 with the decomposability gate `|M| sin²θ ≤ gate_eps`, `fit(MomentFit, …)` with any
-estimator (including the group-adaptive `GroupAdaptiveRidge(mb; lambda)`), `predict_moment`,
+estimator (including the group-adaptive `GroupAdaptiveRidge(moment_basis; lambda)`), `predict_moment`,
 and the coverage-band / local-field / simple-floor diagnostics. Validated on FeGe (B20) and
 FeRh (B2) data against the sibling SLCE.jl implementation (bitwise design-column parity; see
 `test/parity/`). Not persisted yet.

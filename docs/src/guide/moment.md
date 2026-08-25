@@ -81,18 +81,18 @@ using SCEFitting, LinearAlgebra, Random
 import Spglib                     # activates the SpglibBackend extension
 
 # A 4-atom chain of Fe along z (8 Å of vacuum in x, y; nearest neighbours 2.5 Å apart)
-lat = Lattice([8.0 0 0; 0 8.0 0; 0 0 10.0])
-frac = [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75]
-chain = Crystal(lat, frac, [1, 1, 1, 1], ["Fe"])
+lattice = Lattice([8.0 0 0; 0 8.0 0; 0 0 10.0])
+frac    = [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75]
+chain   = Crystal(lattice, frac, [1, 1, 1, 1], ["Fe"])
 
 spec = MomentSpec(; lmax_env = [1], sampled = [true], lmax_mark = 1,
                   nbody = 2, cutoff_pair = 2.6)
-mb = MomentBasis(chain, spec; backend = SpglibBackend())
+moment_basis = MomentBasis(chain, spec; backend = SpglibBackend())
 ```
 
 With `lmax_mark = 1` and `lmax_env = 1` the basis is the `l = 0` mark (the
 intercept `μ₀`) plus the isotropic mark–neighbour pair `ê_i · e_j`. The marked
-reference-cell atoms — the design's row atoms — are `mb.marked_atoms`.
+reference-cell atoms — the design's row atoms — are `moment_basis.marked_atoms`.
 
 The same truncation can be written as the `[moment]` section of the TOML setup file
 that already holds the crystal and the energy basis, and built with
@@ -107,8 +107,9 @@ identically on cell-periodic data, and some only appear in fixed combinations.
 [`moment_resolvability`](@ref) is the structural (data-free) gate that names them:
 
 ```@example moment
-res = moment_resolvability(mb)
-(; rank = res.rank, vanishing = res.vanishing, n_dependent = length(res.null_combinations))
+resolvability = moment_resolvability(moment_basis)
+(; rank = resolvability.rank, vanishing = resolvability.vanishing,
+   n_dependent = length(resolvability.null_combinations))
 ```
 
 The dataset constructor runs this gate first, freezes the vanishing columns to
@@ -171,7 +172,7 @@ the basis references must carry a nonzero moment (`zero_moment_atol`; pass the
 reader's own value if you changed it there).
 
 ```@example moment
-ds = MomentDataset(mb, data; gate_eps = 1e-8)
+moment_data = MomentDataset(moment_basis, data; gate_eps = 1e-8)
 ```
 
 The dataset keeps the per-row bookkeeping a consumer of the diagnostics needs:
@@ -239,13 +240,13 @@ envelope of the per-order radii; each order then filters on its own.
 
 ## Fitting and predicting
 
-`fit(MomentFit, ds, estimator)` solves the gated rows and, for disclosure, the
+`fit(MomentFit, moment_data, estimator)` solves the gated rows and, for disclosure, the
 ungated ones; both coefficient sets are stored. There is **no centering and no
 global intercept**: the `l = 0` mark columns are the per-orbit intercepts, so the
 design reaches the estimator exactly as built.
 
 A regularized estimator built from the basis leaves those `μ₀` columns
-**unpenalized**: [`penalty_metric`](@ref)`(mb)` gives them a scale of exactly `0`,
+**unpenalized**: [`penalty_metric`](@ref)`(moment_basis)` gives them a scale of exactly `0`,
 which every estimator reads as "do not penalize this column". Shrinking the reference
 moment magnitude toward zero has no physical meaning, and the exemption is not a
 special case in `fit` — it is the same per-column scale that makes the penalty
@@ -254,41 +255,42 @@ invariant under the basis's column conventions (see the
 or `metric = nothing` for the plain unweighted penalty.
 
 ```@example moment
-f = fit(MomentFit, ds, OLS())
-rmse_moment(f)
+moment_fit = fit(MomentFit, moment_data, OLS())
+rmse_moment(moment_fit)
 ```
 
 ```@example moment
-model = MomentModel(f)
+model = MomentModel(moment_fit)
 e = data[1].directions
-maximum(abs, predict_moment(model, e) .- ds.y[1:4])   # the first configuration's rows
+maximum(abs, predict_moment(model, e) .- moment_data.y[1:4])   # the first configuration's rows
 ```
 
 [`predict_moment`](@ref) returns `ê_a · m_a(e)` for each marked atom; its
 `axes = e` default is the mode-4 identity (the magnitude along each spin, what a
 Monte-Carlo consumer asks for), and explicit axes reproduce mode-1 training rows.
 
-For group-adaptive shrinkage, `salc_groups(mb)` labels the pointed columns at
-**mark-class** granularity and `GroupAdaptiveRidge(mb; lambda)` builds the
+For group-adaptive shrinkage, `salc_groups(moment_basis)` labels the pointed columns at
+**mark-class** granularity and `GroupAdaptiveRidge(moment_basis; lambda)` builds the
 matching estimator; `fit` reduces it to the active columns alongside the freeze.
-`Ridge(mb; lambda)` and `AdaptiveRidge(mb; lambda)` are the ungrouped forms, and all
+`Ridge(moment_basis; lambda)` and `AdaptiveRidge(moment_basis; lambda)` are the
+ungrouped forms, and all
 three carry the metric.
 
 ## Choosing λ
 
-[`cross_validate`](@ref)`(ds, estimator)` is the honest criterion. Its folds are
+[`cross_validate`](@ref)`(moment_data, estimator)` is the honest criterion. Its folds are
 grouped **by configuration**, so the rows of one configuration — one per marked atom,
 all sharing its spin directions — never split across the train/holdout boundary:
 
 ```@example moment
-est = Ridge(mb; lambda = 1e-4, metric_nconfig = 512)
-cv = cross_validate(ds, est; nfolds = 3)
-cv.pooled_rmse_moment
+estimator = Ridge(moment_basis; lambda = 1e-4, metric_nconfig = 512)
+cv_result = cross_validate(moment_data, estimator; nfolds = 3)
+cv_result.pooled_rmse_moment
 ```
 
 For a λ sweep, move that estimator along the path with
-`SCEFitting.with_lambda(est, λ)`: it carries the penalty metric forward, where a hand
-rebuild would drop it and a fresh `Ridge(mb; lambda = λ)` would rebuild the reference
+`SCEFitting.with_lambda(estimator, λ)`: it carries the penalty metric forward, where a hand
+rebuild would drop it and a fresh `Ridge(moment_basis; lambda = λ)` would rebuild the reference
 ensemble at every point.
 
 Each fold re-solves with the same frozen column set as the full dataset, and a fold
@@ -298,7 +300,7 @@ run on the gate-kept rows; `score_defined` reports the rejected rows separately,
 disclosure rather than as a criterion (their targets carry a transverse component no
 coefficient can fit).
 
-[`effective_dof`](@ref)`(f)` and [`gcv`](@ref)`(f)` are the fast reference for a
+[`effective_dof`](@ref)`(moment_fit)` and [`gcv`](@ref)`(moment_fit)` are the fast reference for a
 linear estimator, computed on the design the fit actually solved. GCV treats rows as
 exchangeable, which the rows of one configuration are not, so it runs optimistic —
 use it to scan, and cross-validate the shortlist.
@@ -313,7 +315,7 @@ along `|⟨e⟩|`: a systematic trend across bands on held-out data is the signa
 of an insufficient basis, and is reported next to any σ.
 
 ```@example moment
-prof = moment_band_profile(f; nbins = 4)
+prof = moment_band_profile(moment_fit; nbins = 4)
 (; slope = prof.slope, r = prof.r, bands = [(b.lo, b.hi, b.n) for b in prof.bands])
 ```
 
@@ -324,10 +326,10 @@ coordinates with the training set's so an extrapolation is named before it is
 trusted.
 
 ```@example moment
-lf_train = moment_local_field(mb, data)
-lf_new = moment_local_field(mb, [planted_datum(rng) for _ in 1:10])
-cov = moment_coverage(lf_train, lf_new)
-(; frac_beyond = cov.frac_beyond, frac_anti = cov.frac_anti)
+lf_train = moment_local_field(moment_basis, data)
+lf_new = moment_local_field(moment_basis, [planted_datum(rng) for _ in 1:10])
+coverage = moment_coverage(lf_train, lf_new)
+(; frac_beyond = coverage.frac_beyond, frac_anti = coverage.frac_anti)
 ```
 
 **Simple-feature floor.** On exactly the fit's kept rows, a trivial per-orbit
@@ -337,7 +339,7 @@ SALC column span is **reported** (`inclusion`), not assumed; the nested bound
 `sigma_model ≤ sigma_floor` applies to an unregularized fit only.
 
 ```@example moment
-floor = moment_simple_floor(f, data; lmax = 1)
+floor = moment_simple_floor(moment_fit, data; lmax = 1)
 (; sigma_model = floor.sigma_model, sigma_floor = floor.sigma_floor,
    inclusion = round.(floor.inclusion; sigdigits = 3))
 ```
@@ -356,5 +358,5 @@ fit that does not beat it is mis-assembled or under-resolved.
 - **Reference geometry only.** This package carries no displacements, so every
   datum sits at the reference geometry by construction.
 - The gate removes rows, never reweights them; a large gap between the gated and
-  ungated coefficient sets (`f.coeffs` vs `f.coeffs_ungated`) means the gate is
+  ungated coefficient sets (`moment_fit.coeffs` vs `moment_fit.coeffs_ungated`) means the gate is
   doing physics, not cleanup, and belongs in the report.

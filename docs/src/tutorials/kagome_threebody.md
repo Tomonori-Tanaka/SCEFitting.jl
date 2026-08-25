@@ -22,9 +22,9 @@ rng = MersenneTwister(2026)
 randcfg(nat) = reduce(hcat, (v = randn(rng, 3); v / norm(v)) for _ = 1:nat)
 
 a, c = 2.0, 8.0
-lat  = Lattice([a -a/2 0.0; 0.0 a*sqrt(3)/2 0.0; 0.0 0.0 c])
-frac = [0.0 0.5 0.5; 0.5 0.0 0.5; 0.0 0.0 0.0]
-kagome = Crystal(lat, frac, [1, 1, 1], ["Fe"])
+lattice = Lattice([a -a/2 0.0; 0.0 a*sqrt(3)/2 0.0; 0.0 0.0 c])
+frac    = [0.0 0.5 0.5; 0.5 0.0 0.5; 0.0 0.0 0.0]
+kagome  = Crystal(lattice, frac, [1, 1, 1], ["Fe"])
 
 interaction = BasisSpec(; nbody = 3, cutoff = 1.2, lmax = [2])   # up to 3-body, l ≤ 2
 basis = SCEBasis(kagome, interaction; backend = SpglibBackend())
@@ -44,23 +44,25 @@ by hand, so the picture matches the computed cluster exactly.
 using CairoMakie
 CairoMakie.activate!(type = "png")
 
-A    = lat.vectors                       # columns a₁, a₂, a₃
+A    = lattice.vectors                   # columns a₁, a₂, a₃
 base = cartesian_positions(kagome)       # 3 × 3, the unit-cell sites
 NN   = a / 2                             # nearest-neighbor distance
 
 # Replicate the unit cell over a small patch so the kagome net is visible.
-pts = Point2f[]
+site_points = Point2f[]
 for n1 in -1:2, n2 in -1:2, b in 1:3
     r = A[:, 1] * n1 + A[:, 2] * n2 + base[:, b]
-    push!(pts, Point2f(r[1], r[2]))
+    push!(site_points, Point2f(r[1], r[2]))
 end
 
 # The representative 3-body cluster: home atoms + their periodic lattice shifts.
 # (These construction internals are public but unexported — call them qualified.)
-sg   = SCEFitting.analyze_symmetry(SpglibBackend(), kagome)
-nl   = SCEFitting.build_neighbor_list(kagome, SCEFitting._superset_cutoff(interaction), MinimumImage())
-clus = SCEFitting.build_clusters(kagome, nl, sg; nbody = 3).by_body[3][1].representative
-corners = [Point2f((A * Float64.(clus.shifts[k]) + base[:, clus.atoms[k]])[1:2]...)
+spacegroup = SCEFitting.analyze_symmetry(SpglibBackend(), kagome)
+neighbors  = SCEFitting.build_neighbor_list(
+    kagome, SCEFitting._superset_cutoff(interaction), MinimumImage())
+cluster    = SCEFitting.build_clusters(
+    kagome, neighbors, spacegroup; nbody = 3).by_body[3][1].representative
+corners = [Point2f((A * Float64.(cluster.shifts[k]) + base[:, cluster.atoms[k]])[1:2]...)
            for k in 1:3]
 
 # The unit (calculation) cell parallelogram: O, a₁, a₁ + a₂, a₂.
@@ -71,13 +73,14 @@ fig = Figure(size = (600, 560))
 ax  = Axis(fig[1, 1]; aspect = DataAspect(),
            title = "Kagome net — unit cell (sites 1,2,3) and a 3-body cluster")
 hidedecorations!(ax); hidespines!(ax)
-for i in eachindex(pts), j in (i + 1):length(pts)                  # nearest-neighbor edges
-    abs(norm(pts[i] - pts[j]) - NN) < 1e-6 &&
-        lines!(ax, [pts[i], pts[j]]; color = (:gray, 0.5), linewidth = 2)
+for i in eachindex(site_points), j in (i + 1):length(site_points)   # NN edges
+    abs(norm(site_points[i] - site_points[j]) - NN) < 1e-6 &&
+        lines!(ax, [site_points[i], site_points[j]];
+               color = (:gray, 0.5), linewidth = 2)
 end
 poly!(ax, cellpoly; color = (:gray, 0.10), strokecolor = (:gray25, 0.9), strokewidth = 2)
 poly!(ax, corners;  color = (:crimson, 0.16), strokecolor = :crimson, strokewidth = 3)
-scatter!(ax, pts; markersize = 10, color = (:crimson, 0.4))
+scatter!(ax, site_points; markersize = 10, color = (:crimson, 0.4))
 
 for b in 1:3                                                       # the three home-cell sites
     p = Point2f(base[1, b], base[2, b])
@@ -85,10 +88,10 @@ for b in 1:3                                                       # the three h
     text!(ax, p; text = string(b), align = (:center, :center), color = :white, fontsize = 13)
 end
 for k in 1:3                                                       # sites the cluster borrows as images
-    all(==(0), clus.shifts[k]) && continue
+    all(==(0), cluster.shifts[k]) && continue
     scatter!(ax, [corners[k]]; markersize = 17, color = :white,
              strokecolor = :crimson, strokewidth = 2)
-    text!(ax, corners[k]; text = "$(clus.atoms[k])′", align = (:center, :center),
+    text!(ax, corners[k]; text = "$(cluster.atoms[k])′", align = (:center, :center),
           color = :crimson, fontsize = 12)
 end
 xlims!(ax, -2.9, 3.6); ylims!(ax, -1.9, 3.4)
@@ -134,10 +137,10 @@ energies = j0_true .+ skel.X_E * J_true
 model0  = SCEPredictor(basis, j0_true, J_true)   # a synthetic model from hand-set couplings
 torques = [predict_torque(model0, c) for c in configs]
 
-f = fit(SCEFit, SCEDataset(basis, configs, energies, torques), OLS(); torque_weight = 0.3)
-(r2_energy = round(r2_energy(f); digits = 12),
- r2_torque = round(r2_torque(f); digits = 12),
- max_dJ    = round(maximum(abs, coef(f) .- J_true); sigdigits = 3))
+sce_fit = fit(SCEFit, SCEDataset(basis, configs, energies, torques), OLS(); torque_weight = 0.3)
+(r2_energy = round(r2_energy(sce_fit); digits = 12),
+ r2_torque = round(r2_torque(sce_fit); digits = 12),
+ max_dJ    = round(maximum(abs, coef(sce_fit) .- J_true); sigdigits = 3))
 ```
 
 Both observables are reproduced and every one of the ``m`` couplings — across all body
