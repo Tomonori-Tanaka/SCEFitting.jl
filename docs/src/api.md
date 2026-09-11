@@ -116,6 +116,17 @@ salcs
 read_setup
 ```
 
+Cross-orbit alias groups — distinct orbits that the training cell cannot tell apart
+(see [When symmetry does not fuse the tie](theory/resolvability.md#When-symmetry-does-not-fuse-the-tie)) —
+are tied into one design column each, so a fit has `n_columns` coefficients and a
+predictor `n_salcs`:
+
+```@docs
+SCEFitting.n_columns
+SCEFitting.alias_groups
+SCEFitting.AliasGroup
+```
+
 Datasets slice and concatenate without recomputing design rows (see
 [Slicing and concatenation](guide/fitting.md#Slicing-and-concatenation)):
 

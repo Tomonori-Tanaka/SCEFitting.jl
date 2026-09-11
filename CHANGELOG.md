@@ -6,6 +6,84 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — cross-orbit alias groups are tied, split equally by convention, and disclosed (2026-09-11)
+
+Spec: `docs/specs/260911-cross-orbit-aliases/`. Distinct cluster orbits whose members
+join the same reference-cell atoms through periodic images the space group does not
+relate — the non-fused face of a Wigner–Seitz boundary tie — evaluate to proportional
+design columns on cell-periodic data, so the data determine only the sum of their
+couplings. Measured on the conventional Nd₂Fe₁₄B cell (68 atoms, `P4₂/mnm`, isotropic
+pairs to the WS boundary): **ten** such pairs of pair orbits, each tied through images
+differing by `c` (nine) or `a + b` (one), leaving the torque design ten ranks short
+per `l` channel; penalized estimators and `select_support` were deciding the split
+silently, and the OLS rank warning was the only door.
+
+- **`basis/aliases.jl`** (new): structural detection at `SCEBasis` construction —
+  same signature class `(body, decors, L_S, Lf, member atom sets)` across orbits,
+  pairwise proportionality of the aggregated shift-blind function vectors
+  (`_function_vector`) at `alias_rtol = 1e-6` (`_ALIAS_RTOL`; the ten Nd₂Fe₁₄B
+  groups sit at `0` and `1.5e-8` — the latter is round-off of two independently
+  gauge-fixed representatives and is MISSED by `_AGG_DEP_RTOL = 1e-8`, hence the
+  separate constant, hard-capped at `1e-2` like `tie_tol`), union–find into
+  `AliasGroup`s, and the SALC → design-column map `_ColumnTies`. Classes that are
+  dependent without being proportional (`:span_collapsed`, anisotropic channels) and
+  proportional sets whose per-member tensor norms differ (`:unequal_norm`, the
+  transported-copy premise behind the ±1 weights failing) are reported and left
+  untied; `AllImages` self-image (tiling-template) bases are skipped.
+- **Design columns = tied columns.** `n_columns(basis) ≤ n_salcs(basis)`;
+  `_design_energy` / `_design_torque` fold the SALC columns (`_fold_columns`,
+  returning the same matrix object on an alias-free basis — every existing fixture
+  is byte-identical); `SCEFit.jphi`, `coef(f)`, `refit` supports, `salc_groups`,
+  `group_costs`, `penalty_metric` and the `select_fit` length check live in column
+  space; `SCEPredictor(f)` expands with `jϕ_salc = w_j · jϕ_col`. The tie sums the
+  columns and hands the tied coefficient to every member (`w_j = ±1` for
+  transported copies): that is the equal PER-BOND split — a representative column
+  with a `J/k` read-out is only right when the orbits' multiplicities agree.
+- **Disclosure.** `SCEPredictor.split` (`:free` / `:convention` / `:legacy`),
+  `coeftable` columns `alias_group` and `split`, TOML schema **v7** (`couplings[*].split`;
+  v2–v6 models load with `:legacy` inside a tied group and `:free` elsewhere — the
+  writer's estimator decided that split and did not say how), a build-time `@info`
+  naming orbits, atom pairs, distances and image offsets (with the axes to double),
+  and a one-time `@warn` from `multipole_terms` / `bilinear_terms` / `to_sunny` when a
+  nonzero convention-split coefficient leaves the package.
+- **`salc_groups` merges the orbits of a tied group** into one label, so a
+  group-sparse estimator keeps or drops them together; `group_costs` prices every
+  member bond (after tiling they are distinct bonds).
+- **What the convention leaves invariant / changes** (documented in
+  `theory/resolvability.md`, new section "When symmetry does not fuse the tie"):
+  training-cell energies, torques, every `q = 0` quantity and the isotropic
+  stiffness are exact; `J(q)` off Γ (linear in `J₊ − J₋` at `q·ΔR = π`), tiled-cell
+  energies of non-periodic configurations, and bond-resolved `J(R)` tables depend
+  on it. The remedy is a cell doubled along every axis the image offsets reach
+  (or, isotropic channels only, spin-spiral data — not yet consumed).
+- **Measured on the real system after landing** (the author's Nd₂Fe₁₄B data set,
+  outside CI): the
+  l02 basis reports exactly the ten groups of the reproduction (orbits 51/57,
+  60/61, 68/69, 111/112, 120/121, 122/123, 155/156, 176/177, 190/192, 199/201; nine
+  with a `c` offset, one with a `b` offset; weights all `+1`), `n_columns = 169`, and
+  the torque design is full rank (169/169) where it was 169/179; l06 → 30 groups
+  (537 → 507 columns), l044_c4.0 → 20 (511 → 491). No span-collapsed class.
+- Models are now written as schema **v7** unconditionally, so a file saved by this
+  build needs this build or later to open (v2–v6 files still load here).
+- **Divergence from SLCE.jl**, recorded in the ledger: upstream freezes every column
+  of every orbit sharing an atom set (`unresolvable_columns`, sum included, so the
+  fit fails loudly); this package keeps the sum and records the split.
+- Gates (`test/unit/test_aliases.jl`, oracles independent of the implementation):
+  hand geometry + the `2√3·(e_a·e_b)` closed form on a P1 `a/2` tie and a tetragonal
+  `c/2` tie; the closed-form `(J₊+J₋)/2` on the 1×1×1 fold of a hand-written 2×1×1
+  bond-sum energy whose `J₊ ≠ J₋` the doubled cell recovers separately; exact
+  training-cell reproduction of energies and torques; `Var[Φ₊+Φ₋] = 4·Var[Φ₊]`
+  for the tied penalty metric; the cost sum; `alias_rtol = nothing` restoring the
+  rank warning (mutation); v7 round trip and the v6 `:legacy` read; alias-free
+  bases bitwise untouched; and a **partially fused** corner tie (a hand-assembled
+  `Cm` cell whose diagonal mirror fuses two of four images — orbit member counts
+  `[1, 2, 1]`) recovering the bond-weighted mean `Σ nᵢJᵢ / Σ nᵢ`, the case that
+  separates "per bond" from "per orbit". A reloaded v7 model whose `:convention`
+  entries the reloaded basis does not tie (the writer used another `alias_rtol`)
+  warns once; predictions are unaffected.
+- Docs build: a stale `[`candidate_clusters`](@ref)` in `build_neighbor_list`'s
+  docstring (no such docstring is included) broke `make docs`; now plain code.
+
 ### Documentation — what the three same-distance bands actually do (2026-08-26)
 
 No behaviour change; four places said something false about `tie_tol` and now do not.

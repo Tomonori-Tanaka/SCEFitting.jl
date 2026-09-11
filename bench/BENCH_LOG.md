@@ -22,6 +22,37 @@ Entries are append-only history — keep them after merging.
 
 ---
 
+## Cross-orbit alias ties: `_column_ties` at construction, identity fold in the design kernels — 2026-09-11
+
+**Context**: 2026-09-11 · `main` (uncommitted, spec `260911-cross-orbit-aliases`) ·
+local macOS (darwin 24.6, aarch64) · julia 1.12.7 · **threads = 4** · timing script
+under the session scratchpad (`review-perf/time_ties.jl`, medians of 3), measured by
+the performance-review pass. Two hot paths are touched: `SCEBasis` construction gains
+`_column_ties` (serial, after `build_salc_basis`), and `_design_energy` /
+`_design_torque` end with `_fold_columns` (returns the same matrix object when no
+group is tied). `penalty_metric` loops over design columns with an inner loop over
+the column's SALCs (one SALC, weight `1.0`, on an alias-free basis).
+
+| fixture | `build_salc_basis` | `_column_ties` | share | multi-orbit classes / `_function_vector` calls |
+|---|---|---|---|---|
+| Nd₂Fe₁₄B 68 atoms, `nbody = 2`, cutoff ∞ (372 SALCs, 20 groups tied → 352 columns) | 28.8 ms | 1.3 ms (46.6 k allocs, 1.8 MiB) | 4.4 % | 20 / 40 |
+| Nd₂Fe₁₄B `nbody = 3`, cutoff 4.0 (`bench_nd2fe14b` default, 397 SALCs, alias-free) | 191.6 ms | 0.4 ms | 0.18 % | 0 / 0 |
+| bcc Fe 3×3×3, `lmax = 2`, cutoff 6.0 (36 SALCs) | 165 ms | 0.4 ms | 0.27 % | 0 / 0 |
+| bcc Fe 3×3×3, `nbody = 3`, cutoff 4.1 (280 SALCs) | 12.86 s | 15.6 ms (14.0 ms in signatures) | 0.12 % | 0 / 0 |
+
+**Alias-free fast paths** (the only regime every prior entry measured): `_fold_columns`
+returns `=== X` with 0 allocations, so the `bench_design_matrix` gate cannot move;
+`penalty_metric` against a verbatim replica of the previous energy loop: 797.7 vs
+796.6 ms (Nd₂Fe₁₄B), 1140.6 vs 1137.4 ms (bcc Fe), results **bitwise `==`**,
+allocation counts equal within the `@threads` task-closure noise. On the tied
+Nd₂Fe₁₄B basis `penalty_metric` is 440.9 vs 446.8 ms (tied columns share work).
+
+**Note**: the tied path allocates a second design matrix for the fold (transient,
+`n × p_t`; ≈ 59 MiB for a 21 k-row torque design on the l044-sized basis) — memory
+peak, not time. Accumulating into the folded matrix inside the threaded config loop
+would remove it at the cost of spreading the fold over two kernels; deferred until a
+fixture shows the peak matters.
+
 ## Pointed body order: the N = 3 → 4 cost curve, stage by stage — 2026-08-25
 
 **Context**: 2026-08-25 · `main` · local macOS (darwin 24.6, aarch64) · julia 1.12.7 ·

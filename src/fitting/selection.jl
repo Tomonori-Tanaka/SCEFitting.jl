@@ -7,16 +7,43 @@
 """
     salc_groups(basis::SCEBasis) -> Vector{Int}
 
-Per-design-matrix-column group labels (contiguous `1:G`, one label per SALC in
-`SALCKey` order): columns grouped by `(key.body, key.orbit_id, key.decors)`. This is
+Per-design-matrix-column group labels (covering `1:G`, one label per design column
+in column order — [`n_columns`](@ref) of them): columns grouped by
+`(key.body, key.orbit_id, key.decors)`. This is
 the granularity at which Monte-Carlo contraction entries vanish — all `L_S` / `Lf` /
 `block` channels of one cluster orbit and decoration multiset share their entry
 support, so an entry
-disappears only when **every** coefficient of the group is zero. Feed the labels to
+disappears only when **every** coefficient of the group is zero. The orbits of a
+tied cross-orbit alias group ([`alias_groups`](@ref)) are merged into one label:
+their coefficients are one number, so they can only live or die together, and a
+selection that split them would decide the group's convention split by itself.
+Feed the labels to
 [`GroupAdaptiveRidge`](@ref) (or use the `GroupAdaptiveRidge(basis; ...)` convenience
 constructor, which calls this for you).
 """
 function salc_groups(basis::SCEBasis)::Vector{Int}
+    labels = _salc_labels(basis)
+    ties = _column_ties(basis)
+    ties.trivial && return labels
+    par = collect(1:maximum(labels))
+    for grp in ties.groups
+        grp.kind === :proportional || continue
+        for j in grp.salcs
+            _uf_union!(par, labels[grp.salcs[1]], labels[j])
+        end
+    end
+    # relabel by first appearance in column order (covers 1:G, no gaps)
+    relabel = Dict{Int,Int}()
+    out = Vector{Int}(undef, length(ties.columns))
+    for t in eachindex(ties.columns)
+        r = _uf_find(par, labels[ties.columns[t][1]])
+        out[t] = get!(relabel, r, length(relabel) + 1)
+    end
+    return out
+end
+
+# Per-SALC `(body, orbit_id, decors)` labels, before alias-group merging.
+function _salc_labels(basis::SCEBasis)::Vector{Int}
     ks = basis.salc_basis.keys
     labels = Vector{Int}(undef, length(ks))
     g = 0
@@ -57,7 +84,7 @@ end
 # performs the same validation on its own copy): labels cover 1:G with no gaps.
 function _validate_labels(labels::AbstractVector{<:Integer}, n::Int, what::String)
     length(labels) == n ||
-        throw(ArgumentError("$what length $(length(labels)) ≠ number of SALCs $n"))
+        throw(ArgumentError("$what length $(length(labels)) ≠ number of design columns $n"))
     isempty(labels) && return 0
     minimum(labels) >= 1 ||
         throw(ArgumentError("$what labels must be ≥ 1; got $(minimum(labels))"))
@@ -97,10 +124,13 @@ function group_costs(basis::SCEBasis,
     all(is_pure_spin(k) for k in basis.salc_basis.keys) || throw(ArgumentError(
         "group_costs: the basis carries displacement-decorated sectors; the " *
         "Monte-Carlo entry-key model is pure-spin"))
-    G = _validate_labels(labels, length(sl), "group_costs")
+    G = _validate_labels(labels, n_columns(basis), "group_costs")
     sets = [Set{_EntryKey}() for _ = 1:G]
+    col_of = _column_ties(basis).col_of
     for j in eachindex(sl)
-        set = sets[labels[j]]
+        # a tied alias group's SALCs share one column, hence one label; their
+        # members are distinct bonds after tiling, so every one of them is priced
+        set = sets[labels[col_of[j]]]
         for m in sl[j].members, t in m.terms
             # Pure-spin entry key (the MC-contract migration moves this to
             # slots); identical values to the v4 per-site ls on today's bases.
@@ -288,7 +318,8 @@ function penalty_metric(basis::SCEBasis; torque_weight::Real = 0.0,
     nat = n_atoms(basis.crystal)
     cfgs = _reference_configs(nat, Int(nconfig), Int(seed))
     sal = basis.salc_basis.salcs
-    p = length(sal)
+    ties = _column_ties(basis)
+    p = length(ties.columns)          # design columns (tied alias groups count once)
     K = length(cfgs)
     m = Vector{Float64}(undef, p)
     # PRECONDITION on the torque block: the assembly whitens it by `√(w/n_T)` with
@@ -309,14 +340,20 @@ function penalty_metric(basis::SCEBasis; torque_weight::Real = 0.0,
     # The three `w` regimes are separate loops rather than one loop with a test: at
     # `w = 1` the energy term is multiplied by zero, and evaluating it anyway costs
     # roughly the whole `w = 0` column.
-    Threads.@threads :greedy for j = 1:p
+    Threads.@threads :greedy for t = 1:p
         scratch = SALCScratch()
+        cols = ties.columns[t]
         s1 = 0.0
         s2 = 0.0
         st = 0.0
         if w < 1.0
             @inbounds for c in cfgs
-                phi = evaluate_salc(sal[j], c, scratch)
+                # the column as the estimator sees it: the weighted SALC sum (a single
+                # SALC times 1.0 on an untied column — bit-identical to the plain value)
+                phi = 0.0
+                for j in cols
+                    phi += ties.weight[j] * evaluate_salc(sal[j], c, scratch)
+                end
                 s1 += phi
                 s2 += phi * phi
             end
@@ -325,7 +362,9 @@ function penalty_metric(basis::SCEBasis; torque_weight::Real = 0.0,
             G = Matrix{Float64}(undef, 3, nat)
             @inbounds for c in cfgs
                 fill!(G, 0.0)
-                accumulate_grad!(G, sal[j], c, 1.0, scratch)
+                for j in cols
+                    accumulate_grad!(G, sal[j], c, ties.weight[j], scratch)
+                end
                 for a = 1:nat
                     ea = SVector{3,Float64}(c[1, a], c[2, a], c[3, a])
                     ga = SVector{3,Float64}(G[1, a], G[2, a], G[3, a])
@@ -338,7 +377,7 @@ function penalty_metric(basis::SCEBasis; torque_weight::Real = 0.0,
         # centered enough (`E[Φ] = 0` for every all-`l ≥ 1` label) that the
         # cancellation this form is known for does not bite here.
         varj = max(0.0, s2 / K - (s1 / K)^2)
-        m[j] = (1 - w) * varj + w * (st / K) / (3 * nat)
+        m[t] = (1 - w) * varj + w * (st / K) / (3 * nat)
     end
     _refuse_zero_metric(m, "penalty_metric(::SCEBasis)")
     return m
@@ -793,9 +832,9 @@ function select_fit(dataset::SCEDataset, est::GroupAdaptiveRidge;
                             "default); got $threshold"))
     nfolds >= 2 || throw(ArgumentError("nfolds must be ≥ 2; got $nfolds"))
     G = length(est.group_weights)
-    length(est.column_groups) == n_salcs(dataset.basis) || throw(DimensionMismatch(
+    length(est.column_groups) == n_columns(dataset.basis) || throw(DimensionMismatch(
         "estimator column_groups length $(length(est.column_groups)) ≠ basis column " *
-        "count $(n_salcs(dataset.basis))"))
+        "count $(n_columns(dataset.basis))"))
     cg = costs === nothing ?
          Float64.(group_costs(dataset.basis, est.column_groups)) : Float64.(costs)
     length(cg) == G ||

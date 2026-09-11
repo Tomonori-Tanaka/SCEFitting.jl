@@ -1,7 +1,9 @@
 # Design-matrix assembly: build X_E / X_T (and flatten torque targets) from a
 # dataset's spin configurations. Split out of model.jl (pipeline types).
 
-# Energy design matrix: X_E[config, salc] = Φ_salc(config).
+# Energy design matrix: X_E[config, column] = Φ_column(config) — the SALC columns
+# folded into the basis's design columns (`_fold_columns`: the identity on an
+# alias-free basis).
 function _design_energy(basis::SCEBasis, cfgs::Vector{Matrix{Float64}})::Matrix{Float64}
     salcs = basis.salc_basis.salcs
     n = length(cfgs)
@@ -15,7 +17,7 @@ function _design_energy(basis::SCEBasis, cfgs::Vector{Matrix{Float64}})::Matrix{
             X[i, j] = evaluate_salc(salcs[j], cfgs[i], scratch)
         end
     end
-    return X
+    return _fold_columns(X, _column_ties(basis))
 end
 
 # Torque design matrix: for each SALC column, each config, each atom, the three
@@ -49,7 +51,7 @@ function _design_torque(basis::SCEBasis, cfgs::Vector{Matrix{Float64}})::Matrix{
             end
         end
     end
-    return X
+    return _fold_columns(X, _column_ties(basis))
 end
 
 # Flatten per-config torque targets in the same row order as `_design_torque`.

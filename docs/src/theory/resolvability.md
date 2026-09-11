@@ -88,10 +88,10 @@ that aggregate to zero — or become linearly dependent within the orbit — are
 with a warning naming the orbit, channel, and reason. Per orbit (and for members
 with all-distinct atoms) the surviving functions are linearly independent by
 construction, so the fit and every coefficient-level readout stay well-posed; the
-model space is unchanged (the drop is exact). Dependence **across** orbits — e.g. a
-trivial space group placing tied images in separate orbits, or genuine cross-orbit
-supercell aliasing — is deliberately not folded (those directions are unresolvable
-from the cell, not mergeable) and is caught by the `OLS` rank warning instead. Measured on bulk MnTe with SOC (3×3×3 supercell, ``P6_3/mmc``): 51 raw SALCs
+model space is unchanged (the drop is exact). Dependence **across** orbits — tied
+images the point group does not relate, sitting in separate orbits — is a different
+face of the same tie and is handled separately: see
+[When symmetry does not fuse the tie](@ref) below. Measured on bulk MnTe with SOC (3×3×3 supercell, ``P6_3/mmc``): 51 raw SALCs
 of which 14 aggregate to zero, previously reaching OLS as a silently rank-deficient
 design with `max|coef| ~ 1e7`. The remedy for the *physics* (recovering the dropped
 content) is still a reference cell that breaks the tie **in every direction whose
@@ -100,6 +100,100 @@ moves only the ties along that axis. (The joint-family SLCE.jl classifies and
 freezes such columns at readout — `unresolvable_columns` there; this package removes
 them from the basis at build time.)
 [Adapted from SLCE.jl de79b92/3e68fc1; reduction added with the MnTe fix.]
+
+## When symmetry does not fuse the tie
+
+Everything above needed the point group to permute the tied images, which is what
+puts them in **one** orbit whose sum weights them equally. When no operation relates
+the two equidistant images they sit in **different orbits** carrying independent
+couplings. Nothing cancels and no column is zero. What collapses is the **span**:
+under cell-periodic evaluation every image of an atom carries the same spin, so the
+two orbits are the same function of anything this cell can express, and the data fix
+only how much of that function is used in **total** — never how the total divides
+between the two couplings.
+
+This is not a low-symmetry curiosity. On the conventional Nd₂Fe₁₄B cell (68 atoms,
+``P4_2/mnm``, 16 operations) with isotropic pairs enumerated out to the Wigner–Seitz
+boundary, **ten** pairs of distinct pair orbits alias in exactly this way: each joins
+the same atom pair at the same distance (6.2–8.7 Å) through two images that differ
+by ``c`` (nine of them) or by ``a + b`` (one), and the group contains no operation
+that swaps the "+" and "−" image at that atom pair. Their design columns coincide,
+the torque design loses ten of its 179 ranks, and every penalized estimator returns
+some split of each pair's sum without saying so.
+
+### How this package handles it: one column, an equal split by convention
+
+The basis builder detects these **cross-orbit alias groups** structurally, once, at
+construction (no training data involved): within one channel
+``(N, \{l\}, L_S, L_f)``, orbits whose members join the same atom sets are compared
+through the same aggregated shift-blind function vectors the per-orbit reduction
+uses, and orbits whose vectors are proportional (relative residual below
+`alias_rtol`, default `1e-6`) form a group. The group is then
+
+- **tied in the fit**: its SALC columns are summed into one design column
+  ([`SCEFitting.n_columns`](@ref) counts those), with per-bond weights that are
+  exactly ``\pm 1`` for transported copies of one representative tensor, so the
+  data determine the group's sum and nothing else is asked of them;
+- **read back with an equal per-bond split**: every orbit of the group receives the
+  tied column's coefficient (times its weight). Summing the columns and assigning
+  the tied coefficient to every member is what makes the split equal *per bond*
+  even when the group's orbits have different multiplicities — a representative
+  column with a ``J/k`` read-out would only be right for equal multiplicities;
+- **disclosed everywhere the number can leave**: the [`coeftable`](@ref) columns
+  `alias_group` and `split` (`:convention` on such coefficients), a `split` entry
+  per coupling in the saved model (schema v7; older files load as `:legacy`), the
+  build-time report naming the orbits, atom pairs and image offsets, and a
+  one-time warning from [`multipole_terms`](@ref) / [`bilinear_terms`](@ref) /
+  [`to_sunny`](@ref);
+- **merged in the cost-aware selection**: [`SCEFitting.salc_groups`](@ref) gives the
+  orbits of a group one label, so a group-sparse estimator can only keep or drop
+  them together — a selection that kept one orbit and dropped the other would be
+  deciding the split by itself.
+
+The equal split is a **convention, not a measurement**: the training cell samples
+``J(\boldsymbol q)`` only on its commensurate mesh, and the tied images alias exactly
+there. Dividing the sum equally is the minimum-bandwidth interpolation between those
+samples (the Nyquist term shared half-and-half between ``\pm\pi``, as phonopy
+distributes a supercell force constant over equidistant images). What it leaves
+**exactly invariant**: every training-cell energy and torque, every ``\boldsymbol q =
+0`` quantity (``J(0)``, the mean-field ``T_c``, any configuration periodic in the
+training cell), and the isotropic stiffness ``\sum_R J(R)\,|\boldsymbol d|^2``.
+What **depends on it**: ``J(\boldsymbol q)`` off ``\Gamma`` — the magnon dispersion
+along the tied direction is linear in ``J_+ - J_-`` at ``\boldsymbol q\cdot\Delta
+\boldsymbol R = \pi`` —, the energy of a tiled supercell in a configuration that is
+not periodic in the training cell (so the ordering temperature and the ordered state
+of a Monte-Carlo run on the tiled cell), the off-diagonal stiffness, and any
+published bond-resolved ``J(R)`` table.
+
+The remedy that turns the convention into a measurement is the same as for the fused
+tie: a training cell doubled along **every** axis the group's image offsets reach
+(the build-time report lists them; `alias_groups(basis)[k].delta_shifts` carries
+them), or — for isotropic channels only — spin-spiral training data at a wavevector
+with ``\boldsymbol q\cdot\Delta\boldsymbol R \notin 2\pi\mathbb Z``, which this package
+does not yet consume.
+
+Two things the detection does **not** do. A class of orbits whose functions are
+linearly dependent without being pairwise proportional — an anisotropic channel
+whose member tensors carry their own bond geometry — has no equal split to define,
+so it is reported (`kind == :span_collapsed`) and left untied, as is a proportional
+set whose per-member tensor norms differ (`:unequal_norm`, the premise behind the
+``\pm 1`` weights failing); the `OLS` rank warning still applies there and the
+remedy is the doubled cell. A tie the point group fuses only *partially* (one orbit
+of two images plus two single-image orbits, say) is handled: the tied column sums
+every member bond, so the read-out is the bond-weighted mean. And nothing is merged or dropped in the basis itself: the orbits, their
+`SALCKey`s and members stay distinct, so a datum type that breaks the periodicity
+could separate them on the same basis object.
+
+`alias_rtol = nothing` turns the detection off (every SALC its own column; the
+design is then rank deficient on such a cell and `OLS` warns as before).
+
+The joint-family SLCE.jl takes the opposite decision on the same face: it freezes
+every column of every orbit that shares an atom set with another orbit
+(`unresolvable_columns` there), discarding the determined sum as well so that a fit
+to data containing that shell fails loudly. That is the right choice when the
+deliverable is a dispersion the data never constrained; here the deliverable is a
+model that has to be tiled and sampled, where a dropped shell is a missing coupling,
+so the sum is kept and the split is recorded as what it is.
 
 ## The third edge: compact clusters at `N ≥ 3`
 

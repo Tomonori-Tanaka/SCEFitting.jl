@@ -279,7 +279,7 @@ it. Under [`AllImages`](@ref) every image stands on its own against the radius, 
 there is no minimum-image multiplicity for a tie band to protect — widening `tie_tol`
 changes nothing about which pairs this function returns. `tol` is recorded on the
 returned list for the *downstream* cluster-edge decisions; note that
-[`candidate_clusters`](@ref) does apply it there as a relative band to an `AllImages`
+`candidate_clusters` does apply it there as a relative band to an `AllImages`
 clique edge, so the two sides do not judge an edge by the same rule. Whether that
 band belongs on a cutoff at all is unsettled; see [`NeighborList`](@ref).
 

@@ -123,7 +123,9 @@ See [`examples/persist_and_input.jl`](examples/persist_and_input.jl) for the ful
 
 `coeftable(sce_fit)` returns a Tables.jl source (one row per SALC: `body`, `orbit_id`,
 `decors` — the sorted decoration label as a string, which for this package's pure-spin
-keys reads exactly like the old `ls` column, `"1,1,2"` —, `L_S`, `Lf`, `block`, `J`), so
+keys reads exactly like the old `ls` column, `"1,1,2"` —, `L_S`, `Lf`, `block`, `J`,
+plus `alias_group` / `split`, which flag a coefficient whose share of a tied
+cross-orbit alias group is a convention rather than a measurement), so
 the coefficients drop into any table / IO package:
 
 ```julia

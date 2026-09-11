@@ -59,6 +59,7 @@ refusing).
     property of the **basis** alone. [Backported from SLCE.jl 23064a4.]
 """
 function multipole_terms(model::SCEPredictor; keep_zero::Bool = false)::Vector{MultipoleTerm}
+    _warn_convention_split(model, "multipole_terms")
     salcs = model.basis.salc_basis.salcs
     all(is_pure_spin(k) for k in model.basis.salc_basis.keys) ||
         throw(ArgumentError(

@@ -10,9 +10,10 @@ meaningful rows); the caller brings the table / IO package. The reference energy
 is the model intercept (not a per-row quantity); read it with [`intercept`](@ref).
 """
 
-const _COEF_NAMES = (:body, :orbit_id, :decors, :L_S, :Lf, :block, :J)
-const _COEF_COLTYPES = (Int, Int, String, Int, Int, Int, Float64)
-const _CoefRow = NamedTuple{_COEF_NAMES,Tuple{Int,Int,String,Int,Int,Int,Float64}}
+const _COEF_NAMES = (:body, :orbit_id, :decors, :L_S, :Lf, :block, :J, :alias_group, :split)
+const _COEF_COLTYPES = (Int, Int, String, Int, Int, Int, Float64, Int, Symbol)
+const _CoefRow = NamedTuple{_COEF_NAMES,
+                            Tuple{Int,Int,String,Int,Int,Int,Float64,Int,Symbol}}
 
 # The sorted decoration label as a flat string. A pure-spin decor renders as its
 # bare `l` (so a v4-shaped key reads "1,1,2" exactly as before); a displacement
@@ -31,25 +32,37 @@ end
     SCECoefficients
 
 A Tables.jl-compatible table of fitted SCE coefficients: parallel `keys` /
-`jphi` (column `J`) plus the intercept `j0`. Build it with [`coeftable`](@ref);
-iterate it for `NamedTuple` rows, or hand it to any Tables.jl sink.
+`jphi` (column `J`) / `alias_group` (index into [`alias_groups`](@ref), `0` for none)
+/ `split` (`:free`, `:convention`, `:legacy` — see [`SCEPredictor`](@ref)), plus the
+intercept `j0`. Build it with [`coeftable`](@ref); iterate it for `NamedTuple` rows,
+or hand it to any Tables.jl sink.
 """
 struct SCECoefficients
     keys::Vector{SALCKey}
     jphi::Vector{Float64}
     j0::Float64
+    alias_group::Vector{Int}
+    split::Vector{Symbol}
 
-    function SCECoefficients(keys::Vector{SALCKey}, jphi::Vector{Float64}, j0::Real)
+    function SCECoefficients(keys::Vector{SALCKey}, jphi::Vector{Float64}, j0::Real,
+                             alias_group::Vector{Int}, split::Vector{Symbol})
         length(keys) == length(jphi) ||
             throw(ArgumentError("got $(length(keys)) keys for $(length(jphi)) coefficients"))
-        return new(keys, jphi, Float64(j0))
+        length(alias_group) == length(jphi) && length(split) == length(jphi) ||
+            throw(ArgumentError("alias_group / split must have one entry per coefficient"))
+        return new(keys, jphi, Float64(j0), alias_group, split)
     end
 end
+
+# Without provenance columns: no alias group, every coefficient `:free`.
+SCECoefficients(keys::Vector{SALCKey}, jphi::Vector{Float64}, j0::Real) =
+    SCECoefficients(keys, jphi, j0, zeros(Int, length(jphi)), fill(:free, length(jphi)))
 
 @inline _coef_row(c::SCECoefficients, i::Int)::_CoefRow =
     (body = c.keys[i].body, orbit_id = c.keys[i].orbit_id,
      decors = _decor_string(c.keys[i].decors), L_S = c.keys[i].L_S,
-     Lf = c.keys[i].Lf, block = c.keys[i].block, J = c.jphi[i])
+     Lf = c.keys[i].Lf, block = c.keys[i].block, J = c.jphi[i],
+     alias_group = c.alias_group[i], split = c.split[i])
 
 """
     coeftable(f::SCEFit) -> SCECoefficients
@@ -58,13 +71,24 @@ end
 A Tables.jl-compatible table of the fitted coefficients — one row per SALC with
 columns `body`, `orbit_id`, `decors` (the sorted decoration label as a string:
 a pure-spin key reads like `"1,1,2"`, displacement factors as `u(k:l)`), `L_S`,
-`Lf`, `block`, and `J` (the coefficient `Jϕ`). The intercept `j0` is available
-via [`intercept`](@ref). Example: `using DataFrames; DataFrame(coeftable(f))`.
+`Lf`, `block`, `J` (the coefficient `Jϕ`), `alias_group` (the index into
+[`alias_groups`](@ref) of the cross-orbit alias group the SALC belongs to, `0` for
+none) and `split` (`:free`, or `:convention` when `J` was read back from a tied
+column with the equal per-bond weight and is therefore a convention rather than a
+measurement; `:legacy` for a model loaded from a pre-v7 file). For an `SCEFit`
+the table is the SALC-space expansion of `coef(f)` (see [`SCEPredictor`](@ref)`(f)`).
+The intercept `j0` is available via [`intercept`](@ref).
+Example: `using DataFrames; DataFrame(coeftable(f))`.
 """
-coeftable(f::SCEFit)::SCECoefficients =
-    SCECoefficients(copy(f.dataset.basis.salc_basis.keys), copy(f.jphi), f.j0)
-coeftable(m::SCEPredictor)::SCECoefficients =
-    SCECoefficients(copy(m.keys), copy(m.jphi), m.j0)
+coeftable(f::SCEFit)::SCECoefficients = coeftable(SCEPredictor(f))
+function coeftable(m::SCEPredictor)::SCECoefficients
+    # A predictor may carry a key/coefficient subset of its basis (a display or
+    # hand-built slice); the alias index is per basis SALC, so it applies only to a
+    # full-length coefficient vector.
+    ties = _column_ties(m.basis)
+    ag = length(m.jphi) == length(ties.col_of) ? _alias_index(ties) : zeros(Int, length(m.jphi))
+    return SCECoefficients(copy(m.keys), copy(m.jphi), m.j0, ag, copy(m.split))
+end
 # `copy` duplicates the `jphi` and key vectors so the table is independent of later
 # refits; the `SALCKey`s themselves are shared (they are treated as immutable — used
 # as `Dict` keys — so their `ls` is never mutated).
@@ -106,7 +130,9 @@ function Base.show(io::IO, ::MIME"text/plain", c::SCECoefficients)
             ["L_S"; [string(c.keys[i].L_S) for i = 1:nshow]],
             ["Lf"; [string(c.keys[i].Lf) for i = 1:nshow]],
             ["block"; [string(c.keys[i].block) for i = 1:nshow]],
-            ["J"; [_fmtj(c.jphi[i]) for i = 1:nshow]])
+            ["J"; [_fmtj(c.jphi[i]) for i = 1:nshow]],
+            ["alias"; [c.alias_group[i] == 0 ? "" : string(c.alias_group[i]) for i = 1:nshow]],
+            ["split"; [c.split[i] === :free ? "" : string(c.split[i]) for i = 1:nshow]])
     w = map(col -> maximum(length, col), cols)
     for r = 1:(nshow + 1)
         println(io)

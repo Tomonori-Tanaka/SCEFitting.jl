@@ -45,6 +45,7 @@ include("clusters/orbits.jl")
 # --- SALC basis: symmetry-adapted, time-reversal-even invariants ---
 include("basis/salc.jl")
 include("basis/salcbasis.jl")
+include("basis/aliases.jl")     # cross-orbit alias groups → design-column ties
 
 # --- fitting + high-level SCE API ---
 include("fitting/metric.jl")      # the per-column penalty scale + its provenance
@@ -148,6 +149,7 @@ public UnclassifiableBasis                                            # resolvab
 public with_lambda                     # re-lambda an estimator, metric and all
 public build_clusters, ClusterMember, ClusterOrbit, ClusterSet
 public build_salc_basis, evaluate_salc, salcs, SALC, SALCKey, SALCBasis
+public alias_groups, AliasGroup, n_columns                           # cross-orbit ties
 public Channel, SPIN, DISP, OCC, SiteFactor, SiteDecor                # decoration labels
 public Slot                                       # a decorated term's axis label
 public has_spin, has_disp, spin_rank, disp_degree, factors, is_pure_spin

@@ -128,10 +128,23 @@ capability consumed by both the introspection and the Sunny interop.
   the orbit (WS-boundary ties / merged near-tie shells folding distinct instances
   onto one atom set) are dropped with a warning naming orbit, channel, and reason
   (surviving keys keep their `block` numbers; gaps are legal). The independence
-  guarantee is per orbit, distinct-atom members only: cross-orbit aliasing (e.g. a
-  trivial space group splitting tied images into separate orbits) and row-deficient
-  training data can still leave the design rank deficient — the `OLS` rank warning is
-  the gate there. Repeated-atom (`AllImages` self-image) members, which the reduction
+  guarantee is per orbit, distinct-atom members only. **Cross-orbit alias groups** —
+  distinct orbits whose members join the same atom sets through periodic images the
+  space group does not relate, so that their aggregated functions are proportional
+  on the cell (e.g. Nd₂Fe₁₄B 1×1×1: ten such pairs of pair orbits) — are detected
+  structurally at `SCEBasis` construction (`basis/aliases.jl`: same signature class
+  `(body, decors, L_S, Lf, member atom sets)`, pairwise residual `≤ alias_rtol =
+  1e-6`, union–find) and **tied into one design column** each, with per-bond
+  weights `w_j = sign · ν_ref/ν_j` (`ν_j` = per-member tensor norm, exactly `±1`
+  for transported copies): `n_columns(basis) ≤ n_salcs(basis)`, `_design_energy` /
+  `_design_torque` fold the SALC columns (`_fold_columns`, the identity on an
+  alias-free basis), `SCEFit.jphi` / `coef(f)` / `refit` supports live in column
+  space, and `SCEPredictor(f)` expands to SALC space with `jϕ_salc = w_j · jϕ_col`
+  and `split = :convention` (a recorded convention — the cell determines only the
+  group's sum). Classes that are dependent without being proportional
+  (`:span_collapsed`) are reported, never tied; row-deficient training data still
+  reach the `OLS` rank warning. `alias_groups(basis)` / `AliasGroup` expose the
+  groups; `alias_rtol = nothing` disables the detection. Repeated-atom (`AllImages` self-image) members, which the reduction
   also cannot certify, are refused outright at the `SCEDataset` door with an
   `UnclassifiableBasis`: on the reference cell both ends carry the same spin, so those
   columns are redundant by construction. Building such a basis stays legal — it is the
@@ -179,7 +192,11 @@ capability consumed by both the introspection and the Sunny interop.
   `SpinDatum`/source path rejects a zero moment on a basis-referenced atom),
   `SCEPredictor`/`SCEFit`
   (plus the public constructor `SCEPredictor(basis, j0, jphi)` for synthetic models —
-  keys filled in from the basis),
+  keys filled in from the basis, `split = :free`; `SCEPredictor.split` records, per
+  SALC, whether a coefficient was read back from a tied cross-orbit alias column
+  (`:convention`), is free, or comes from a pre-v7 file (`:legacy`); `coeftable` adds
+  the `alias_group` / `split` columns and the read-out doors `multipole_terms` /
+  `bilinear_terms` / `to_sunny` warn once on a nonzero convention-split coefficient),
   `fit(SCEFit, dataset, estimator; torque_weight)`, `refit(f, estimator; threshold)`
   (re-solve on the scaled-magnitude support of `f` — the de-biasing step after a sparse
   fit; shares `_assemble_problem` with `fit`), `predict_energy`/`predict_torque`,
@@ -303,7 +320,7 @@ capability consumed by both the introspection and the Sunny interop.
 - **Tabular results** (`sce/coeftable.jl`): `coeftable(fit | model) -> SCECoefficients`
   is a **Tables.jl** source — one row per SALC (`body`, `orbit_id`, `decors` as a
   comma string — `"1,1,2"` on a pure-spin key, exactly the old `ls` column —, `L_S`,
-  `Lf`, `block`, `J`) — so it drops into `DataFrame` / `CSV.write` /
+  `Lf`, `block`, `J`, `alias_group`, `split`) — so it drops into `DataFrame` / `CSV.write` /
   `Arrow.write`. The library owns the internal-storage → labeled-row mapping; the caller
   brings the table/IO package. `j0` is the intercept (`intercept(c)`), not a row.
   Tables.jl is a lightweight core dep.

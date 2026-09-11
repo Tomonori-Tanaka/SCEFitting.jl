@@ -46,6 +46,7 @@ end
         include("unit/test_ws_nbody.jl")
         include("unit/test_decor.jl")
         include("unit/test_salc.jl")
+        include("unit/test_aliases.jl")
         include("unit/test_mixedsalc.jl")
         include("unit/test_normalization.jl")
         include("unit/test_fit.jl")

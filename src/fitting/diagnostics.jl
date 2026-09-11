@@ -4,8 +4,12 @@
 """
     coef(fit_or_model) -> Vector{Float64}
 
-The fitted SALC coefficients `Jϕ`, one per design-matrix column (in [`SALCKey`](@ref)
-order). The reference energy `j0` is separate; read it with [`intercept`](@ref).
+The fitted coefficients `Jϕ`. For an [`SCEFit`](@ref) they are one per **design
+column** ([`n_columns`](@ref), column order); for an [`SCEPredictor`](@ref) one per
+**SALC** ([`n_salcs`](@ref), [`SALCKey`](@ref) order) — the two coincide unless the
+basis ties cross-orbit alias groups, in which case `SCEPredictor(f)` expands the
+tied coefficients (see [`alias_groups`](@ref)). The reference energy `j0` is
+separate; read it with [`intercept`](@ref).
 """
 coef(f::SCEFit) = f.jphi
 coef(m::SCEPredictor) = m.jphi

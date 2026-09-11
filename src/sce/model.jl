@@ -146,11 +146,17 @@ struct SCEBasis
     spacegroup::SpaceGroup
     salc_basis::SALCBasis
     spec::BasisSpec
+    # SALC → design-column map (cross-orbit alias groups tied into one column each);
+    # derived from `salc_basis` here so it can never drift from the SALCs it ties.
+    # Not persisted: a reloaded basis recomputes it at the default `alias_rtol`.
+    ties::_ColumnTies
 
     function SCEBasis(crystal::Crystal, spacegroup::SpaceGroup, salc_basis::SALCBasis,
-                      spec::BasisSpec)
+                      spec::BasisSpec; alias_rtol::Union{Nothing,Real} = _ALIAS_RTOL)
         _check_spec_species(crystal, spec)
-        return new(crystal, spacegroup, salc_basis, spec)
+        ties = _column_ties(salc_basis, crystal; alias_rtol = alias_rtol)
+        _report_alias_groups(crystal, ties)
+        return new(crystal, spacegroup, salc_basis, spec, ties)
     end
 end
 
@@ -162,7 +168,8 @@ const _TIE_TOL_MAX = 1e-2
 
 """
     SCEBasis(crystal, spec; backend = NoSymmetry(), tol = 1e-5,
-             images = MinimumImage(), tie_tol = $(_SAME_DIST_RTOL))
+             images = MinimumImage(), tie_tol = $(_SAME_DIST_RTOL),
+             alias_rtol = $(_ALIAS_RTOL))
 
 Build the SCE basis for `crystal`: analyze symmetry, enumerate cluster orbits, and
 construct the symmetry-adapted SALC basis. Pass `backend = SpglibBackend()` (with
@@ -199,11 +206,23 @@ turns tie decisions into exact float comparisons, which is almost never wanted.
 Like `images`, the value is not persisted (the built SALC basis is stored
 verbatim) — a TOML setup carries it as `[interaction].tie_tol` so the build is
 reproducible from the file.
+
+`alias_rtol` is the relative residual below which two **distinct orbits** whose
+members join the same reference-cell atoms through periodic images the space group
+does not relate count as proportional functions of cell-periodic data — a
+cross-orbit alias group (see [`alias_groups`](@ref)). Such groups are tied into one
+design column and their fitted coefficient is read back with equal per-bond weight,
+a recorded convention. `nothing` disables the detection (every SALC its own column;
+the design is then rank deficient on such a cell and `OLS` warns). Session-only:
+neither the setup file nor a saved basis carries it, and a reloaded basis recomputes
+its groups at the default, so a model built with a non-default `alias_rtol` reloads
+with the default's column count and `split`.
 """
 function SCEBasis(crystal::Crystal, spec::BasisSpec;
                  backend::AbstractSymmetryBackend = NoSymmetry(), tol::Real = 1e-5,
                  images::AbstractImageSelection = MinimumImage(),
-                 tie_tol::Real = _SAME_DIST_RTOL)::SCEBasis
+                 tie_tol::Real = _SAME_DIST_RTOL,
+                 alias_rtol::Union{Nothing,Real} = _ALIAS_RTOL)::SCEBasis
     _check_spec_species(crystal, spec)
     (isfinite(tie_tol) && tie_tol >= 0) ||
         throw(ArgumentError("tie_tol must be finite and ≥ 0; got $tie_tol"))
@@ -224,16 +243,48 @@ function SCEBasis(crystal::Crystal, spec::BasisSpec;
     salcs = build_salc_basis(crystal, sg, clusters;
                              lmax_by_species = spec.lmax, lsum_by_body = spec.lsum,
                              isotropy = spec.isotropy)
-    return SCEBasis(crystal, sg, salcs, spec)
+    return SCEBasis(crystal, sg, salcs, spec; alias_rtol = alias_rtol)
 end
 
 """
     n_salcs(basis::SCEBasis) -> Int
 
-The number of SALC basis functions in `basis` — equivalently, the number of
-design-matrix columns / fitted coefficients.
+The number of SALC basis functions in `basis` — the length of a model's
+coefficient vector (`SCEPredictor.jphi`, `coeftable`). The number of design-matrix
+columns is [`n_columns`](@ref): smaller whenever cross-orbit alias groups are tied.
 """
 n_salcs(b::SCEBasis) = length(b.salc_basis)
+
+"""
+    n_columns(basis::SCEBasis) -> Int
+
+The number of design-matrix columns / fitted coefficients of a fit on `basis`:
+`n_salcs(basis)` minus the columns absorbed by tied cross-orbit alias groups
+([`alias_groups`](@ref)). Equal to `n_salcs(basis)` on any basis without them.
+"""
+n_columns(b::SCEBasis) = length(_column_ties(b).columns)
+# The single accessor every column-space consumer goes through (a dataset-level
+# decision — a datum type that breaks the cell periodicity — would change this
+# method, not its callers).
+_column_ties(b::SCEBasis)::_ColumnTies = b.ties
+
+"""
+    alias_groups(basis::SCEBasis) -> Vector{AliasGroup}
+
+The cross-orbit alias groups of `basis` (see [`AliasGroup`](@ref)): distinct cluster
+orbits whose members join the same reference-cell atoms through periodic images the
+space group does not relate, so that cell-periodic data determine only the sum of
+their couplings. Groups of kind `:proportional` are tied into one design column each
+and their fitted coefficient is read back to every member orbit with equal per-bond
+weight — a recorded convention (`coeftable` column `split`), not a measurement;
+`:span_collapsed` groups are reported only. Empty on a cell that resolves every
+admitted cluster, which is every cell where the Wigner–Seitz boundary ties are fused
+by the point group (all the standard high-symmetry cells) — detection ran, and found
+nothing. The remedy that turns the convention into a measurement is a training cell
+doubled along every axis the group's `delta_shifts` reach, or (isotropic channels
+only) spin-spiral training data.
+"""
+alias_groups(b::SCEBasis) = b.ties.groups
 
 """
     salcs(basis::SCEBasis) -> Vector{SALC}
@@ -248,7 +299,9 @@ salcs(b::SCEBasis) = b.salc_basis.salcs
 
 Pair an [`SCEBasis`](@ref) with training data: spin configurations `configs`
 (each `3 × n_atoms`, unit columns) and their `energies`. Materializes the energy
-design matrix `X_E[config, salc] = evaluate_salc(salc, config)`.
+design matrix `X_E[config, column] = Φ_column(config)`, one column per design column
+([`n_columns`](@ref): a SALC column each, except that the SALCs of a tied cross-orbit
+alias group share one column, the weighted sum of theirs).
 
 The four-argument form additionally takes per-configuration torques (each
 `3 × n_atoms`, the DFT torque `τ_a = m_a × B_a = −e_a × ∂E/∂e_a` on every atom) and builds the
@@ -526,7 +579,11 @@ reference energy `j0` and SALC coefficients `jphi` (one per basis function), wit
 `keys` recording each coefficient's [`SALCKey`](@ref). Unlike [`SCEFit`](@ref) it
 carries no training data, design matrices, or diagnostics — just enough to evaluate
 [`predict_energy`](@ref) / [`predict_torque`](@ref) and to round-trip through
-`SCEFitting.save` / `SCEFitting.load`.
+`SCEFitting.save` / `SCEFitting.load`. `split` records, per SALC, where its
+coefficient's share of a tied cross-orbit alias group came from: `:convention` (read
+back from a tied column with the equal per-bond weight — the training cell did not
+determine it; see [`alias_groups`](@ref)), `:free` (an untied column, or a hand-set
+model), `:legacy` (loaded from a pre-v7 file, provenance unknown).
 
 Obtain one from a fit with `SCEPredictor(fit)`. Within a session `jphi[k]` pairs with
 `salcs(basis)[k]` positionally; on reload the coefficients are re-paired to a freshly
@@ -537,6 +594,20 @@ struct SCEPredictor
     j0::Float64
     jphi::Vector{Float64}
     keys::Vector{SALCKey}
+    split::Vector{Symbol}
+
+    function SCEPredictor(basis::SCEBasis, j0::Float64, jphi::Vector{Float64},
+                          keys::Vector{SALCKey}, split::Vector{Symbol})
+        length(jphi) == length(keys) || throw(DimensionMismatch(
+            "SCEPredictor: $(length(jphi)) coefficients for $(length(keys)) keys"))
+        length(split) == length(jphi) || throw(DimensionMismatch(
+            "SCEPredictor: $(length(split)) split entries for $(length(jphi)) coefficients"))
+        for s in split
+            s in _SPLIT_KINDS || throw(ArgumentError(
+                "SCEPredictor: unknown split kind `$s` (expected one of $(_SPLIT_KINDS))"))
+        end
+        return new(basis, j0, jphi, keys, split)
+    end
 end
 
 """
@@ -551,15 +622,25 @@ function SCEPredictor(basis::SCEBasis, j0::Real, jphi::AbstractVector{<:Real})::
     length(jphi) == n_salcs(basis) ||
         throw(DimensionMismatch("jphi has $(length(jphi)) coefficients for " *
                                 "$(n_salcs(basis)) SALC basis functions"))
-    return SCEPredictor(basis, Float64(j0), collect(Float64, jphi), basis.salc_basis.keys)
+    return SCEPredictor(basis, Float64(j0), collect(Float64, jphi), basis.salc_basis.keys,
+                        fill(:free, n_salcs(basis)))
 end
+
+# Positional form without the split provenance: a hand-set model, every coefficient
+# `:free`. A fit's expansion (`SCEPredictor(::SCEFit)`) and the persistence reader
+# always state the split explicitly.
+SCEPredictor(basis::SCEBasis, j0::Real, jphi::AbstractVector{<:Real},
+             keys::Vector{SALCKey})::SCEPredictor =
+    SCEPredictor(basis, Float64(j0), collect(Float64, jphi), keys, fill(:free, length(jphi)))
 
 """
     SCEFit
 
 The **full result of [`fit`](@ref)**: the [`SCEDataset`](@ref) (with its design
 matrices), the fitted `j0`/`jphi`, the `estimator`, the `torque_weight` used, and the
-(energy) residuals. This is the heavyweight, data-bearing object you query for
+(energy) residuals. `jphi` (and [`coef`](@ref)) has one entry per **design column**
+([`n_columns`](@ref)), in column order — the SALCs of a tied cross-orbit alias group
+share one entry; `SCEPredictor(fit)` expands it to one coefficient per SALC. This is the heavyweight, data-bearing object you query for
 diagnostics ([`r2_energy`](@ref), [`rmse_energy`](@ref), [`residuals_energy`](@ref), …).
 For prediction and storage, convert it to the lightweight [`SCEPredictor`](@ref) with
 `SCEPredictor(fit)`.
@@ -578,3 +659,6 @@ struct SCEFit
     # [Backported from SLCE.jl 54457ca, review M3.]
     support::Union{Nothing,Vector{Int}}
 end
+
+n_columns(d::SCEDataset) = n_columns(d.basis)
+n_columns(f::SCEFit) = n_columns(f.dataset.basis)

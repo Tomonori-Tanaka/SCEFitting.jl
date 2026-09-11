@@ -631,8 +631,9 @@ end
 # atom in a member (`AllImages` self-pairs) the monomials themselves may be
 # dependent, so vector-dependence still implies function-dependence (dropping stays
 # sound) but independence is not certified — the OLS rank warning is the backstop
-# there, as it is for dependence ACROSS orbits, which this per-orbit pass never
-# sees.
+# there. Dependence ACROSS orbits is what this per-orbit pass never sees; the
+# proportional case (tied images in distinct orbits) is picked up on the finished
+# basis by `column_ties` (`basis/aliases.jl`), which reuses `_function_vector`.
 #
 # Thresholds: an aggregated function is dropped as zero when its vector norm is
 # ≤ `_AGG_ZERO_RTOL ×` its unaggregated tensor norm, and as dependent when its
@@ -653,6 +654,10 @@ end
 const _AGG_ZERO_RTOL = 1e-8
 const _AGG_DEP_RTOL = 1e-8
 
+# The aggregated (shift-blind) monomial coefficient vector of a SALC, keyed by
+# `(member atoms, spin-axis ranks, tensor index)`.
+const _FunctionVector = Dict{Tuple{Vector{Int},Vector{Int},Int},Float64}
+
 # Aggregated (shift-blind) monomial coefficient vector of one SALC, plus the
 # unaggregated tensor norm used as the zero-test scale.
 function _function_vector(s::SALC)
@@ -670,7 +675,7 @@ function _function_vector(s::SALC)
         "C3v triangle [C-1(2)]; (c) the L_S block-diagonality gate over all " *
         "(L_S, Lf) blocks at once [C-2]; (d) an lsum cap for decorated labels and " *
         "its anti-drift run [MIN-7]"))
-    v = Dict{Tuple{Vector{Int},Vector{Int},Int},Float64}()
+    v = _FunctionVector()
     raw2 = 0.0
     for m in s.members, t in m.terms
         raw2 += sum(abs2, t.folded)
@@ -710,10 +715,26 @@ end
 # `l`-tuple, so the scalar (Heisenberg-like) channel survives and the exotic
 # aggregate-degenerate ones are the ones named as dropped. Orbit-local and
 # deterministic — safe under the threaded orbit loop.
+# Modified Gram–Schmidt step: project `v` (in place) against the orthonormalized
+# `kept` set; returns `(‖v‖ after, ‖v‖ before)`. Shared by the per-orbit reduction and
+# the cross-orbit span-collapse test in `basis/aliases.jl` — one loop, one summation
+# order (see the file header on why that order is fixed).
+function _mgs_residual!(v::_FunctionVector, kept::Vector{_FunctionVector})
+    nv0 = _dictnorm(v)
+    for q in kept
+        c = _dictdot(q, v)
+        c == 0.0 && continue
+        for (k, x) in q
+            v[k] = get(v, k, 0.0) - c * x
+        end
+    end
+    return _dictnorm(v), nv0
+end
+
 function _reduce_orbit_salcs(salcs::Vector{SALC})
     isempty(salcs) && return salcs, Tuple{SALCKey,Symbol}[]
     kept = SALC[]
-    keptvecs = Dict{Tuple{Vector{Int},Vector{Int},Int},Float64}[]
+    keptvecs = _FunctionVector[]
     dropped = Tuple{SALCKey,Symbol}[]
     for s in salcs
         v, raw = _function_vector(s)
@@ -722,15 +743,7 @@ function _reduce_orbit_salcs(salcs::Vector{SALC})
             push!(dropped, (s.key, :zero))
             continue
         end
-        # modified Gram–Schmidt against the kept (orthonormalized) set
-        for q in keptvecs
-            c = _dictdot(q, v)
-            c == 0.0 && continue
-            for (k, x) in q
-                v[k] = get(v, k, 0.0) - c * x
-            end
-        end
-        nv = _dictnorm(v)
+        nv, _ = _mgs_residual!(v, keptvecs)
         if nv <= _AGG_DEP_RTOL * nv0
             push!(dropped, (s.key, :dependent))
             continue
@@ -817,11 +830,14 @@ near-tie shells — onto the same atom sets), are dropped with a warning naming 
 orbit, channel, and reason. The reduction is exact (the spanned model space is
 unchanged) and, **per orbit and for members with all-distinct atoms**, guarantees
 the orbit's surviving functions are linearly independent; surviving keys keep their
-`block` numbers, so gaps in `block` are legal. What it does NOT cover — and where
-the design matrix can still lose rank, caught only by the `OLS` rank warning:
-dependence **across** orbits (a trivial/underreported space group can place tied
-images in different orbits; more generally cross-orbit supercell aliasing, which is
-unresolvable from the cell, not mergeable), repeated-atom members (`AllImages`
+`block` numbers, so gaps in `block` are legal. Dependence **across** orbits — tied
+images the space group does not relate, placed in different orbits — is not folded
+here: `SCEBasis` detects such cross-orbit alias groups on the built basis
+(`column_ties`, `basis/aliases.jl`) and ties their proportional columns into one
+design column, read back with an equal per-bond split by convention. What neither
+pass covers — and where the design matrix can still lose rank, caught only by the
+`OLS` rank warning: cross-orbit classes that are dependent without being
+proportional (reported as `:span_collapsed`), repeated-atom members (`AllImages`
 self-pairs; dropping stays sound but independence is uncertified), and training
 sets with fewer rows than columns.
 

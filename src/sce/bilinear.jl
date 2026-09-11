@@ -119,6 +119,7 @@ directed contributions are already summed into its `folded` tensor by
 these channels.
 """
 function _bilinear_terms(model::SCEPredictor)::BilinearTerms
+    _warn_convention_split(model, "bilinear_terms / to_sunny")
     pairs = Dict{Tuple{Int,Int,SVector{3,Int}},SMatrix{3,3,Float64,9}}()
     onsites = Dict{Int,SMatrix{3,3,Float64,9}}()
     skipped = String[]

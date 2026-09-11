@@ -171,6 +171,8 @@ design-matrix-column identity), plus the fitted coefficient:
 | `Lf` | final coupled angular momentum ``L_f`` of the invariant |
 | `block` | disambiguates independent ``l``-orderings / coupling paths sharing the same `(body, orbit_id, decors, L_S, Lf)` |
 | `J` | the fitted coefficient ``j_\varphi`` for this SALC (DFT energy unit, e.g. eV) |
+| `alias_group` | index into `alias_groups(basis)` of the cross-orbit alias group the SALC belongs to (`0` for none) — distinct orbits the training cell cannot tell apart, tied into one design column |
+| `split` | `:free`, or `:convention` when `J` was read back from a tied column with the equal per-bond weight (a convention, not a measurement); `:legacy` for a model loaded from a pre-v7 file |
 
 The rows are in design-matrix column order, the same order as [`coef`](@ref) and
 `basis.salc_basis.keys`. It drops straight into any table or IO package:

@@ -222,9 +222,32 @@ end
 """
     SCEPredictor(f::SCEFit) -> SCEPredictor
 
-Extract the lightweight predictor from a fit.
+Extract the lightweight predictor from a fit. The fit's coefficients live on the
+design columns ([`n_columns`](@ref)); here they are expanded to one coefficient per
+SALC — the SALCs of a tied cross-orbit alias group each receive the tied column's
+coefficient times their per-bond weight (`±1` for transported copies), and are
+marked `split = :convention`.
 """
-SCEPredictor(f::SCEFit) = SCEPredictor(f.dataset.basis, f.j0, f.jphi, f.dataset.basis.salc_basis.keys)
+function SCEPredictor(f::SCEFit)::SCEPredictor
+    basis = f.dataset.basis
+    return SCEPredictor(basis, f.j0, _expand_coefficients(f.jphi, _column_ties(basis)),
+                        basis.salc_basis.keys, _split_status(_column_ties(basis)))
+end
+
+# Read-out doors (`multipole_terms`, `bilinear_terms` / `to_sunny`) call this so a
+# convention-split coefficient never leaves the package as a silent measurement.
+function _warn_convention_split(model::SCEPredictor, what::AbstractString)
+    n = count(j -> model.split[j] !== :free && model.jphi[j] != 0.0, eachindex(model.jphi))
+    n == 0 && return nothing
+    @warn "$what: $n coefficient(s) belong to tied cross-orbit alias groups and carry " *
+          "a split between periodic images that the training cell did not determine " *
+          "(`split = :convention`; `:legacy` for a pre-v7 file). Training-cell " *
+          "energies, torques and every q = 0 quantity are unaffected; bond-resolved " *
+          "J(R) tables, J(q) off Γ, and tiled-supercell energies of configurations " *
+          "that are not periodic in the training cell depend on it. See " *
+          "`alias_groups(model.basis)` and the `split` column of `coeftable(model)`." maxlog = 1 _id = Symbol("convention_split_", model.basis.salc_basis.fingerprint)
+    return nothing
+end
 
 """
     predict_energy(model, data) -> Float64 or Vector{Float64}

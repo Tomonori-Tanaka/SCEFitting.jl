@@ -98,7 +98,9 @@ _rcfg(rng, n) = reshape(reduce(vcat, (_rdir(rng) for _ = 1:n)), 3, n)
         lat = Lattice([8.0 0 0; 0 8.0 0; 0 0 10.0])
         cr = Crystal(lat, [0 0 0 0; 0 0 0 0; 0.0 0.25 0.5 0.75], [1, 1, 1, 1], ["Fe"])
         b = SCEBasis(cr, BasisSpec(; nbody = 2, cutoff = 2.6, lmax = [1], isotropy = true))
-        model = SCEPredictor(b, 0.0, [0.0137], b.salc_basis.keys)
+        jphi = zeros(n_salcs(b))
+        jphi[1] = 0.0137                                # the nearest-neighbor SALC only
+        model = SCEPredictor(b, 0.0, jphi, b.salc_basis.keys)
         terms = _bilinear_terms(model)
         for (_, M) in terms.pairs
             @test isapprox(M, (M[1, 1]) * I; atol = 1e-12)   # diagonal isotropic

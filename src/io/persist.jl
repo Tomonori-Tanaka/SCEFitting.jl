@@ -35,8 +35,12 @@ const _SCHEMA_MODEL = "scefitting/sce-model"
 #     so v4 files load with identical predictions and no migration tool. Terms
 #     store "slots" (per axis: [site, channel code, k, l]) instead of "ls"; a
 #     v2-v4 term's "ls" maps to the identity pure-spin slot list on read.
-const PERSIST_SCHEMA_VERSION = 6
-const _PERSIST_READABLE_VERSIONS = (2, 3, 4, 5, 6)
+# v7: model couplings carry "split" (the per-SALC provenance of a tied cross-orbit
+#     alias group's coefficient: "free" / "convention"). Older model docs load with
+#     `split = :legacy` on the SALCs of a tied group and `:free` elsewhere; basis
+#     docs are unchanged (the ties are recomputed on load, never stored).
+const PERSIST_SCHEMA_VERSION = 7
+const _PERSIST_READABLE_VERSIONS = (2, 3, 4, 5, 6, 7)
 
 # Normalize -0.0 → +0.0 so two builds of the same object serialize byte-identically
 # (eigensolvers on different BLAS can flip a sign of zero); -0.0 == 0.0 anyway.
@@ -124,7 +128,8 @@ function _to_doc(m::SCEPredictor)
     d = Dict{String,Any}("schema" => _SCHEMA_MODEL, "schema_version" => PERSIST_SCHEMA_VERSION)
     merge!(d, _basis_doc(m.basis))
     d["j0"] = _jnum(m.j0)
-    d["couplings"] = [Dict{String,Any}("key" => _key_doc(m.keys[k]), "jphi" => _jnum(m.jphi[k]))
+    d["couplings"] = [Dict{String,Any}("key" => _key_doc(m.keys[k]), "jphi" => _jnum(m.jphi[k]),
+                                       "split" => String(m.split[k]))
                       for k in eachindex(m.jphi)]
     return d
 end
@@ -372,11 +377,21 @@ function _model_from_doc(d)::SCEPredictor
     _check_schema(d, (_SCHEMA_MODEL,))
     basis = _basis_from_doc(d)
     j0 = Float64(d["j0"])
+    version = Int(d["schema_version"])
     coup = Dict{SALCKey,Float64}()
+    spl = Dict{SALCKey,Symbol}()
     for c in d["couplings"]
         k = _key_from(c["key"])
         haskey(coup, k) && throw(ArgumentError("duplicate coefficient for SALC key $k"))
         coup[k] = Float64(c["jphi"])
+        if version >= 7
+            haskey(c, "split") ||
+                throw(ArgumentError("schema_version $version coupling for SALC key $k has no `split`"))
+            s = Symbol(String(c["split"]))
+            s in _SPLIT_KINDS ||
+                throw(ArgumentError("unknown coefficient split `$s` for SALC key $k"))
+            spl[k] = s
+        end
     end
     keys = basis.salc_basis.keys
     length(coup) == length(keys) ||
@@ -386,7 +401,28 @@ function _model_from_doc(d)::SCEPredictor
         haskey(coup, k) || throw(ArgumentError("no coefficient for SALC key $k in the file"))
         jphi[i] = coup[k]
     end
-    return SCEPredictor(basis, j0, jphi, copy(keys))
+    # Pre-v7 files carry no split provenance: whatever the writer's estimator did
+    # with a tied group's identical columns (min-norm OLS = equal split; a penalized
+    # or support-selected fit = whatever it chose) is unknown, so it is `:legacy`
+    # there and `:free` on every untied SALC.
+    recomputed = _split_status(_column_ties(basis))
+    if version >= 7
+        split = Symbol[spl[k] for k in keys]
+        # `alias_rtol` is not persisted, so the reloaded basis may tie differently from
+        # the writer's; predictions are unaffected (coefficients pair by key), only the
+        # disclosure could drift — say so.
+        # (`:free` on a SALC the reloaded basis ties is a hand-set model, not drift)
+        drift = count(i -> split[i] === :convention && recomputed[i] !== :convention,
+                      eachindex(split))
+        drift == 0 || @warn "loaded model: $drift coefficient(s) carry a `split` that " *
+                            "disagrees with the alias groups the reloaded basis " *
+                            "detects at the default alias_rtol (the writer used a " *
+                            "different setting). Predictions are unchanged; the " *
+                            "`split` column keeps the file's provenance." maxlog = 1
+    else
+        split = Symbol[s === :convention ? :legacy : :free for s in recomputed]
+    end
+    return SCEPredictor(basis, j0, jphi, copy(keys), split)
 end
 
 # ----------------------------------------------------------------------------

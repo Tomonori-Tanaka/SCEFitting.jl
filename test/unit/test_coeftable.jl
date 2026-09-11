@@ -19,14 +19,14 @@ using Random
         @test Tables.istable(typeof(c))
         @test Tables.rowaccess(typeof(c))
         sch = Tables.schema(c)
-        @test sch.names == (:body, :orbit_id, :decors, :L_S, :Lf, :block, :J)
-        @test sch.types == (Int, Int, String, Int, Int, Int, Float64)
+        @test sch.names == (:body, :orbit_id, :decors, :L_S, :Lf, :block, :J, :alias_group, :split)
+        @test sch.types == (Int, Int, String, Int, Int, Int, Float64, Int, Symbol)
         @test length(c) == m
     end
 
     @testset "columns carry the right data and types" begin
         ct = Tables.columntable(c)
-        @test keys(ct) == (:body, :orbit_id, :decors, :L_S, :Lf, :block, :J)
+        @test keys(ct) == (:body, :orbit_id, :decors, :L_S, :Lf, :block, :J, :alias_group, :split)
         @test collect(ct.J) == f.jphi                         # J column == fitted coefficients, in order
         @test eltype(ct.body) == Int
         @test eltype(ct.Lf) == Int
@@ -57,12 +57,12 @@ using Random
     end
 
     @testset "rows, indexing, iteration, accessors" begin
-        @test eltype(c) == NamedTuple{(:body, :orbit_id, :decors, :L_S, :Lf, :block, :J),
-                                      Tuple{Int,Int,String,Int,Int,Int,Float64}}
+        @test eltype(c) == NamedTuple{(:body, :orbit_id, :decors, :L_S, :Lf, :block, :J, :alias_group, :split),
+                                      Tuple{Int,Int,String,Int,Int,Int,Float64,Int,Symbol}}
         k1 = basis.salc_basis.keys[1]
         @test c[1] == (body = k1.body, orbit_id = k1.orbit_id,
                        decors = join(SCEFitting.spin_ls(k1), ","), L_S = k1.L_S, Lf = k1.Lf,
-                       block = k1.block, J = f.jphi[1])
+                       block = k1.block, J = f.jphi[1], alias_group = 0, split = :free)
         @test length(collect(c)) == m
         @test Tables.rowtable(c) == collect(c)
         @test coef(c) == f.jphi
@@ -78,7 +78,7 @@ using Random
         @test length(ce) == 0
         @test Tables.istable(typeof(ce))
         ct = Tables.columntable(ce)
-        @test keys(ct) == (:body, :orbit_id, :decors, :L_S, :Lf, :block, :J)
+        @test keys(ct) == (:body, :orbit_id, :decors, :L_S, :Lf, :block, :J, :alias_group, :split)
         @test isempty(ct.J)
         @test intercept(ce) === 0.5
     end

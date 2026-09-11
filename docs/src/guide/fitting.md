@@ -60,7 +60,9 @@ the slope coefficients and adds no intercept of its own.
 
 ```julia
 sce_fit = fit(SCEFit, dataset, OLS())
-J       = coef(sce_fit)         # the fitted coefficients jϕ, in SALCKey order
+J       = coef(sce_fit)         # the fitted coefficients jϕ, one per design column
+                                # (= per SALC in SALCKey order, unless cross-orbit alias
+                                # groups are tied — then SCEPredictor(sce_fit) expands them)
 j0      = intercept(sce_fit)    # the reference energy
 ```
 

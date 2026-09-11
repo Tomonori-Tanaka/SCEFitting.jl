@@ -164,6 +164,19 @@ Easy to break silently — confirm before touching the algorithm.
   agree on pure spin" in `test/unit/test_mixedsalc.jl`, incl. the Cs-triangle
   (2 ordering orbits) and C3v-triangle (3 assignments) shapes. Change either engine
   → re-run that gate + the oracle suite.
+- **Cross-orbit alias ties ↔ every column-space consumer** (`basis/aliases.jl`):
+  `SCEBasis.ties` folds the SALC columns of a tied alias group into one design
+  column in `_design_energy` / `_design_torque` (`_fold_columns`), and the SAME map
+  must be applied wherever a per-column vector is built from the basis or a
+  coefficient vector crosses between the two spaces: `salc_groups` (merged labels),
+  `group_costs` (`labels[col_of[j]]`), `penalty_metric` (the weighted SALC sum per
+  column), `select_fit`'s length check (`n_columns`), `SCEPredictor(::SCEFit)`
+  (`_expand_coefficients` + `_split_status`), `coeftable` (`_alias_index`), and the
+  persist reader's `:legacy` rule. A consumer that reads `n_salcs` where the design
+  width is meant, or `f.jphi` as if it were per SALC, is wrong exactly on the cells
+  where it matters and silent everywhere else (every standard fixture is alias-free,
+  `ties.trivial`, identity fast path). Gate: `test/unit/test_aliases.jl` (column
+  counts, `Var[Φ₊+Φ₋] = 4·Var[Φ₊]`, cost sum, alias-free bitwise identity).
 - **`SALCKey`/`SALC` field surface ↔ ALL test environments**: the unit suite is not
   the only consumer — `test/sunny/runtests.jl`, `test/glmnet/runtests.jl`,
   `test/oracle/runtests.jl`, and `examples/*.jl` read key/SALC fields and are NOT
@@ -636,6 +649,7 @@ the one that bites.
 | Admission | `_admit_assignment(t, species, …)` — a production, species-resolved rule | only the `admit` hook; callers (tests) transcribe the per-species `lmax` | The pointed builder's own mark-aware rule is the `admit` closure in `basis/momentbasis.jl`'s constructor (D4, landed); upstream's `_admit_assignment` is the reference, not a drop-in |
 | `[moment]` TOML section | none (no TOML moment input; the spec is spelled `soc`) | `read_setup(path).moment::Union{Nothing,MomentSpec}`, `MomentBasis(path)` (`io/input.jl`) | Exists only here. A port upstream must flip the key to `soc` with the OPPOSITE polarity; this reader refuses a `soc` key by name. The two body-keyed tables in the section follow OPPOSITE rules and the choice does not follow from the code: `[moment.cutoff_star]` must cover `3:nbody` EXACTLY (a missing radius would fall back to `cutoff_pair`, a number unrelated to that order), `[moment.lsum]` is PARTIAL (a missing cap means no cap, the documented default). A port must re-decide that, not copy it |
 | Function-space reduction | none | `_function_vector` / `_reduce_orbit_salcs` (pure-spin only; refuses decorated SALCs, message = wiring checklist) | Exists only here; upstream ports nothing back |
+| Non-fused WS tie across orbits (face 2) | `unresolvable_columns` **freezes** every column of every orbit sharing an atom multiset — the determined sum too, so the fit fails loudly (`r2 ≈ 0.7` on the fixture); no split is ever published | `alias_groups` / `_ColumnTies` (`basis/aliases.jl`) **tie** the proportional orbits into one design column and read the coefficient back to every orbit with equal per-bond weight, recorded as `split = :convention` (`coeftable`, TOML v7, read-out warnings) | **Opposite decision on the same face, both deliberate.** Upstream's deliverable is a dispersion the data never constrained (`D(q)` was 52 % wrong under a silent split); this package's is a model to be tiled and sampled, where a dropped shell is a missing coupling. Do not "align" either way without re-deciding; a spin-spiral datum type would resolve the isotropic case in both |
 | `SolidHarmonics` | values + Euclidean gradient API (`solid_harmonics_grad[!]`, `grad_Rlm`) + `solid_harmonic_poly` (the ASR and lattice-side builders) | **values only** (347 → 240 lines); the value recurrence is upstream's line for line | No force rows here; do not re-port the gradient "because upstream has it" — count what the production path actually reads (`R₀₀ ≡ 1`) |
 | Self-image fitting door | `_refuse_self_image_basis` (`slce/model.jl`) at both dataset doors since `c7a4d26`, PLUS a refusal through `unresolvable_columns` on the displacement channel | `_refuse_self_image_basis` (`sce/model.jl`) at both `SCEDataset` constructors, before any design is built | **Converged on the door itself**; the residual is upstream's extra displacement-channel path, which screens a channel this package does not have. Basis BUILDING stays open in both (tiling templates) |
 | Test oracles | `CountingOracle` (852 lines), `_ls_block_stats` (C-2 block diagonality), plus the Cartesian projector since `08743d1` | the ~45-line Cartesian projector only (`test/unit/test_mixedsalc.jl`, `_Q5`); C-2 deferred to wiring | Counts agree; the projector shares no code with the SALC machinery in either package |
