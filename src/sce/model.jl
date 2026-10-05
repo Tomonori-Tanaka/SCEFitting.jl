@@ -151,11 +151,16 @@ struct SCEBasis
     # Not persisted: a reloaded basis recomputes it at the default `alias_rtol`.
     ties::_ColumnTies
 
+    # `report = false` skips the construction-time disclosure log (the groups are still
+    # detected and tied). Used by the model loader: a saved model carries its `split`
+    # provenance per coupling and every readout re-warns, so repeating the long
+    # `@info` on each load added noise, not information.
     function SCEBasis(crystal::Crystal, spacegroup::SpaceGroup, salc_basis::SALCBasis,
-                      spec::BasisSpec; alias_rtol::Union{Nothing,Real} = _ALIAS_RTOL)
+                      spec::BasisSpec; alias_rtol::Union{Nothing,Real} = _ALIAS_RTOL,
+                      report::Bool = true)
         _check_spec_species(crystal, spec)
         ties = _column_ties(salc_basis, crystal; alias_rtol = alias_rtol)
-        _report_alias_groups(crystal, ties)
+        report && _report_alias_groups(crystal, ties)
         return new(crystal, spacegroup, salc_basis, spec, ties)
     end
 end

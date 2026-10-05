@@ -112,6 +112,7 @@ isotropy    = true         # optional, default true (L_S = 0 only)
 ```julia
 basis        = SCEBasis("input.toml")
 moment_basis = MomentBasis("input.toml")   # same [symmetry] and [interaction].tie_tol
+                                           # ([interaction].alias_rtol is SCEBasis-only)
 ```
 
 Every value is handed to the [`MomentSpec`](@ref) keyword constructor, which owns the

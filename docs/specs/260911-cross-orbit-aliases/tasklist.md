@@ -43,6 +43,8 @@ Status: landed (2026-09-11)
 - [x] (2026-09-11) `Status:` line and the `docs/specs/README.md` row updated in sync.
 - [x] (2026-09-11) Implementation commit hash appended below.
 
+- [x] (2026-10-05) Deferred minors landed: `[interaction].alias_rtol` in the setup file (carried + keyword override, cap enforced); loader recomputes alias groups silently (`report = false`). Still deferred: tied-path `_fold_columns` peak memory, `:legacy` naming.
+
 ### Landing
 
 - Implementation commit: `6e3b1a1` (2026-09-11).

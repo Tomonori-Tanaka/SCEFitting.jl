@@ -72,6 +72,7 @@ _writetoml(s) = (p = tempname() * ".toml"; write(p, s); p)
         @test inp.spec.isotropy == false    # default isotropy
         @test inp.crystal.lattice.pbc == SVector{3,Bool}(true, true, true)  # default pbc
         @test inp.tie_tol == 1.0e-8                # default same-distance band
+        @test inp.alias_rtol == 1.0e-6             # default cross-orbit alias band
     end
 
     # `tie_tol` changes the emitted basis (a widened band merges near-tie shells), so
@@ -86,6 +87,19 @@ _writetoml(s) = (p = tempname() * ".toml"; write(p, s); p)
         @test SCEBasis(_writetoml(s); tie_tol = 1e-7) isa SCEBasis  # override accepted
         bad = replace(_INPUT_FULL, "nbody = 2" => "nbody = 2\ntie_tol = 0.5")
         @test_throws ArgumentError SCEBasis(_writetoml(bad))        # cap enforced
+    end
+
+    # `alias_rtol` decides which distinct orbits share one design column — the emitted
+    # column space — so it rides in the file under the same rule as `tie_tol`: carried,
+    # keyword-overridable, and validated by the constructor (the 1e-2 cap refuses).
+    @testset "[interaction].alias_rtol is carried and overridable" begin
+        s = replace(_INPUT_FULL, "nbody = 2" => "nbody = 2\nalias_rtol = 1e-5")
+        inp = read_setup(_writetoml(s))
+        @test inp.alias_rtol == 1.0e-5
+        @test SCEBasis(_writetoml(s)) isa SCEBasis                     # builds with it
+        @test SCEBasis(_writetoml(s); alias_rtol = 1e-7) isa SCEBasis  # override accepted
+        bad = replace(_INPUT_FULL, "nbody = 2" => "nbody = 2\nalias_rtol = 0.5")
+        @test_throws ArgumentError SCEBasis(_writetoml(bad))           # cap enforced
     end
 
     @testset "keyword arguments override the file's [symmetry]" begin
@@ -140,6 +154,8 @@ _writetoml(s) = (p = tempname() * ".toml"; write(p, s); p)
             replace(_INPUT_FULL, "species = [1, 1]" => "species = [true, true]")))
         @test_throws ArgumentError read_setup(_writetoml(
             replace(_INPUT_FULL, "isotropy = false" => "isotropy = false\ntie_tol = true")))
+        @test_throws ArgumentError read_setup(_writetoml(
+            replace(_INPUT_FULL, "isotropy = false" => "isotropy = false\nalias_rtol = true")))
     end
 
     @testset "error paths" begin

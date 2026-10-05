@@ -25,6 +25,7 @@ Schema:
     isotropy = false              # optional, default false
     images   = "minimum_image"    # optional: "minimum_image" (default) or "all_images"
     tie_tol  = 1e-8               # optional: relative same-distance band (see `SCEBasis`)
+    alias_rtol = 1e-6             # optional: cross-orbit alias band (see `SCEBasis`)
 
     # Label-keyed alternatives ("*" = fallback; pair keys are unordered, resolved by
     # specificity: concrete > "A-*" > "*-*"; body orders outside nbody are errors):
@@ -399,21 +400,23 @@ function _image_selection_from_name(name)::AbstractImageSelection
 end
 
 """
-    read_setup(path) -> (; crystal, spec, backend, tol, images, tie_tol, moment)
+    read_setup(path) -> (; crystal, spec, backend, tol, images, tie_tol, alias_rtol, moment)
 
 Parse a human-authored TOML input file (schema in the file-level docstring of
 `src/io/input.jl`) into the in-memory `crystal::Crystal`, `spec::BasisSpec` (from the
 file's `[interaction]` section), symmetry `backend::AbstractSymmetryBackend`,
 `tol::Float64`, the periodic-image selection `images::AbstractImageSelection`, the
 same-distance band `tie_tol::Float64` (`[interaction].tie_tol`, defaulting to the
-`SCEBasis` default), and `moment::Union{Nothing,MomentSpec}` — the pointed
+`SCEBasis` default), the cross-orbit alias band `alias_rtol::Float64`
+(`[interaction].alias_rtol`, same default rule; disabling detection is keyword-only,
+`SCEBasis(...; alias_rtol = nothing)`), and `moment::Union{Nothing,MomentSpec}` — the pointed
 site-moment truncation from the optional `[moment]` section (`nothing` when the
 section is absent). Training data and the estimator are **not** part of the file
 (see [`SCEDataset`](@ref) / [`fit`](@ref)). See also `SCEBasis(path)` and
 `MomentBasis(path)`.
 Every value is **kind-checked**, and the TOML kind is the contract: `nbody`, `lmax` and
-`lsum` take TOML integers (`nbody = 2.0` is refused, not rounded), `cutoff`, `tol` and
-`tie_tol` take TOML numbers, and `isotropy` (and `[structure].pbc`) takes a TOML
+`lsum` take TOML integers (`nbody = 2.0` is refused, not rounded), `cutoff`, `tol`,
+`tie_tol` and `alias_rtol` take TOML numbers, and `isotropy` (and `[structure].pbc`) takes a TOML
 boolean — `1` is not a boolean and `true` is not a number, in either direction.
 `Bool <: Real` in Julia, so without this a radius written `cutoff = true` would
 silently become 1.0 Å.
@@ -425,6 +428,7 @@ function read_setup(path::AbstractString)::@NamedTuple{crystal::Crystal,
                                                        tol::Float64,
                                                        images::AbstractImageSelection,
                                                        tie_tol::Float64,
+                                                       alias_rtol::Float64,
                                                        moment::Union{Nothing,MomentSpec}}
     doc = TOML.parsefile(path)
     haskey(doc, "structure") ||
@@ -444,6 +448,12 @@ function read_setup(path::AbstractString)::@NamedTuple{crystal::Crystal,
     tie_tol = haskey(doc["interaction"], "tie_tol") ?
         _toml_number(doc["interaction"]["tie_tol"], "[interaction].tie_tol") :
         _SAME_DIST_RTOL
+    # Same rule for `alias_rtol`: it decides which distinct orbits are tied into one
+    # design column, i.e. the emitted column space, so a non-default band must ride in
+    # the file too (validated by `_column_ties`; the cap refuses).
+    alias_rtol = haskey(doc["interaction"], "alias_rtol") ?
+        _toml_number(doc["interaction"]["alias_rtol"], "[interaction].alias_rtol") :
+        _ALIAS_RTOL
     sym = get(doc, "symmetry", Dict{String,Any}())
     backend = haskey(sym, "backend") ? _backend_from_name(sym["backend"]) : NoSymmetry()
     # `tol` is spglib's symprec (Å). Nothing downstream bounds it — at 1 Å spglib
@@ -457,30 +467,35 @@ function read_setup(path::AbstractString)::@NamedTuple{crystal::Crystal,
         "not the crystal's"))
     moment = haskey(doc, "moment") ?
         _moment_from_input(doc["moment"], crystal.species_labels) : nothing
-    return (; crystal, spec, backend, tol, images, tie_tol, moment)
+    return (; crystal, spec, backend, tol, images, tie_tol, alias_rtol, moment)
 end
 
 """
     SCEBasis(path::AbstractString; backend = nothing, tol = nothing, images = nothing,
-             tie_tol = nothing) -> SCEBasis
+             tie_tol = nothing, alias_rtol = nothing) -> SCEBasis
 
 Build an [`SCEBasis`](@ref) directly from a TOML input file ([`read_setup`](@ref)).
-The file's `[symmetry]` backend/tol and `[interaction]` `images`/`tie_tol` are used
-unless overridden by the keyword arguments (e.g. `backend = SpglibBackend()` forces
-Spglib regardless of the file). Using the Spglib backend requires `using Spglib`.
+The file's `[symmetry]` backend/tol and `[interaction]` `images`/`tie_tol`/`alias_rtol`
+are used unless overridden by the keyword arguments (e.g. `backend = SpglibBackend()`
+forces Spglib regardless of the file). Here `alias_rtol = nothing` means "the file's
+value"; to disable alias detection build from the in-memory crystal
+(`SCEBasis(crystal, spec; alias_rtol = nothing)`). Using the Spglib backend requires
+`using Spglib`.
 """
 function SCEBasis(path::AbstractString;
                   backend::Union{Nothing,AbstractSymmetryBackend} = nothing,
                   tol::Union{Nothing,Real} = nothing,
                   images::Union{Nothing,AbstractImageSelection} = nothing,
-                  tie_tol::Union{Nothing,Real} = nothing)::SCEBasis
+                  tie_tol::Union{Nothing,Real} = nothing,
+                  alias_rtol::Union{Nothing,Real} = nothing)::SCEBasis
     inp = read_setup(path)
     be = backend === nothing ? inp.backend : backend
     tl = tol === nothing ? inp.tol : Float64(tol)
     im = images === nothing ? inp.images : images
     tt = tie_tol === nothing ? inp.tie_tol : Float64(tie_tol)
+    ar = alias_rtol === nothing ? inp.alias_rtol : Float64(alias_rtol)
     return SCEBasis(inp.crystal, inp.spec; backend = be, tol = tl, images = im,
-                    tie_tol = tt)
+                    tie_tol = tt, alias_rtol = ar)
 end
 
 """

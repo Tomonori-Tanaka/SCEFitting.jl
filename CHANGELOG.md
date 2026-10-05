@@ -6,6 +6,26 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed — `[interaction].alias_rtol` rides in the setup file; loading a model no longer re-announces its alias groups (2026-10-05)
+
+Two of the minors deferred at the cross-orbit-alias landing (spec
+`docs/specs/260911-cross-orbit-aliases/`, tasklist):
+
+- **`[interaction].alias_rtol`** (optional, TOML number, default `1e-6`) is read by
+  `read_setup` (new field `alias_rtol::Float64`) and honored by `SCEBasis(path)`, with
+  a keyword override `SCEBasis(path; alias_rtol)` — the same rule as `tie_tol`: the band
+  decides the emitted column space, so a non-default setting must be reproducible from
+  the file. The constructor's validation applies unchanged (the `1e-2` cap refuses).
+  Disabling detection stays keyword-only on the in-memory constructor
+  (`SCEBasis(crystal, spec; alias_rtol = nothing)`); `nothing` on the path form means
+  "the file's value". `MomentBasis(path)` is unaffected (no alias ties there).
+- **Silent recomputation on load.** The inner `SCEBasis` constructor takes
+  `report::Bool = true`; the model loader passes `false`, so `load`ing a saved model
+  recomputes and ties the groups exactly as before but no longer prints the long
+  construction-time `@info`. The provenance lives in the couplings' `split` column, the
+  reload-drift warning stays, and every readout (`multipole_terms`, `bilinear_terms`,
+  `to_sunny`) still warns. Gate: the v7 persistence test now asserts a log-free load.
+
 ### Added — cross-orbit alias groups are tied, split equally by convention, and disclosed (2026-09-11)
 
 Spec: `docs/specs/260911-cross-orbit-aliases/`. Distinct cluster orbits whose members

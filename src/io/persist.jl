@@ -363,7 +363,9 @@ function _basis_from_doc(d)::SCEBasis
     allunique(keyvec) ||
         throw(ArgumentError("loaded SALC keys are not injective (duplicate design-matrix columns)"))
     sb = SALCBasis(salcs, keyvec)
-    return SCEBasis(crystal, sg, sb, spec)
+    # Alias groups are recomputed (at the default `alias_rtol`) but not re-announced:
+    # the couplings' `split` column carries the provenance, and the readouts warn.
+    return SCEBasis(crystal, sg, sb, spec; report = false)
 end
 
 """

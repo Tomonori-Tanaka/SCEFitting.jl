@@ -237,11 +237,13 @@ capability consumed by both the introspection and the Sunny interop.
   `save` / `load` are **unexported** (call qualified) to avoid clashing with
   `FileIO`/`JLD2`.
 - **TOML input** (`io/input.jl`): `read_setup(path) -> (; crystal, spec, backend, tol,
-  images, tie_tol, moment)` and `SCEBasis(path::AbstractString; backend, tol, images,
-  tie_tol)` build a basis from a human-authored `input.toml` (`[structure]` inline
-  crystal, `[interaction]` with optional `images` (`"minimum_image"` default /
-  `"all_images"`), `tie_tol`, and `cutoff = inf` for the full WS cell, optional
-  `[symmetry]`); keyword arguments override the file's backend/tol. The optional
+  images, tie_tol, alias_rtol, moment)` and `SCEBasis(path::AbstractString; backend, tol,
+  images, tie_tol, alias_rtol)` build a basis from a human-authored `input.toml`
+  (`[structure]` inline crystal, `[interaction]` with optional `images`
+  (`"minimum_image"` default / `"all_images"`), `tie_tol`, `alias_rtol` (the cross-orbit
+  alias band; both bands change the emitted basis, so both ride in the file), and
+  `cutoff = inf` for the full WS cell, optional `[symmetry]`); keyword arguments override
+  the file's backend/tol. The optional
   `[moment]` section is read into a `MomentSpec` (values handed to the keyword
   constructor, which owns all validation; unknown keys and the upstream `soc` spelling
   are refused) and `MomentBasis(path; backend, tol, tie_tol)` builds the pointed basis

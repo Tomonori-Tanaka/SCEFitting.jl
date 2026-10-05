@@ -285,7 +285,9 @@ end
         doc = MA._to_doc(m)
         @test Int(doc["schema_version"]) == 7
         @test [c["split"] for c in doc["couplings"]] == ["convention", "convention", "free", "free"]
-        m7 = MA._model_from_doc(doc)
+        # the loader recomputes the groups silently: no construction-time `@info`
+        # (the `split` column is the provenance; the readouts still warn)
+        m7 = @test_logs MA._model_from_doc(doc)
         @test m7.split == m.split
         @test m7.jphi == m.jphi
         @test length(alias_groups(m7.basis)) == 1               # recomputed on load
