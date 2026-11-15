@@ -319,7 +319,17 @@ Easy to break silently — confirm before touching the algorithm.
   `Φ(−e) = Φ(e)`. The combined-space projection action (`_project_and_fold`) and the
   member transport (`_transport_term`) must use the *same* rotation direction and
   axis-relabel convention (`invperm(perm)`); the eigenvalue-exactly-0/1 idempotency
-  assertion and the invariance test are the gates. **The construction's last step is
+  assertion and the invariance test are the gates. **Every zero decision in both
+  engines is relative** (2026-11-15, SLCE.jl 2f7d2d5): a tensor entry is zeroed below
+  `_ROUNDOFF_RTOL = 1e-13` of its tensor's largest entry, and the gauge's Gram–Schmidt
+  pivot is `_GAUGE_PIVOT_MIN = 1e-4`; the absolute 1e-10 / 1e-12 cuts and the 1e-8
+  pivot they replaced made the SALC count depend on how the crystal is turned. Gates
+  in `test/unit/test_orientation.jl`: the SALC count and design rank of a turned
+  crystal equal the aligned crystal's (pure spin and pointed; θ = 1e-8 / 1e-7 still
+  `@test_broken`, a reduction-order defect — see the ledger), and a slightly turned
+  crystal keeps the aligned crystal's SALCs to O(θ) up to a sign per SALC (the only
+  gate that sees the pivot: at 1e-8 the block gauge jumps O(1) from θ = 1e-7 on with
+  every count unchanged). **The construction's last step is
   `_canonicalize_members`** (`basis/salc.jl`): the ordered, anchored images (one per
   site ordering — the space the projection needs) are folded to one member per
   physical instance (sites sorted by `(atom, shift)`, `shifts[1] == 0` re-anchored,
@@ -701,7 +711,7 @@ the one that bites.
 | Non-fused WS tie across orbits (face 2) | `unresolvable_columns` **freezes** every column of every orbit sharing an atom multiset — the determined sum too, so the fit fails loudly (`r2 ≈ 0.7` on the fixture); no split is ever published | `alias_groups` / `_ColumnTies` (`basis/aliases.jl`) **tie** the proportional orbits into one design column and read the coefficient back to every orbit with equal per-bond weight, recorded as `split = :convention` (`coeftable`, TOML v7, read-out warnings) | **Opposite decision on the same face, both deliberate.** Upstream's deliverable is a dispersion the data never constrained (`D(q)` was 52 % wrong under a silent split); this package's is a model to be tiled and sampled, where a dropped shell is a missing coupling. Do not "align" either way without re-deciding; a spin-spiral datum type would resolve the isotropic case in both |
 | `SolidHarmonics` | values + Euclidean gradient API (`solid_harmonics_grad[!]`, `grad_Rlm`) + `solid_harmonic_poly` (the ASR and lattice-side builders) | **values only** (347 → 240 lines); the value recurrence is upstream's line for line | No force rows here; do not re-port the gradient "because upstream has it" — count what the production path actually reads (`R₀₀ ≡ 1`) |
 | Self-image fitting door | `_refuse_self_image_basis` (`slce/model.jl`) at both dataset doors since `c7a4d26`, PLUS a refusal through `unresolvable_columns` on the displacement channel | `_refuse_self_image_basis` (`sce/model.jl`) at both `SCEDataset` constructors, before any design is built | **Converged on the door itself**; the residual is upstream's extra displacement-channel path, which screens a channel this package does not have. Basis BUILDING stays open in both (tiling templates) |
-| Orientation-dependent zero decisions (OPEN-WORK S-2 causes 2-3) | relative round-off cuts `_ROUNDOFF_RTOL = 1e-13` in both SALC engines, gauge pivot `_GAUGE_PIVOT_MIN = 1e-4` (`2f7d2d5`) | still the absolute `1e-10` / `1e-12` entry cuts and the `1e-8` Gram–Schmidt pivot in `basis/salcbasis.jl` | **Not yet ported** (OPEN-WORK F-5 item B, measured defective here too). Cause 4 of the same upstream commit — the symmetrized-lattice rotations — IS ported (closed below); do not read the identical `symmetry/backend.jl` as "S-2 is done here" |
+| Orientation-dependent zero decisions: the per-orbit reduction | none (no `_reduce_orbit_salcs`; its sum rule decides ranks instead) | `_reduce_orbit_salcs`' per-SALC MGS in key order, dependence judged relative to the SALC's OWN aggregated norm | **Open here only.** With the entry cuts and the pivot ported (closed below), a tetragonal pair basis turned by θ = 1e-8 / 1e-7 still keeps a θ-small aggregated function that is dependent on the others to round-off (4–8 extra columns, rank-deficient design); the gate records it as `@test_broken` (`test/unit/test_orientation.jl`). A fix is a rank decision over the whole block pivoted on the large functions, entangled with the gauge choice inside a block (OPEN-WORK S-3) — an owner decision, not a threshold |
 | Test oracles | `CountingOracle` (852 lines), `_ls_block_stats` (C-2 block diagonality), plus the Cartesian projector since `08743d1` | the ~45-line Cartesian projector only (`test/unit/test_mixedsalc.jl`, `_Q5`); C-2 deferred to wiring | Counts agree; the projector shares no code with the SALC machinery in either package |
 
 Closed on 2026-08-21 — now identical in both packages, no longer divergences:
@@ -722,6 +732,16 @@ do: the closure message names `SCEBasis`; `symmetrize`'s docstring says a `SpinD
 carries no geometry and that `read_extxyz`'s `reference` refuses (the 1e-6 Å
 `_REF_GEOM_ATOL` band; upstream reads a position difference as a displacement); upstream's Spglib sweep lives in
 `test/integration/`, this package's in its own `test/spglib/` tier.
+
+Closed on 2026-11-15 — **orientation-independent zero decisions in both SALC engines**
+(SLCE `2f7d2d5`, causes 2 and 3 of S-2): the tensor-entry and coefficient cuts are
+relative at round-off (`_ROUNDOFF_RTOL = 1e-13` of the tensor's largest entry,
+`_zero_roundoff!`; a term is dropped when its norm is round-off against 1, the
+orthonormal coefficient scale) and the Gram–Schmidt pivot of the gauge is
+`_GAUGE_PIVOT_MIN = 1e-4`, in `_project_and_fold` / `_transport_term` and the decor
+engine's `_project_and_fold_decors` / `_transport_term_decors` alike. `_sign_canon!`'s
+absolute `1e-8` stays on purpose, as upstream. The sum-rule causes (1 and the
+cancellation cut) have no counterpart here.
 
 Closed on 2026-08-25 — **pointed body order**: SLCE `5684572` carries the same
 general-`N` enumeration, the same `_MOMENT_NBODY_MAX = 4` cap, `_combinations` /

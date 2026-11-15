@@ -61,7 +61,9 @@ stops after L0 for that fixture rather than emit a hundred meaningless failures.
 
 **The L0′ threshold is measured, not chosen.** Over the six-crystal parity sweep
 of 2026-08-21 (12,040 tensor entries): 7,728 are exactly zero, and the smallest
-surviving nonzero magnitude is **0.239**. The builder prunes at `1e-10`, so the
+surviving nonzero magnitude is **0.239**. The builder pruned at an absolute `1e-10`
+when this was measured (relative `1e-13` of each tensor's largest entry since
+2026-11-15; no pinned value moved, bitwise), so the
 gap between "pruned to zero" and "smallest survivor" is **9.38 decades**, and
 `eps` sits at its geometric mean, `4.9e-6`, rounded to `5e-6`. Nothing lands
 within four decades of the threshold in either direction, which is what makes L0′

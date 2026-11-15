@@ -6,6 +6,55 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — the SALC count depended on how the crystal was turned (2026-11-15)
+
+Backported from SLCE.jl `2f7d2d5` (causes 2 and 3 of its orientation fix; the sum-rule
+causes have no counterpart here). **No pinned value moves** (pin tier 104/104 bitwise
+at 1 and 4 threads — every pinned crystal is aligned with the axes, where the entries
+are either exact zeros or large); numbers change only for crystals turned against the
+Cartesian axes.
+
+- **What was wrong.** A crystal turned by a small angle θ has tensor entries of
+  genuine size θ. Two zero decisions in both SALC engines (pure spin and the decor /
+  pointed engine) were absolute: the entry and coefficient cuts (`1e-10` / `1e-12`)
+  deleted those entries for θ below them, and the Gram–Schmidt pivot of the gauge
+  (`1e-8`) took remainders of norm θ as basis vectors, multiplying their round-off by
+  `1/θ` and making the block gauge jump. Measured with Spglib over 5 axes × 15 angles
+  on `42efec9`, wrong SALC count or rank-deficient design: tetragonal pair basis
+  `lmax = 1` 11/76, `lmax = 2` 15/76, bct two-species 6/76, hcp 0/76 (all for θ in
+  1e-8…1e-5, the extra columns indistinguishable from the others); the pointed basis'
+  resolvability rank 27 instead of 25 at θ = 1e-5 on 3 of 4 axes.
+- **The fix.** Entries are zeroed relative to their tensor's largest entry at
+  round-off (`_ROUNDOFF_RTOL = 1e-13`, `_zero_roundoff!`), a term is dropped when its
+  norm is round-off against the orthonormal coefficient scale, and the pivot is
+  `_GAUGE_PIVOT_MIN = 1e-4` (a missing vector always leaves some remainder above
+  `1/√n`, so it cannot leave the basis short). `_sign_canon!`'s absolute `1e-8` stays.
+- **After:** tetragonal `lmax = 1` 6/76, `lmax = 2` 7/76, bct 2/76, hcp 0/76; the
+  pointed basis 0/52. Every remaining case is at θ = 1e-8 or 1e-7 and is a different
+  defect, in the per-orbit function-space reduction (`_reduce_orbit_salcs`): a column
+  whose aggregated function is θ-small comes first in key order, and its dependence on
+  the others (to round-off) is judged relative to its own θ-small norm, so it is kept.
+  Not fixed here: the repair is a rank decision over the whole block pivoted on the
+  large functions, entangled with the gauge choice inside a block (OPEN-WORK S-3); a
+  raw-norm floor on the dependence test alone was tried and only moved 6/7/2 to
+  4/7/2. The gate records the window as `@test_broken`.
+- **Bond-resolved readout, unchanged in kind.** On the tilted tetragonal fixture the
+  per-bond bilinear matrices of an OLS fit still blow up against the rotated aligned
+  fit (`bilinear_terms`, θ = 1e-4: 2.3e4× before and after; θ = 1e-2: 228×; bct θ =
+  1e-2: 3.39e4×) while the cell-summed matrices agree to 1e-11 — the gauge question
+  of S-3. At θ = 1e-6 the count is now right (4, was 6) but that column is the
+  θ-small one, so the blow-up there grew from 1.0× to 2.3e6× (bct 1.0× → 1.27e6×).
+- **Real-data parity** with SLCE.jl (`0add649`): FeGe and FeRh columns 0.00e+00,
+  acceptance σ unchanged.
+- Gates (`test/unit/test_orientation.jl`, hand-assembled groups): the SALC count and
+  design rank of a turned crystal equal the aligned crystal's (tetragonal `lmax` 1 and
+  2, bct; 3 axes × 8 angles), the pointed basis' key count and resolvability rank
+  likewise, and a slightly turned crystal keeps the aligned crystal's SALCs to O(θ) up
+  to a sign per SALC (hcp `lmax = 2`, fcc `lmax = 3`). Mutation-tested: the absolute
+  `1e-10` entry cut (count gates, 4 failures), the `1e-8` pivot (only the continuity
+  gate sees it, 6 failures), the relative cut at 0 (unit suite and pin L1) and the
+  pivot at 0.3 (unit suite: the gauge fails to span a block) — all killed.
+
 ### Added — `symmetrize`; noisy crystals Spglib accepts are no longer refused (2026-11-15)
 
 Backported from SLCE.jl `9d348de` (OPEN-WORK F-5 item E). A crystal with its symmetry

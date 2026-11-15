@@ -14,11 +14,13 @@
 # ordering (`basis/salc.jl`). For 1/2-body and equal-l channels this reduces to a
 # single term and a single path, matching the earlier construction.
 #
-# The absolute drop thresholds below (1e-10/1e-12) and the idempotency guard (1e-6)
-# are sized for the validated regime (per-site l ≤ 2, small body order), where the
-# CG/recoupling products stay O(1e-3)–O(1). The ground-truth invariance test and the
-# exact-0/1 eigenvalue assertion are the in-band gates; at much higher l these
-# thresholds would want to scale with the coupled-tensor magnitude.
+# Entries of a coefficient tensor that are round-off against its largest entry are set
+# to exactly zero (`_ROUNDOFF_RTOL`), and the group average is checked to be idempotent
+# (eigenvalues 0 or 1 to 1e-6). Both decisions are relative, and neither depends on how
+# the crystal is turned against the Cartesian axes; the invariance tests and the
+# orientation tests (`test/unit/test_orientation.jl`) hold them. (Until 2026-11-15 the
+# drops were absolute, 1e-10 / 1e-12, which deleted genuine entries of size θ in a
+# crystal turned by a small angle θ. [Backported from SLCE.jl 2f7d2d5.])
 
 """
 Sentinel meaning "no `Σl` cap" for a body order (in `BasisSpec.lsum` and
@@ -207,7 +209,7 @@ function _project_and_fold(stab::Vector{Tuple{Int,Vector{Int}}},
             oi2 === nothing && error("ordering set not closed under the stabilizer")
             for p2 in eachindex(tens[oi2]), Mf2 = 1:(2Lf + 1)
                 c = _frob(_mfslice(tens[oi2][p2], Mf2), v)
-                abs(c) < 1e-12 && continue
+                abs(c) < _ROUNDOFF_RTOL && continue    # the tensors are orthonormal
                 P[colidx[(oi2, p2, Mf2)], k] += c
             end
         end
@@ -233,18 +235,52 @@ function _project_and_fold(stab::Vector{Tuple{Int,Vector{Int}}},
                 coef == 0.0 && continue
                 Fo .+= coef .* _mfslice(tens[oi][p], Mf)
             end
-            @inbounds for idx in eachindex(Fo)
-                abs(Fo[idx]) < 1e-10 && (Fo[idx] = 0.0)
-            end
-            norm(Fo) > 1e-10 && push!(terms, (collect(o), Fo))
+            _zero_roundoff!(Fo)
+            norm(Fo) > _ROUNDOFF_RTOL && push!(terms, (collect(o), Fo))
         end
         push!(blocks, terms)
     end
     return blocks
 end
 
+"""
+Relative size below which an entry of a coefficient tensor is round-off: an entry
+smaller than this times the largest entry of its tensor is set to exactly zero
+(`_zero_roundoff!`).
+
+Exact zeros matter downstream — a term whose tensor is zero is dropped, and so is a
+member without terms. The cut must sit at round-off and be relative. A crystal turned
+by a small angle `θ` against the Cartesian axes has genuine entries of size `θ`, and
+an absolute cut of `1e-10`, which stood here before 2026-11-15, kept them for `θ`
+above it and deleted them below: the basis then jumped with the orientation (a
+tetragonal pair basis emitted 5–6 SALCs instead of 4 for θ between 1e-8 and 1e-5).
+[Backported from SLCE.jl 2f7d2d5, itself ported from SphericalTensorFC 311e08f.]
+"""
+const _ROUNDOFF_RTOL = 1e-13
+
+# Set the entries of `tensor` that are round-off against its largest entry to zero.
+function _zero_roundoff!(tensor::AbstractArray{Float64})
+    cut = _ROUNDOFF_RTOL * maximum(abs, tensor; init = 0.0)
+    @inbounds for index in eachindex(tensor)
+        abs(tensor[index]) < cut && (tensor[index] = 0.0)
+    end
+    return tensor
+end
+
 # Deterministic, BLAS-independent gauge: axis-pivoted modified Gram–Schmidt on the
 # block projector, with a first-significant-component sign fix.
+#
+# A column of the projector is taken as the next basis vector when what is left of it
+# after removing the vectors already chosen has norm above `_GAUGE_PIVOT_MIN`. The
+# threshold is that high on purpose: normalizing a remainder of norm `ν` multiplies
+# its round-off by `1/ν`, and in a crystal turned by a small angle `θ` remainders of
+# norm about `θ` occur (at 1e-8, which stood here before 2026-11-15, the amplified
+# round-off changed the SALC count for θ between 1e-8 and 1e-5). It can never leave
+# the basis short: the squared remainders of all columns add up to the number of
+# vectors still missing, so while one is missing some remainder exceeds `1/√n` for an
+# `n`-dimensional block. [Backported from SLCE.jl 2f7d2d5.]
+const _GAUGE_PIVOT_MIN = 1e-4
+
 function _canonical_basis(V1::AbstractMatrix{Float64})
     n, d = size(V1)
     d == 0 && return zeros(Float64, n, 0)
@@ -257,7 +293,7 @@ function _canonical_basis(V1::AbstractMatrix{Float64})
             u .-= dot(view(W, :, i), u) .* view(W, :, i)
         end
         nu = norm(u)
-        if nu > 1e-8
+        if nu > _GAUGE_PIVOT_MIN
             k += 1
             W[:, k] = u ./ nu
             _sign_canon!(view(W, :, k))
@@ -288,10 +324,7 @@ function _transport_term(o::Vector{Int}, F::Array{Float64}, g::Int,
         T = AngularMomentum.nmode_mul(T, _wig(wcache, o[i], g), i)
     end
     q = invperm(perm)                       # member axis j ← rep axis q[j]
-    G = Array{Float64}(permutedims(T, q))
-    @inbounds for idx in eachindex(G)
-        abs(G[idx]) < 1e-10 && (G[idx] = 0.0)
-    end
+    G = _zero_roundoff!(Array{Float64}(permutedims(T, q)))
     return o[q], G                          # member ls = o[invperm(perm)]
 end
 
@@ -449,7 +482,7 @@ function _project_and_fold_decors(stab::Vector{Tuple{Int,Vector{Int}}},
             v = permutedims(v, invperm(σ))
             for p2 in eachindex(tens[ai2]), Mf2 = 1:(2Lf + 1)
                 c = _frob(_mfslice(tens[ai2][p2], Mf2), v)
-                abs(c) < 1e-12 && continue
+                abs(c) < _ROUNDOFF_RTOL && continue    # the tensors are orthonormal
                 P[colidx[(ai2, p2, Mf2)], k] += c
             end
         end
@@ -474,10 +507,10 @@ function _project_and_fold_decors(stab::Vector{Tuple{Int,Vector{Int}}},
                 coef == 0.0 && continue
                 Fo .+= coef .* _mfslice(tens[ai][p], Mf)
             end
-            @inbounds for idx in eachindex(Fo)
-                abs(Fo[idx]) < 1e-10 && (Fo[idx] = 0.0)
-            end
-            norm(Fo) > 1e-10 && push!(terms, (ai, Fo))
+            _zero_roundoff!(Fo)
+            # `c` and the coupled tensors are orthonormal, so Σ_ai ‖Fo‖² = 1 and a
+            # term is round-off when its norm is round-off against 1.
+            norm(Fo) > _ROUNDOFF_RTOL && push!(terms, (ai, Fo))
         end
         push!(blocks, terms)
     end
@@ -498,10 +531,7 @@ function _transport_term_decors(a::Vector{SiteDecor}, slots::Vector{Slot},
     a2 = _assignment_image(a, perm)
     slots2 = _assignment_slots(a2)
     σ = _slot_sigma(slots, slots2, perm)
-    G = Array{Float64}(permutedims(T, invperm(σ)))
-    @inbounds for idx in eachindex(G)
-        abs(G[idx]) < 1e-10 && (G[idx] = 0.0)
-    end
+    G = _zero_roundoff!(Array{Float64}(permutedims(T, invperm(σ))))
     return SALCTerm(slots2, G)
 end
 
@@ -641,12 +671,12 @@ end
 # norm. Measured gap on the MnTe case: true zeros cancel to ≤ 5.3e-12 relative
 # while surviving SALCs sit at O(1e-2)–O(1) — so 1e-8 has ~3 orders of headroom
 # above the measured zeros and ~6 below the smallest genuine survivor. The zero
-# residual is bounded by the 1e-10 absolute entry prune in `_project_and_fold` /
-# `_transport_term` *per entry per member*, so it scales like √(K·M)·1e-10 with
-# the key count K and member count M — like the prune constants themselves (see
-# the file header), sized for the validated regime (per-site l ≤ 2, small body
-# order) and to be revisited at much higher l or very large orbits. A miss is in
-# the safe direction (a true zero kept, then caught by the OLS rank warning).
+# residual is bounded by the entry prune in `_project_and_fold` / `_transport_term`,
+# relative at round-off since 2026-11-15 (`_ROUNDOFF_RTOL`, 1e-13 of each tensor's
+# largest entry; it was an absolute 1e-10 before) *per entry per member*, so it scales
+# like √(K·M)·1e-13 with the key count K and member count M — far below the band at
+# any orbit size this package builds. A miss is in the safe direction (a true zero
+# kept, then caught by the OLS rank warning).
 # Dict iteration order (insertion order, deterministic in Julia) fixes the
 # floating-point summation order in `_dictnorm`/`_dictdot`/the MGS update; it is
 # the one place in this file where that order follows hash-map layout rather than
@@ -799,7 +829,7 @@ function _orbit_salcs(crystal::Crystal, spacegroup::SpaceGroup, N::Int, orbit_id
                 end
                 # Fold the ordered, anchored images into the canonical duplicate-free
                 # form (exact regrouping; empty ⇒ the channel vanished — skip it, as
-                # the previous per-term `norm > 1e-10` check did).
+                # the previous per-term norm check did).
                 members = _canonicalize_members(members)
                 isempty(members) && continue
                 block = get(blockcount, (lab, Lf), 0) + 1

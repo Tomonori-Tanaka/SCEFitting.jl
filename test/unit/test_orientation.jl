@@ -245,3 +245,175 @@ end
         @test symmetrized_lattice(b).metric_change > 1e-9
     end
 end
+
+# --- the SALC count does not depend on how the crystal is turned -------------------
+#
+# [Backported in spirit from SLCE.jl 2f7d2d5 (causes 2 and 3), whose gate is the rank of
+# the sum rule; this package has no sum rule, so the gate is the basis itself.] A
+# crystal turned by a small angle θ has tensor entries of genuine size θ, and two
+# zero decisions in the SALC engines were absolute: the entry cuts (1e-10 / 1e-12)
+# deleted those entries for θ below them, and the Gram–Schmidt pivot of the gauge
+# (1e-8) normalized remainders of norm θ, multiplying their round-off by 1/θ. Measured
+# on 42efec9 with Spglib over 5 axes × 15 angles: a tetragonal pair basis emitted 5–6
+# SALCs instead of 4 (lmax = 1) and 18–24 instead of 16 (lmax = 2) for θ between 1e-8
+# and 1e-5, a bct two-species basis 3 instead of 2, the pointed (moment) basis a
+# resolvability rank 27 instead of 25 at θ = 1e-5 — every extra column a function the
+# design cannot tell from the others (rank deficient). Now the cuts are relative at
+# round-off (`_ROUNDOFF_RTOL`) and the pivot is 1e-4 (`_GAUGE_PIVOT_MIN`).
+#
+# Oracle: the aligned crystal. Turning the crystal turns the spins with it and changes
+# nothing else, so the number of SALCs, and the rank of the design they span, are
+# those of the crystal along the axes for every orientation.
+#
+# NOT fixed by that change, and recorded as broken: θ = 1e-8 and 1e-7. There the
+# per-orbit function-space reduction (`_reduce_orbit_salcs`) keeps a column whose
+# aggregated function is θ-small and dependent on the others to round-off: it is
+# reached first in key order, so the dependence test, relative to its own (θ-small)
+# norm, cannot see it. Repairing that needs a rank decision over the whole block,
+# pivoted on the large functions, which interacts with the choice of gauge inside a
+# block; it is an open decision, not a threshold.
+
+# The 16 point operations of the tetragonal lattice (those of the cube that keep z).
+_ori_tetragonal_ops() = [W for W in oh48_matrices() if abs(W[3, 3]) == 1]
+
+_ori_quiet(f) = with_logger(f, NullLogger())
+
+function _ori_design_rank(b, nat; nconf = 200)
+    rng = MersenneTwister(3)
+    X = SCEFitting._design_energy(b, [randcfg(rng, nat) for _ = 1:nconf])
+    s = svdvals(X .- sum(X; dims = 1) ./ nconf)
+    return count(>(1e-10 * s[1]), s)
+end
+
+const _ORI_COUNT_AXES = ([1.0, 2.0, 3.0], [1.0, 0.0, 0.0], [0.3, -0.5, 0.8])
+const _ORI_COUNT_ANGLES = (1e-12, 1e-10, 1e-9, 1e-6, 1e-5, 1e-4, 1e-3, 0.3)
+const _ORI_COUNT_OPEN = (1e-8, 1e-7)         # the reduction's window, see above
+
+@testset "the SALC count does not depend on the orientation of the crystal" begin
+    tetA = [3.4 0 0; 0 3.4 0; 0 0 6.0]
+    bctA = [3.0 0 0; 0 3.0 0; 0 0 3.6]
+    # (name, lattice, fractional atoms, species, labels, spec, SALCs of the aligned
+    # crystal). The aligned counts equal Spglib's on the same crystals (measured with
+    # Spglib before and after this change); the group here is brute-forced.
+    cases = (("tetragonal lmax=1", tetA, [0.0 0.3; 0.0 0.1; 0.0 0.5], [1, 1], ["Fe"],
+              BasisSpec(["Fe"]; nbody = 2, cutoff = 3.3, lmax = [1], isotropy = false), 4),
+             ("tetragonal lmax=2", tetA, [0.0 0.3; 0.0 0.1; 0.0 0.5], [1, 1], ["Fe"],
+              BasisSpec(["Fe"]; nbody = 2, cutoff = 3.3, lmax = [2], isotropy = false), 16),
+             ("bct two species", bctA, [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 2], ["Fe", "Co"],
+              BasisSpec(["Fe", "Co"]; nbody = 2, cutoff = 2.9, lmax = [1, 1],
+                        isotropy = false), 2))
+    open_wrong = String[]
+    for (name, A, frac, species, labels, spec, expected) in cases
+        rots, trans = SMatrix{3,3,Float64,9}[], SVector{3,Float64}[]
+        for W in _ori_tetragonal_ops(), j in axes(frac, 2)
+            species[j] == species[1] || continue
+            t = mod.(frac[:, j] .- W * frac[:, 1], 1.0)
+            all(i -> any(k -> species[k] == species[i] &&
+                              maximum(abs.(mod.(W * frac[:, i] .+ t .- frac[:, k] .+ 0.5,
+                                                1.0) .- 0.5)) < 1e-9, axes(frac, 2)),
+                axes(frac, 2)) || continue
+            push!(rots, W)
+            push!(trans, SVector{3,Float64}(t))
+        end
+        build(L) = _ori_quiet(() -> SCEBasis(Crystal(Lattice(L), frac, species, labels),
+                                             spec; backend = _OrientationOps(rots, trans)))
+        aligned = build(A)
+        nat = size(frac, 2)
+        @test n_salcs(aligned) == expected
+        @test _ori_design_rank(aligned, nat) == expected
+        wrong = String[]
+        for axis in _ORI_COUNT_AXES, θ in (_ORI_COUNT_ANGLES..., _ORI_COUNT_OPEN...)
+            b = build(_ori_rodrigues(axis, θ) * A)
+            got = (n_salcs(b), _ori_design_rank(b, nat))
+            got == (expected, expected) && continue
+            push!(θ in _ORI_COUNT_OPEN ? open_wrong : wrong,
+                  "$name axis=$axis θ=$θ → $got")
+        end
+        isempty(wrong) || @info "orientation-dependent SALC count" wrong
+        @test isempty(wrong)
+    end
+    # the open window (see the header of this block): still wrong; this turns into an
+    # unexpected pass — and must be promoted to `@test` — once the reduction is fixed
+    @test_broken isempty(open_wrong)
+end
+
+@testset "the pointed basis does not depend on the orientation of the crystal" begin
+    # The decor engine carries the same two decisions. Measured on 42efec9: the
+    # tetragonal pointed basis kept 43 SALCs but `moment_resolvability` found rank 27
+    # instead of 25 at θ = 1e-5 on three of four axes. Oracle: the aligned crystal.
+    frac = [0.0 0.3; 0.0 0.1; 0.0 0.5]
+    A = [3.4 0 0; 0 3.4 0; 0 0 6.0]
+    rots, trans = SMatrix{3,3,Float64,9}[], SVector{3,Float64}[]
+    on_atom(x) = any(j -> maximum(abs.(mod.(x .- frac[:, j] .+ 0.5, 1.0) .- 0.5)) < 1e-9,
+                     axes(frac, 2))
+    for W in _ori_tetragonal_ops(), j in axes(frac, 2)
+        t = mod.(frac[:, j] .- W * frac[:, 1], 1.0)
+        all(i -> on_atom(W * frac[:, i] .+ t), axes(frac, 2)) || continue
+        push!(rots, W)
+        push!(trans, SVector{3,Float64}(t))
+    end
+    spec = MomentSpec(; lmax_env = [2], sampled = [true], nbody = 2, cutoff_pair = 3.3,
+                      isotropy = false)
+    signature(L) = _ori_quiet() do
+        mb = MomentBasis(Crystal(Lattice(L), frac, [1, 1], ["Fe"]), spec;
+                         backend = _OrientationOps(rots, trans))
+        (length(mb.salc_basis.keys), moment_resolvability(mb).rank)
+    end
+    aligned = signature(A)
+    @test aligned == (43, 25)
+    wrong = String[]
+    for axis in _ORI_COUNT_AXES, θ in (_ORI_COUNT_ANGLES..., _ORI_COUNT_OPEN...)
+        got = signature(_ori_rodrigues(axis, θ) * A)
+        got == aligned || push!(wrong, "axis=$axis θ=$θ → $got")
+    end
+    isempty(wrong) || @info "orientation-dependent pointed basis" wrong
+    @test isempty(wrong)
+end
+
+@testset "a slightly turned crystal keeps the aligned crystal's SALCs" begin
+    # The gauge inside a block is chosen by Gram–Schmidt over the columns of the block
+    # projector. A crystal turned by θ adds entries of size θ to those columns; a pivot
+    # below θ (1e-8, before 2026-11-15) then takes a size-θ remainder as a basis vector
+    # and the whole block's gauge jumps — measured O(1) changes of the SALCs for every θ
+    # from 1e-7 on (hcp, fcc), with the counts unchanged, so no count gate sees it. With
+    # the pivot at 1e-4 a size-θ remainder is never chosen, and the SALCs of the turned
+    # crystal, evaluated on the turned spins, are the aligned crystal's to O(θ).
+    #
+    # Oracle: continuity in θ against the aligned crystal, UP TO A SIGN per SALC. The
+    # sign is fixed by the first component above an absolute 1e-8 (`_sign_canon!`, kept
+    # absolute on purpose), so it can flip once entries of size θ appear; which way a
+    # column's gauge points in the crystal frame is a separate, open question. The bound
+    # 10·θ sits above the measured 0.44·θ (hcp) and ~θ² (fcc), and far below the O(1)
+    # jump.
+    rng = MersenneTwister(84)
+    fcc = [0 0.5 0.5; 0.5 0 0.5; 0.5 0.5 0]
+    a, c = 2.5, 2.5 * 1.633
+    hexA = [a -a/2 0.0; 0.0 a * sqrt(3) / 2 0.0; 0.0 0.0 c]
+    cases = (("hcp 2x2x2 lmax=2", 2 .* hexA, _ori_group(_ori_d6h(), [1/3 2/3; 2/3 1/3;
+                                                                      1/4 3/4], (2, 2, 2)),
+              BasisSpec(["X"]; nbody = 2, cutoff = 2.65, lmax = [2], isotropy = false)),
+             ("fcc 2x2x2 lmax=3", 2 .* (3.6 .* fcc),
+              _ori_group([SMatrix{3,3,Float64}(round.(inv(fcc) * R * fcc))
+                          for R in oh48_matrices()], zeros(3, 1), (2, 2, 2)),
+              BasisSpec(["X"]; nbody = 2, cutoff = 2.6, lmax = [3], isotropy = false)))
+    for (name, A, (pos, rots, trans), spec) in cases
+        build(L) = _ori_quiet(() -> _ori_basis(L, pos, rots, trans, spec))
+        aligned = build(A)
+        nat = size(pos, 2)
+        es = [randcfg(rng, nat) for _ = 1:5]
+        v0 = [evaluate_salc(s, e) for s in SCEFitting.salcs(aligned), e in es]
+        scale = maximum(abs, v0)
+        for axis in ([1.0, 2.0, 3.0], [0.3, -0.5, 0.8]), θ in (1e-9, 1e-7, 1e-6, 1e-5)
+            Q = _ori_rodrigues(axis, θ)
+            b = build(Q * A)
+            @test b.salc_basis.keys == aligned.salc_basis.keys
+            b.salc_basis.keys == aligned.salc_basis.keys || continue
+            v = [evaluate_salc(s, Q * e) for s in SCEFitting.salcs(b), e in es]
+            dev = maximum(min(maximum(abs, v[i, :] - v0[i, :]),
+                              maximum(abs, v[i, :] + v0[i, :])) for i in axes(v, 1))
+            dev <= 10θ * scale + 1e-12 * scale ||
+                @info "gauge jump" name axis θ relative = dev / scale
+            @test dev <= 10θ * scale + 1e-12 * scale
+        end
+    end
+end
