@@ -579,15 +579,16 @@ function _gar_weights!(D::Vector{Float64}, beta::Vector{Float64},
 end
 
 # The reweighted-ridge iteration on a precomputed Gram system, shared by
-# `solve_coefficients(::GroupAdaptiveRidge, …)` (`beta0 = nothing`, cold start) and the
-# `select_fit` λ-path driver (`beta0` = the previous λ's solution, warm start; the
-# caller forms `XtX`/`Xty` once for the whole path). Requires `lambda > 0` — the
-# callers route the exact `lambda == 0` case to OLS.
+# `solve_coefficients(::GroupAdaptiveRidge, …)` and the `select_fit` λ-path driver (the
+# caller forms `XtX`/`Xty` once for the whole path). Always a cold start: the `beta0`
+# warm start the path driver used to pass was removed (2026-11-15, ported from SLCE.jl
+# 0add649) — a seed crushed by a larger λ holds the next λ at the all-dead fixed point
+# of this non-convex reweighting. Requires `lambda > 0` — the callers route the exact
+# `lambda == 0` case to OLS.
 function _solve_gar(XtX::Matrix{Float64}, Xty::Vector{Float64}, lambda::Float64,
                     column_groups::Vector{Int}, group_weights::Vector{Float64},
                     group_sizes::Vector{Int}, metric::Vector{Float64},
                     epsilon::Float64, max_iter::Int, tol::Float64;
-                    beta0::Union{Nothing,Vector{Float64}} = nothing,
                     nonconvergent::Union{Nothing,Base.RefValue{Int}} =
                         nothing)::Vector{Float64}
     p = length(Xty)
@@ -597,18 +598,13 @@ function _solve_gar(XtX::Matrix{Float64}, Xty::Vector{Float64}, lambda::Float64,
     _check_free_block(XtX, metric, "GroupAdaptiveRidge")
     # Iteration 0 (cold start): the fixed-weight ridge `Dⱼ = mⱼ·v_g` — with a uniform
     # metric and unit weights this is numerically Ridge(lambda), matching the
-    # AdaptiveRidge initialization. A warm start replaces it with the caller's `beta0`
-    # and enters the loop directly. With lambda > 0 and every penalized Dⱼ > 0
+    # AdaptiveRidge initialization. With lambda > 0 and every penalized Dⱼ > 0
     # (epsilon > 0), the shifted matrix is SPD on the penalized block throughout — do
     # NOT widen the callers' `lambda == 0` routing to a tolerance.
-    beta = if beta0 === nothing
-        @inbounds for j = 1:p
-            D[j] = metric[j] * group_weights[column_groups[j]]
-        end
-        Symmetric(XtX + lambda * Diagonal(D)) \ Xty
-    else
-        copy(beta0)
+    @inbounds for j = 1:p
+        D[j] = metric[j] * group_weights[column_groups[j]]
     end
+    beta = Symmetric(XtX + lambda * Diagonal(D)) \ Xty
     rel = Inf                        # loop scope, so the exit reason survives it
     for _ = 1:max_iter
         _gar_weights!(D, beta, column_groups, group_weights, group_sizes, metric,

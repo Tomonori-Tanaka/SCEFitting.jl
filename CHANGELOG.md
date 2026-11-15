@@ -6,6 +6,57 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — `select_fit` called every group alive at a λ where the fit explained nothing; the path is no longer warm-started; `select_support` can select the empty support (2026-11-15)
+
+Ported from SLCE.jl `0add649`. On a target with no coupling (i.i.d. noise energies, the
+selection tests' P1 basis, 44 columns in 4 groups) `select_fit` selected λ = 1e8, where
+the fit explains < 1e-10 of the data, and reported **4/4 groups alive at full cost**;
+the docstring's `refit(path.fit; threshold = path.threshold)` then kept 44/44 columns
+and returned OLS on the noise. **No pinned value moves** (pin tier 104/104 at 1 and 4
+threads — the pins cover the SALC chain, which this change does not touch).
+
+- **Alive rule B** (`_alive_floor`). The default floor compared a λ's largest scaled
+  magnitude `smax` with a fraction of ITSELF, so the largest group always cleared it.
+  Now `smax ≤ 1e-6·‖y‖` (`y` the assembled, centered, row-scaled target the solve saw,
+  both weighted blocks) makes the point all-dead: `n_alive = 0`, `cost = 0`, and the
+  threshold reported is `1e-6·‖y‖`, so the de-biasing recipe returns the mean model
+  (`j0 = mean(y_E)`). Every other λ keeps the relative floor `1e-6·smax`, so **live
+  points partition bit-identically to before**; only all-dead points change. Upstream
+  has to qualify `y` as the γ-space target under a reparameterization; this package has
+  none, so it is always the assembled `y`.
+- **No warm start.** Each λ (and each fold × λ under `:cv`) is solved cold from the
+  fixed-weight ridge start; `_solve_gar` lost its `beta0` keyword (internal — no public
+  keyword controlled it, and `select_fit`'s signature is unchanged). The descending warm
+  start was captured by the all-dead fixed point on real data (Nd₂Fe₁₄B 1×1×1, whose
+  pruning scripts had switched to one `select_fit` call per λ for exactly this reason),
+  which the docstring and design notes had said it followed. Each path point is now
+  `fit` at its λ (score and dof agree to 1e-10; the warm path agreed to ~1e-4). This
+  **can change a selection**: on the pure-noise fixture `:cv` selects the null on 20/20
+  seeds, while `:gcv` selects a λ = 0.01 noise fit on 1/20 (seed 3, score 0.85 of the
+  null) that the warm path had masked by never leaving the null — the documented
+  optimism of GCV, now visible. On a torque co-fit null `:gcv` overfits the noise on
+  7 of 12 (seed, weight) cases (its co-fit caveat), `:cv` on none. Cost: one cold IRLS per λ
+  (`bench_solver`'s 25-λ path: 3.2 → 3.1 ms, and the one λ point the warm path
+  left on `max_iter` now converges; `bench/BENCH_LOG.md`).
+- **`select_support`'s automatic grid carries an empty-support point** at
+  `2·max m_g` (refit = the mean model, `n_alive = 0`, `cost = 0`), so "nothing is
+  needed" is selectable; before, the sparsest point kept the top group and a front on
+  noise always fitted something. The grid holds at most `npoints + 1` points, so a
+  `SupportPath` from the automatic grid has one more row than before. That point's
+  refit does not emit `refit`'s empty-support warning (an explicit `thresholds` vector
+  still does; `refit` itself is unchanged). On noise with a 200-configuration holdout
+  the empty point is selected on all three gate seeds; on the group-sparse signal
+  fixture it is listed and not selected.
+- Tests (`test/unit/test_selection.jl`): the null gate (energy-only, `:gcv` and `:cv`),
+  the same gate on a torque co-fit under `:cv` (target norm from the raw blocks and the
+  documented row weights), the live-point partition against the relative rule computed
+  inline from cold fits, "every path point is the cold fit at its λ" (replaces
+  "warm-started path matches cold fits"), and the empty point winning on noise.
+  Upstream's joint and freeze-only gates have no counterpart (no displacement channel,
+  no reparameterization). Mutation-checked: reverting rule B fails 33 assertions
+  (upstream 43, which includes those two gates); reinstating the warm start fails 12;
+  dropping the empty point fails 20 — the same two counts as upstream.
+
 ### Fixed — the SALC count depended on how the crystal was turned (2026-11-15)
 
 Backported from SLCE.jl `2f7d2d5` (causes 2 and 3 of its orientation fix; the sum-rule

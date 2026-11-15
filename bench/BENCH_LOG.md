@@ -22,6 +22,25 @@ Entries are append-only history — keep them after merging.
 
 ---
 
+## `select_fit` solves every λ cold (warm start removed; SLCE.jl `0add649`) — 2026-11-15
+
+Working tree on `e02d5b8` vs `e02d5b8` (`git archive` snapshot), Apple Silicon
+(aarch64), Julia 1.12.7, 4 threads. `bench_solver.jl`, section "select_fit — λ path":
+bcc Fe 3×3×3 (54 atoms), `nbody = 2`, cutoff 4.1, `lmax = 2`, 400 configurations,
+25 λ from 1e-1 to 1e-7; `@belapsed`, 3 samples.
+
+| | before (warm path) | after (cold path) |
+|---|---|---|
+| uniform metric | 3.2 ms | 3.1 ms |
+| basis metric | 3.3 ms | 3.3 ms |
+
+No measurable cost on this fixture: a cold IRLS from the fixed-weight ridge start
+converges in about as many steps as one seeded from the neighboring λ, and the Gram is
+still formed once per path. The warm path also ended one of the 25 λ points on
+`max_iter` (the driver's non-convergence warning, printed once per sample); the cold
+path converges at every point. The change was made for correctness, not speed — the
+warm start was captured by the all-dead fixed point on real data.
+
 ## Cross-orbit alias ties: `_column_ties` at construction, identity fold in the design kernels — 2026-09-11
 
 **Context**: 2026-09-11 · `main` (uncommitted, spec `260911-cross-orbit-aliases`) ·

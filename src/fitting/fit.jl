@@ -151,6 +151,16 @@ support length, and is meaningless once a support has been chosen.
 """
 function refit(f::SCEFit, estimator::AbstractEstimator = OLS();
                threshold::Real = 0.0)::SCEFit
+    return _refit(f, estimator, threshold, true)
+end
+
+# `refit`'s body. `warn_empty = false` silences the empty-support warning and nothing
+# else, for a caller that asks for the empty support ON PURPOSE — `select_support`'s
+# mean-model point (`_support_thresholds`), where an empty support is the point's
+# definition rather than a surprise, and a warning on every sweep would be noise.
+# [Ported from SLCE.jl 0add649.]
+function _refit(f::SCEFit, estimator::AbstractEstimator, threshold::Real,
+                warn_empty::Bool)::SCEFit
     threshold >= 0 || throw(ArgumentError("refit threshold must be ≥ 0; got $threshold"))
     _reject_precomputed_pilot(estimator)
     # Same shape of up-front refusal: the group labels are indexed by the FULL basis
@@ -178,9 +188,10 @@ function refit(f::SCEFit, estimator::AbstractEstimator = OLS();
         # Short-circuit before `solve_coefficients`: a GLMNet-backed estimator would error
         # on a zero-column design, and the all-zero `jϕ` is a well-defined (degenerate) fit
         # whose `j0` falls back to `mean(y_E)`.
-        @warn "refit: empty support — every coefficient is at or below the " *
-              "scaled-magnitude threshold. Returning an all-zero jϕ; " *
-              "j0 falls back to mean(y_E)." threshold
+        warn_empty &&
+            @warn "refit: empty support — every coefficient is at or below the " *
+                  "scaled-magnitude threshold. Returning an all-zero jϕ; " *
+                  "j0 falls back to mean(y_E)." threshold
     else
         # A penalty metric is per-column data, so it has to be cut down to the chosen
         # support with the design — otherwise the solve dies on a length check whose

@@ -673,12 +673,31 @@ function _grouped_folds(units::AbstractVector, nf::Int, seed::Int)::Vector{Int}
     return [foldof[u] for u in units]
 end
 
-# The default relative alive floor: a group counts as alive at a given λ when one of
-# its columns' scaled magnitude |βⱼ|·‖X[:,j]‖ exceeds this fraction of the largest
-# scaled magnitude at that λ. The adaptive-ridge alive/dead gap is many orders of
-# magnitude, so the exact ratio is uncritical — any value inside the gap partitions
-# identically.
+# The ratio behind both floors of `select_fit`'s default alive rule (`_alive_floor`).
+# A group counts as alive at a given λ when one of its columns' scaled magnitude
+# |βⱼ|·‖X[:,j]‖ exceeds this fraction of the largest scaled magnitude at that λ — unless
+# that largest magnitude is itself at most this fraction of ‖y‖, in which case every
+# group is dead. The adaptive-ridge alive/dead gap is many orders of magnitude, so the
+# exact ratio is uncritical — any value inside the gap partitions identically.
 const _ALIVE_RTOL = 1e-6
+
+# The absolute alive threshold `select_fit` applies at one λ when the caller passed none
+# (rule B, 2026-11-15, ported from SLCE.jl 0add649). `smax` is that λ's largest scaled
+# magnitude, `ynorm` the norm of the assembled target the solve was handed.
+#
+# The relative floor alone compares `smax` with ITSELF, so the largest group always
+# clears `_ALIVE_RTOL·smax` and a λ at which the penalty crushed every group (measured
+# upstream: fitted signal 4e-16 of the data on a pure-noise target) still reported every
+# group alive at full cost — and `refit(path.fit; threshold = path.threshold)` then
+# fitted OLS to the noise. The data floor catches exactly those points: when the largest
+# contribution is negligible against the data, nothing is alive, and the threshold
+# returned is the data floor itself (≥ `smax`, so `refit` keeps no column and returns
+# the mean model). At every other λ the relative floor is applied unchanged, so a live
+# point partitions exactly as before.
+function _alive_floor(smax::Float64, ynorm::Float64)::Float64
+    data_floor = _ALIVE_RTOL * ynorm
+    return smax <= data_floor ? data_floor : _ALIVE_RTOL * smax
+end
 
 # The cost-aware selection rule: among the path points whose score is within
 # `(1 + delta)` of the finite minimum, pick the one of smallest predicted cost; ties
@@ -714,12 +733,13 @@ Result of [`select_fit`](@ref): the descending λ path with the per-λ selection
 where it is not computed), alive-group count, and predicted Monte-Carlo cost
 `Σ_{g alive} c_g`; plus the selection tolerance `delta`, the effective absolute alive
 `threshold` at the selected λ, the `selected` index, and the selected `fit` (re-solved
-cold at the selected λ, so `fit(SCEFit, dataset, estimator)` reproduces it — and its
-row of the table is re-derived from that cold solve, so `fit` / `threshold` /
+by `fit` at the selected λ, so `fit(SCEFit, dataset, estimator)` reproduces it — and
+its row of the table is re-derived from that solve, so `fit` / `threshold` /
 `n_alive[selected]` / `cost[selected]` are mutually consistent). De-bias with
 `refit(path.fit; threshold = path.threshold)`, which reproduces exactly the reported
-alive support. A Tables.jl source with one row per λ (columns `lambda`, `score`,
-`edof`, `n_alive`, `cost`, `selected`).
+alive support — an empty one (the mean model) when the selected λ is all-dead
+(`n_alive[selected] == 0`). A Tables.jl source with one row per λ (columns `lambda`,
+`score`, `edof`, `n_alive`, `cost`, `selected`).
 """
 struct SelectionPath
     lambda::Vector{Float64}       # descending
@@ -758,12 +778,20 @@ end
                costs = nothing, threshold = nothing, nfolds = 5, seed = 1)
         -> SelectionPath
 
-Fit `est` along the descending λ path `lambdas` (each solve warm-started from the
-previous λ's coefficients), score every fit, and select the **cheapest** λ whose score
-is within `(1 + delta)` of the path minimum — the cost-aware generalization of the
-conventional `:lambda_1se` rule. The returned [`SelectionPath`](@ref) carries the full
-per-λ table and the selected fit (re-solved cold, so it is reproducible by a plain
-[`fit`](@ref) call); follow with [`refit`](@ref) to de-bias the surviving groups.
+Fit `est` at every λ of `lambdas` (sorted descending; **each λ solved cold**, so every
+path point is exactly what a plain [`fit`](@ref) at that λ would return), score every
+fit, and select the **cheapest** λ whose score is within `(1 + delta)` of the path
+minimum — the cost-aware generalization of the conventional `:lambda_1se` rule. The
+returned [`SelectionPath`](@ref) carries the full per-λ table and the selected fit
+(re-solved by [`fit`](@ref), so it is reproducible by a plain call); follow with
+[`refit`](@ref) to de-bias the surviving groups.
+
+!!! note "No warm start"
+    The path is not warm-started: seeding each λ with the previous (larger) λ's
+    solution does **not** follow the path for this non-convex reweighting — a seed the
+    larger λ crushed to the `epsilon` floor holds the next λ at the all-dead fixed
+    point, and on real data the warm path stayed captured there while cold single-λ
+    fits recovered the model. The cost is one cold IRLS per λ on the cached Gram.
 
 `est` supplies the column groups, fixed weights, and IRLS controls; **its own `lambda`
 is ignored** (the path is `lambdas`). Scoring:
@@ -796,13 +824,19 @@ A group is **alive** at a given λ when any of its columns clears the
 scaled-magnitude rule `|jϕⱼ|·‖X[:, j]‖ > threshold` on the assembled design (the same
 support rule as [`refit`](@ref)). `GroupAdaptiveRidge` crushes dead groups to
 tiny-but-**nonzero** values (the `epsilon` floor), so the default
-`threshold = nothing` uses a per-λ **relative** floor, `1e-6` of that λ's largest
-scaled magnitude — the alive/dead gap spans many orders of magnitude, so any ratio
-inside the gap gives the same partition; an absolute number reproduces `refit`'s rule
-verbatim (and `threshold = 0` counts every group alive — the cost column is then
-flat). The effective absolute threshold at the selected λ is returned as
-`path.threshold`; de-bias with `refit(path.fit; threshold = path.threshold)` to
-realize exactly the reported support. The predicted Monte-Carlo cost of a fit is
+`threshold = nothing` decides per λ from two floors. Let `smax` be that λ's largest
+scaled magnitude and `‖y‖` the norm of the assembled (centered, row-scaled) target the
+solve saw. If `smax ≤ 1e-6·‖y‖`, the fit explains nothing of the data and **every group
+is dead** (`n_alive = 0`, `cost = 0`, and the threshold is `1e-6·‖y‖`); otherwise the
+threshold is the **relative** floor `1e-6·smax` — the alive/dead gap spans many orders
+of magnitude, so any ratio inside the gap gives the same partition. (The relative floor
+alone cannot see a λ at which every group was crushed: its largest group always clears
+a fraction of itself.) An absolute number reproduces `refit`'s rule verbatim (and
+`threshold = 0` counts every group alive — the cost column is then flat). The
+effective absolute threshold at the selected λ is returned as `path.threshold`;
+de-bias with `refit(path.fit; threshold = path.threshold)` to realize exactly the
+reported support — at an all-dead point that keeps no column and returns the mean
+model (`j0 = mean(y_E)`). The predicted Monte-Carlo cost of a fit is
 `Σ_{g alive} c_g` with `c_g` from `costs` (default: `SCEFitting.group_costs` of the
 dataset's basis under `est`'s column partition). `delta` sets the accuracy tolerance
 of the cost–error trade; sweep the `theta` of `SCEFitting.cost_weights` to tilt the
@@ -853,8 +887,14 @@ function select_fit(dataset::SCEDataset, est::GroupAdaptiveRidge;
     # describe different estimators.
     metric = _metric_vector(est.metric, size(X, 2), "GroupAdaptiveRidge")
 
-    # Warm-started descending path: each IRLS is seeded with the previous (more
-    # regularized, already group-sparse) λ's solution.
+    # Every λ is solved COLD (iteration 0 = the fixed-weight ridge), the path and the
+    # folds alike. The descending warm start this driver used to run — each IRLS seeded
+    # with the previous, more regularized λ's solution — is gone (2026-11-15, ported
+    # from SLCE.jl 0add649): the reweighting is not convex, and a seed that a large λ
+    # had crushed to the ε floor holds the next λ at the all-dead fixed point. On real
+    # data (Nd2Fe14B 1×1×1) the warm path stayed captured by that null where cold
+    # single-λ solves recovered the model, which is why its users had been calling this
+    # one λ at a time. A cold solve also makes each path point exactly `fit` at its λ.
     # Non-convergent IRLS solves are counted, not warned about one by one: this driver
     # runs one solve per λ and another per (fold, λ), and a warning repeated over that
     # grid buries the one thing the user can act on — how much of the path is affected.
@@ -862,21 +902,25 @@ function select_fit(dataset::SCEDataset, est::GroupAdaptiveRidge;
     nonconv_fold = Ref(0)
     nf_total = Ref(0)
     betas = Vector{Vector{Float64}}(undef, nl)
-    prev = nothing
     for i = 1:nl
-        b = lams[i] == 0.0 ? (X \ y) :
-            _solve_gar(XtX, Xty, lams[i], est.column_groups, est.group_weights,
-                       est.group_sizes, metric, est.epsilon, est.max_iter, est.tol;
-                       beta0 = prev, nonconvergent = nonconv_path)
-        betas[i] = b
-        prev = b
+        betas[i] = lams[i] == 0.0 ? (X \ y) :
+                   _solve_gar(XtX, Xty, lams[i], est.column_groups, est.group_weights,
+                              est.group_sizes, metric, est.epsilon, est.max_iter,
+                              est.tol; nonconvergent = nonconv_path)
     end
 
     # Alive groups (the refit support rule, per group) and the predicted MC cost. The
     # adaptive-ridge iteration never produces exact zeros (the ε floor), so the
-    # `threshold === nothing` default applies a per-λ *relative* floor on the scaled
-    # magnitudes — the alive/dead gap spans many orders, so any ratio inside it gives
-    # the same partition. Returns (alive count, predicted cost, absolute threshold).
+    # `threshold === nothing` default applies `_alive_floor`: the per-λ relative floor,
+    # unless the largest scaled magnitude is negligible against the data, in which case
+    # every group is dead. Returns (alive count, predicted cost, absolute threshold).
+    #
+    # WHICH `y` the data floor reads: the target the solves above were handed, i.e. the
+    # centered, row-scaled `y` of `_assemble_problem(dataset, w)` — both weighted blocks,
+    # in the same units as the scaled magnitudes. This package has no reparameterization
+    # (no constraint rows, no frozen columns, no staged fits), so there is no γ-space
+    # target that could differ from it.
+    ynorm = norm(y)
     thr_abs = threshold === nothing ? nothing : Float64(threshold)
     function alive_stats!(alive::BitVector, b::Vector{Float64})
         smax = 0.0
@@ -884,7 +928,7 @@ function select_fit(dataset::SCEDataset, est::GroupAdaptiveRidge;
             m = abs(b[j]) * colnorms[j]
             m > smax && (smax = m)
         end
-        t = thr_abs === nothing ? _ALIVE_RTOL * smax : thr_abs
+        t = thr_abs === nothing ? _alive_floor(smax, ynorm) : thr_abs
         fill!(alive, false)
         for j in eachindex(b)
             abs(b[j]) * colnorms[j] > t && (alive[est.column_groups[j]] = true)
@@ -937,7 +981,6 @@ function select_fit(dataset::SCEDataset, est::GroupAdaptiveRidge;
             # training Gram by downdating the cached full Gram — no per-fold X pass
             XtX_tr = XtX .- Xho' * Xho
             Xty_tr = Xty .- Xho' * yho
-            prevf = nothing
             for i = 1:nl
                 bf = if lams[i] == 0.0
                     tr_rows = findall(!=(k), folds)
@@ -945,10 +988,9 @@ function select_fit(dataset::SCEDataset, est::GroupAdaptiveRidge;
                 else
                     _solve_gar(XtX_tr, Xty_tr, lams[i], est.column_groups,
                                est.group_weights, est.group_sizes, metric,
-                               est.epsilon, est.max_iter, est.tol; beta0 = prevf,
+                               est.epsilon, est.max_iter, est.tol;
                                nonconvergent = nonconv_fold)
                 end
-                prevf = bf
                 sse[i] += sum(abs2, yho .- Xho * bf)
             end
         end
@@ -985,12 +1027,16 @@ function select_fit(dataset::SCEDataset, est::GroupAdaptiveRidge;
                                  est.epsilon, est.max_iter, est.tol, est.metric,
                                  est.metric_provenance)
     fsel = fit(SCEFit, dataset, est_sel; torque_weight = w)
-    # Re-derive the selected row from the cold re-solve, so `fit` / `threshold` /
-    # `n_alive[selected]` / `cost[selected]` are mutually consistent (warm and cold
-    # agree only within the IRLS tol — a knife-edge coefficient could differ). Under
-    # :gcv the score/edof are functions of the returned fit, so re-derive them too
-    # (`path.score[selected] == gcv(path.fit)` exactly); the :cv score aggregates
-    # fold models and does not depend on the full-data solve — leave it.
+    # Re-derive the selected row from the re-solve, so `fit` / `threshold` /
+    # `n_alive[selected]` / `cost[selected]` are mutually consistent. The path point is
+    # already a cold solve of the same problem, and here `fit` forms the same Gram from
+    # the same assembled design, so the two normally agree bitwise; the re-derivation
+    # stays so that the returned row never rests on that (upstream's `fit` takes a
+    # different route under a reparameterization, where they agree only to rounding and
+    # a knife-edge coefficient could fall either side of the floor). Under :gcv the
+    # score/edof are functions of the returned fit, so re-derive them too
+    # (`path.score[selected] == gcv(path.fit)` exactly); the :cv score aggregates fold
+    # models and does not depend on the full-data solve — leave it.
     n_alive[sel], cost[sel], t_sel = alive_stats!(alive, fsel.jphi)
     if criterion === :gcv
         if lams[sel] == 0.0
@@ -1006,19 +1052,20 @@ function select_fit(dataset::SCEDataset, est::GroupAdaptiveRidge;
                                                intercept = icpt)
         end
     end
-    # The cold re-derivation above mutated `score[sel]`/`n_alive[sel]`/`cost[sel]`
-    # AFTER `_select_pareto` ran on the warm table. Warm and cold agree within the
-    # IRLS tol, so the selection is expected to stand — but the docstring's rule
+    # The re-derivation above mutated `score[sel]`/`n_alive[sel]`/`cost[sel]` AFTER
+    # `_select_pareto` ran on the path table. The two solves agree to rounding, so the
+    # selection is expected to stand — but the docstring's rule
     # ("the cheapest λ within delta of the minimum") must hold on the table the
     # caller sees, so re-check and say so if a knife-edge case ever moves it.
     # [Backported from SLCE.jl 54457ca.]
     sel2 = _select_pareto(score, cost, Float64(delta))
     sel2 == sel ||
-        @warn "select_fit: the cold re-derivation of the selected row moved the " *
+        @warn "select_fit: the re-derivation of the selected row moved the " *
               "Pareto choice — the returned table's rule-based pick is index " *
               "$sel2 (λ = $(lams[sel2])) while the returned fit is index $sel " *
-              "(λ = $(lams[sel])). The two solves differ only within the IRLS " *
-              "tolerance; tighten `tol` or thin the λ grid near the tie." maxlog = 1
+              "(λ = $(lams[sel])). The two solves differ only by rounding, so " *
+              "the selected point sits on a knife edge; thin the λ grid near " *
+              "the tie." maxlog = 1
     return SelectionPath(lams, score, criterion, edof, n_alive, cost, Float64(delta),
                          t_sel, sel, fsel)
 end
@@ -1029,9 +1076,19 @@ end
 # the sorted per-group scaled magnitudes, each threshold the midpoint between
 # consecutive *distinct* magnitudes (a midpoint at an exact tie would equal the tied
 # value and, under the strict `>` rule, exclude the whole tie — tied groups die
-# together instead), plus `0.0` for the full-support anchor. Returned descending
-# (sparsest refit first); duplicates and degenerate ranks collapse, so fewer than `n`
-# points can come back (always ≥ 1: the anchor).
+# together instead), plus `0.0` for the full-support anchor, plus `2·max m_g` for the
+# EMPTY support (the mean model). Returned descending (sparsest refit first);
+# duplicates and degenerate ranks collapse, so fewer than `n + 1` points can come back
+# (always ≥ 1: the anchor; the empty point is absent only when every `m_g` is zero,
+# where the anchor is already empty).
+#
+# The empty point exists so that "nothing is needed" is selectable (2026-11-15, ported
+# from SLCE.jl 0add649): without it the sparsest point keeps the top group, and on a
+# pure-noise target the front always fitted at least one group to the noise. It sits at
+# TWICE the largest magnitude rather than at it: under the strict `>` rule `max m_g`
+# itself would already empty the support, but only as long as `refit` recomputes that
+# maximum bit for bit; the factor keeps the point empty whatever rounding the two
+# computations see.
 function _support_thresholds(n::Integer, m_g::Vector{Float64})::Vector{Float64}
     n >= 2 || throw(ArgumentError("npoints must be ≥ 2; got $n"))
     # An empty group vector would reach `log(0)` below and die with a range error
@@ -1041,6 +1098,7 @@ function _support_thresholds(n::Integer, m_g::Vector{Float64})::Vector{Float64}
     ms = sort(m_g; rev = true)
     G = length(ms)
     thr = Float64[]
+    ms[1] > 0 && push!(thr, 2 * ms[1])
     for r in unique(round.(Int, exp.(range(log(1), log(G); length = n))))
         if r == G
             push!(thr, 0.0)
@@ -1121,14 +1179,26 @@ in-sample training set.
 The sweep is either automatic or explicit, and the two are **separate keywords** on
 purpose: `npoints` is a point count for the automatic grid (**at most** that many
 points, log-rank-spaced on the per-group magnitude spectrum plus the full-support
-anchor — duplicate ranks and exact magnitude ties collapse), while `thresholds` is an
-explicit vector of absolute thresholds and overrides it. One keyword carrying both
+anchor — duplicate ranks and exact magnitude ties collapse — and **one more**: an
+empty-support point at twice the largest group magnitude, whose refit is the mean
+model `j0 = mean(y_E)`, `jϕ = 0`, at `n_alive = 0` and `cost = 0`), while `thresholds`
+is an explicit vector of absolute thresholds and overrides it. One keyword carrying both
 meanings turned `thresholds = 10` — "sweep down to a magnitude of 10" — into a
 silent ten-point grid, distinguishable from `thresholds = [10.0]` only by the
 literal's type. `labels`/`costs` default to `SCEFitting.salc_groups` /
 `SCEFitting.group_costs` of the training basis. [The npoints/thresholds keyword
 split is backported from SLCE.jl 2259c54 — the one behavior change of that naming
 batch; the Greek keyword renames stay out.]
+
+The empty point makes "this fit needs nothing" a selectable answer: it costs nothing,
+so the Pareto rule picks it whenever the mean model scores within `delta` of the
+front minimum — which, on a held-out `evalset`, is what a target with no signal in the
+basis looks like. (Without it the sparsest point keeps the top group, and a front on
+pure noise always fitted at least one group to the noise.) On the default in-sample
+`evalset` the mean model is, with the default `OLS` de-bias, the worst in-sample fit by
+construction, so it is selected only when no support improves the in-sample score by
+more than `delta` — another reason to pass a held-out slice. An explicit `thresholds`
+vector is used verbatim; include a value above every magnitude to get the point there.
 """
 function select_support(f::SCEFit;
                         npoints::Integer = 25,
@@ -1180,6 +1250,7 @@ function select_support(f::SCEFit;
     rmseE = Vector{Float64}(undef, nt)
     rmseT = fill(NaN, nt)
     fits = Vector{SCEFit}(undef, nt)
+    mmax = maximum(m_g)
     for i = 1:nt
         alive = falses(G)
         for g = 1:G
@@ -1187,7 +1258,11 @@ function select_support(f::SCEFit;
         end
         n_alive[i] = count(alive)
         cost[i] = sum(cg[g] for g = 1:G if alive[g]; init = 0.0)
-        fr = refit(f, estimator; threshold = thr[i])
+        # The auto grid's empty-support point asks for the mean model on purpose, so
+        # `refit`'s empty-support warning would fire on every sweep and say nothing.
+        # An explicit `thresholds` vector keeps the warning: there it may be a surprise.
+        on_purpose = thresholds === nothing && thr[i] > mmax
+        fr = _refit(f, estimator, thr[i], !on_purpose)
         fits[i] = fr
         mseE = mean(abs2, evalset.y_E .- (fr.j0 .+ evalset.X_E * fr.jphi))
         rmseE[i] = sqrt(mseE)
