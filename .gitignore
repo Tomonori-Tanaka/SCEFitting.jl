@@ -15,6 +15,7 @@ lcov.info
 /test/glmnet/Manifest.toml
 /test/pin/Manifest.toml
 /test/parity/Manifest.toml
+/test/spglib/Manifest.toml
 /examples/Manifest.toml
 
 # Documenter build output

@@ -1,0 +1,12 @@
+# Environment for the Spglib tier: the symmetry door and `symmetrize` against the real
+# backend (noisy-cell sweep, the looser-`tol` warning, a noisy crystal symmetrized to
+# the ideal basis). Separate from the core suite, which never loads a symmetry backend.
+[deps]
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+SCEFitting = "4a34ec00-92ee-4fd7-a427-50f43852df89"
+Spglib = "f761d5c5-86db-4880-b97f-9680a7cccfb5"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[sources]
+SCEFitting = {path = "../.."}

@@ -6,7 +6,7 @@ JULIA ?= julia
 THREADS ?= 4
 export JULIA_NUM_THREADS := $(THREADS)
 
-.PHONY: test-all test-unit test-aqua test-jet test-oracle test-sunny test-glmnet \
+.PHONY: test-all test-unit test-aqua test-jet test-oracle test-sunny test-glmnet test-spglib \
         test-pin test-parity test-examples test-downstream test-ci ci-local docs \
         bench-setup bench-salcbasis bench-clusters bench-design-matrix bench-solver \
         bench-end-to-end bench-nd2fe14b bench-moment
@@ -36,6 +36,10 @@ test-oracle:
 test-sunny:
 	$(JULIA) --project=test/sunny -e 'using Pkg; Pkg.instantiate()'
 	$(JULIA) --project=test/sunny test/sunny/runtests.jl
+
+test-spglib:
+	$(JULIA) --project=test/spglib -e 'using Pkg; Pkg.instantiate()'
+	$(JULIA) --project=test/spglib test/spglib/runtests.jl
 
 test-glmnet:
 	$(JULIA) --project=test/glmnet -e 'using Pkg; Pkg.instantiate()'
@@ -78,7 +82,7 @@ docs:
 # Exactly the jobs GitHub Actions runs (minus `downstream`, which needs the
 # sibling checkout — run test-downstream separately — and the oracle, which CI
 # cannot reach). Run before a release or version bump.
-test-ci: test-all test-sunny test-glmnet test-examples test-pin docs
+test-ci: test-all test-sunny test-glmnet test-spglib test-examples test-pin docs
 
 # Cold-start reproduction of CI: no cached Manifest, juliaup `release` channel
 # (matches CI's "1.12" while release resolves to 1.12.x). `juliaup add release`
@@ -86,7 +90,7 @@ test-ci: test-all test-sunny test-glmnet test-examples test-pin docs
 ci-local:
 	rm -f Manifest.toml
 	TEST_MODE=all $(JULIA) +release --project -e 'using Pkg; Pkg.test()'
-	$(MAKE) test-sunny test-glmnet test-examples test-pin docs
+	$(MAKE) test-sunny test-glmnet test-spglib test-examples test-pin docs
 
 # ---- benchmarks (bench/README.md documents fixtures and arguments) ----------
 

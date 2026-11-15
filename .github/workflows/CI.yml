@@ -44,14 +44,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [sunny, glmnet]
+        suite: [sunny, glmnet, spglib]
     steps:
       # `ext/SCEFittingSunnyExt.jl` and `ext/SCEFittingGLMNetExt.jl` are only loaded
       # when their trigger package is present, so NOTHING in the main job compiles
       # them — the extensions were shipping on the strength of a local run. Both
       # triggers are registered packages that install fine here; the suites carry
       # their own environment (`test/<suite>/Project.toml`, `[sources]`-deved onto
-      # this checkout), so this also catches a resolver break.
+      # this checkout), so this also catches a resolver break. `spglib` gates the
+      # symmetry door and `symmetrize` against the real backend (noisy-cell sweep,
+      # the looser-`tol` warning of `ext/SCEFittingSpglibExt.jl`).
       #
       # The oracle suite is deliberately NOT here: it needs a sibling Magesty
       # checkout, which is not a registered package.
