@@ -94,7 +94,12 @@ capability consumed by both the introspection and the Sunny interop.
 ### symmetry (M5)
 - `AbstractSymmetryBackend` + `analyze_symmetry(backend, crystal; tol) -> SpaceGroup`;
   in-tree `NoSymmetry` (P1); `SpglibBackend` type in core, method in
-  `ext/SCEFittingSpglibExt`. `map_sym` derived in-tree (shared by all backends).
+  `ext/SCEFittingSpglibExt`. `map_sym` derived in-tree (shared by all backends): the
+  one same-species atom within `2·tol` (two in reach is refused), translations as the
+  backend returns them. `symmetrize(crystal; backend, tol) -> Crystal` (exported) moves
+  lattice and positions onto the group (called by the user, never by the package); the
+  Spglib backend warns when a search at `10·tol` finds more operations.
+  [SLCE.jl 9d348de.]
 - The shared assembler validates the operations on the raw `A·W·A⁻¹` of the lattice
   as given (integrality, orthogonality band, group closure) and only then replaces
   every `SymOp.rotation_cart` by `A_s·W·A_s⁻¹`, with `A_s` the **symmetrized lattice**

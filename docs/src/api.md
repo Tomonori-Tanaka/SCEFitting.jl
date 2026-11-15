@@ -49,6 +49,7 @@ AbstractSymmetryBackend
 NoSymmetry
 SpglibBackend
 analyze_symmetry
+symmetrize
 n_ops
 ```
 

@@ -154,10 +154,34 @@ s.lattice_shift                        # how far its vectors move, Å
 ```
 
 For an exactly symmetric lattice the two are equal up to round-off, and nothing is
-printed. The atomic positions are not symmetrized: coordinates that are symmetric only
-to `tol` can still split a distance tie (an equal-length shell read as two), which the
-cluster enumeration refuses as "not closed under the space group"; widen `tie_tol`
-above the coordinate residual for that.
+printed.
+
+### Atoms that are symmetric only to the tolerance: `symmetrize`
+
+The atoms of such a crystal are off their symmetric positions too, and that is not
+repaired automatically. Bonds the group maps onto each other then differ in length by
+the residue, while the cluster enumeration ties lengths only to the relative `tie_tol`
+(`1e-8` by default), so the build stops with "cluster enumeration is not closed under
+the space group" — and the message quotes how far the atoms and the metric are from the
+group. [`symmetrize`](@ref) removes the residue: it returns the crystal with the
+symmetrized lattice and every atom at the average of its images under the operations
+(the centroid stays put), so that it has the group exactly. Build on that:
+
+```julia
+symmetric = symmetrize(crystal; backend = SpglibBackend())   # logs the group and the residue
+basis = SCEBasis(symmetric, interaction; backend = SpglibBackend())
+```
+
+The group is the one the search finds at `tol`. A `tol` too small for the residue finds
+a smaller group without complaint, and the result is then symmetric under that smaller
+group only — and a second search at the same `tol` on the now cleaner crystal can find
+the larger group the crystal still misses by the residue, so the build is refused again.
+The Spglib backend warns when a search ten times looser finds more operations: pass the
+`tol` that finds the group you expect to `symmetrize`, and build with the default.
+Training data need nothing: a [`SpinDatum`](@ref) carries no geometry, so data computed
+on the original structure fit the basis built on the symmetrized one. Read data files
+against the crystal they were computed on — the `reference` of [`read_extxyz`](@ref) is
+compared to `1e-6` Å.
 
 ## Body order beyond pairs
 

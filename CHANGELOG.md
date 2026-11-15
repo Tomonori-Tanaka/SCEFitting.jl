@@ -6,6 +6,60 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Added — `symmetrize`; noisy crystals Spglib accepts are no longer refused (2026-11-15)
+
+Backported from SLCE.jl `9d348de` (OPEN-WORK F-5 item E). A crystal with its symmetry
+only to a residue (relaxed coordinates, six decimals) was refused either by the
+symmetry door or, after it, by the cluster enumeration ("not closed under the space
+group"), whose message said "symmetrize the coordinates" with no way to do it here.
+
+- **`symmetrize(crystal; backend, tol)`** (exported): the crystal with the symmetrized
+  lattice (the one `symmetrized_lattice` reports) and every atom at the average of its
+  images under the operations, the translation of each operation refitted so the
+  centroid stays. Same atoms, same order; an exactly symmetric crystal comes back to
+  round-off. The group and the removed residue are logged. The package never calls it
+  itself. Training data need nothing: a `SpinDatum` carries no geometry.
+- **The closure refusal measures the residue** (`_symmetry_residual`: atoms in Å, the
+  metric relative) and names the cause that applies: an approximate symmetry (quoting
+  the residue, remedy `symmetrize` or `tie_tol`) or, for a crystal that has its group
+  exactly, the image selection.
+- **The atom map accepts an image up to 2·`tol` from its atom** (`_IMAGE_ACCEPT_FACTOR`).
+  Two same-species atoms both in reach of one image are refused as unresolved, never
+  settled by picking one, on the slab path too — so the resolution is about 2·`tol`
+  (atoms 1–2·`tol` apart, which used to build, are refused) and `_check_symprec` bounds
+  2·`tol`, not `tol`, below half the smallest interplanar spacing. **Translations are
+  kept as the backend returns them** (the zero-snap of components below `tol` is gone).
+- **The Spglib backend warns when a search ten times looser finds more operations.**
+- **Measured** (a sweep run outside the repository on this tree: five crystals — fcc, bcc,
+  hcp, rock salt, B2 — noise 1e-6…1e-5 Å, three origins, 20 seeds, `tol = 1e-5`):
+  cells Spglib accepted but the symmetry door refused, **94 of 1500 before → 0 now**
+  (64 "no image" within exactly `tol` — Spglib's operations leave an atom up to
+  1.64·`tol` from its image; 13 "no inverse" and 17 "not closed", both from snapping
+  some translations and not their products'); 0 of 900 at noise 1.5–3·`tol`. Of the
+  1260 cells refused at the cluster stage, `symmetrize` at the same `tol` makes 1163
+  build (852 with the ideal crystal's keys; 311 under the smaller group Spglib found at
+  that `tol`). The other 97 are the documented trap: Spglib found a smaller group at
+  `tol`, the symmetrized crystal is cleaner, the second search finds the larger group,
+  which the crystal misses by the residue. The looser-`tol` warning fired for every one
+  of the 97, and `symmetrize` at `10·tol` builds all of them with the full group.
+- **Numbers that change**: `SymOp.translation_frac` is now the backend's translation as
+  returned, where components below `tol` used to be snapped to zero (a difference of
+  at most `tol / ‖a_k‖` per component); a saved model stores the snapped values and
+  still loads (the 2·`tol` acceptance is more permissive). No basis built from an
+  exactly symmetric crystal moves: pin tier 104/104 at 1 and 4 threads, parity
+  against SLCE.jl unchanged. The 1500/900-cell sweeps are not part of the suite;
+  `test/spglib` runs a smaller sweep of seven crystals (252 cells) as the gate.
+- Gates: `test/unit/test_symmetrize.jl` (hand-assembled Pm-3m / Fm-3m / R-3m; a
+  brute-force asymmetry measure independent of the atom map; positions and lattices
+  worked out by hand; the 1.6·tol / 3·tol acceptance on three cell sizes; the ambiguity
+  refusal; translations kept; the refusal text and its remedy rebuilding the ideal
+  keys) and the new `test/spglib/` tier (`make test-spglib`, in CI's extension matrix:
+  a fifth of upstream's sweep, a noisy hcp cell that symmetrizes to the ideal basis, the
+  looser-`tol` warning). `test_symmetry.jl`'s `tol` bound moved to the 2·`tol` rule.
+  Mutation-tested: accepting at exactly `tol` (unit: 3 failed + 3 errored; Spglib
+  tier: 2 failed), restoring the snap (unit 1, Spglib tier 2), picking the nearest atom
+  instead of refusing the ambiguity (unit 6) — all killed.
+
 ### Fixed — a lattice symmetric only to the tolerance was refused for the wrong reason (2026-11-15)
 
 **Numerical results change at round-off** for lattices whose `A·W·A⁻¹` carries

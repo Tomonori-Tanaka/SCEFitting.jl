@@ -196,13 +196,25 @@ Easy to break silently — confirm before touching the algorithm.
   a deviation `δ` moves a point of the cell by up to `δ·max‖a_k‖`, so this is the
   GUARANTEE side and takes `max`); `_orthogonality_atol = 2·tol / min_k‖a_k‖` (band on
   `RᵀR − I`, a relative distortion of SQUARED lengths, worst on the SHORTEST vector —
-  the ACCEPTANCE side, hence `min`); and the translation zero-snap
-  `|t_k|·‖a_k‖ ≥ tol`. Both matrix bands sit above `_matrix_floor`, the round-off of
+  the ACCEPTANCE side, hence `min`); and the atom map's acceptance
+  `_IMAGE_ACCEPT_FACTOR·tol` (= 2·tol; a SECOND same-species atom in reach of one image
+  is refused as unresolved, never settled by picking the nearer — so the resolution is
+  ~2·tol and `_check_symprec` bounds 2·tol below half the spacing: the backend decides
+  WHICH operations exist at `tol`, the map only guards against one that does not belong
+  — Spglib's operations leave an atom up to 1.64·tol from its image on this package's
+  noisy-cell sweep). **There is no translation zero-snap any more** (removed
+  2026-11-15, SLCE.jl 9d348de): snapping components below `tol` moved the images of an
+  exactly symmetric crystal whose origin is off a symmetry element, and zeroed some
+  operations' translations but not their products', so noisy cells failed
+  `_validate_ops`' closure — 94 of 1500 noisy cells Spglib accepted were refused before
+  the change (64 no image, 13 no inverse, 17 not closed), 0 after; 0 of 900 at noise
+  1.5–3·tol (gates: `test/spglib/` sweep and `test/unit/test_symmetrize.jl`). Both
+  matrix bands sit above `_matrix_floor`, the round-off of
   `R = A W A⁻¹`, which is CAPPED (`_MATRIX_FLOOR_MAX`): uncapped, a pathological cell
   reaches a floor ≥ 1, `isapprox(W, I)` then marks every operation a pure translation,
   and `translation_ops` — with the primitive-cell recovery that reads it — is silently
-  wrong. `_check_symprec` bounds `tol` below half the smallest interplanar spacing,
-  which is what makes the per-axis `round()` fold the minimum image. Gates: the two
+  wrong. `_check_symprec` bounds the atom map's reach `2·tol` below half the smallest
+  interplanar spacing, which is what makes the per-axis `round()` fold the minimum image. Gates: the two
   property testsets in `test/unit/test_symmetry.jl` (verdicts independent of cell SIZE
   and of cell SHAPE — both fail on the fractional form) and the finite-precision
   hexagonal sweep, run at two scales precisely so a band that used `tol` as a
@@ -233,7 +245,10 @@ Easy to break silently — confirm before touching the algorithm.
   atomic positions use the crystal as given, and `SCEBasis` says so in an `@info`
   (given vs symmetrized lattice) above `_SYMMETRIZED_LATTICE_REPORT_RTOL` — printed
   before the cluster build, so it is on screen when a tie split by the same asymmetry
-  then refuses the build. `MomentBasis` builds its own space group through the same
+  then refuses the build — a refusal that measures the residue (`_symmetry_residual`,
+  `clusters/orbits.jl` `_not_closed_message`) and names `symmetrize(crystal; backend,
+  tol)`, which moves lattice AND positions onto the group (`symmetry/symmetrize.jl`;
+  the package never calls it itself). `MomentBasis` builds its own space group through the same
   assembler (so its rotations are idealized too) but prints no report, as upstream.
   The report formats numbers with `round` (this package has no Printf dependency);
   upstream uses `@sprintf` — the text otherwise matches. A saved model re-runs the
@@ -699,8 +714,14 @@ S-2): `_idealized_cartesian_rotations` / `_symmetric_lattice` and the validate-t
 idealize order in `_assemble_spacegroup` are line-for-line upstream's;
 `symmetrized_lattice(basis)` has upstream's name and fields
 (`input_lattice` / `symmetric_lattice` / `lattice_shift` / `metric_change`). Upstream's
-later `9d348de` (translation snap retired, atom map at `2·tol`, `symmetrize`) is NOT
-ported yet, so `symmetry/backend.jl` diffs again from that commit on.
+`9d348de` followed the same day (translation snap retired, atom map at `2·tol` with the
+ambiguity refusal, `symmetrize` / `_symmetry_residual`, the measured closure refusal,
+the Spglib looser-`tol` warning): `symmetry/backend.jl`, `symmetry/symmetrize.jl` and
+the extension are upstream's line for line again. Wording differs where the packages
+do: the closure message names `SCEBasis`; `symmetrize`'s docstring says a `SpinDatum`
+carries no geometry and that `read_extxyz`'s `reference` refuses (the 1e-6 Å
+`_REF_GEOM_ATOL` band; upstream reads a position difference as a displacement); upstream's Spglib sweep lives in
+`test/integration/`, this package's in its own `test/spglib/` tier.
 
 Closed on 2026-08-25 — **pointed body order**: SLCE `5684572` carries the same
 general-`N` enumeration, the same `_MOMENT_NBODY_MAX = 4` cap, `_combinations` /
@@ -732,17 +753,18 @@ Always run tests via the Makefile after edits (every target pins
 | `make test-all` | unit + Aqua + JET | Default for routine checks (`TEST_MODE=all`) |
 | `make test-oracle` | `test/oracle/` | From-scratch numerics vs a pinned Magesty.jl checkout (local only) |
 | `make test-sunny` / `make test-glmnet` | `test/sunny/`, `test/glmnet/` | Extension suites in their own environments |
+| `make test-spglib` | `test/spglib/` | The symmetry door and `symmetrize` against the real Spglib backend (noisy-cell sweep, looser-`tol` warning) |
 | `make test-pin` | `test/pin/` | Byte-level change detectors over the SALC chain, 4 and 1 threads (`test/pin/PIN.md`) |
 | `make test-parity` | `test/parity/` | Real-data parity of the moment channel vs the sibling SLCE.jl checkout (external data; **no CI job**) |
 | `make test-examples` | `examples/` | Every example runs and its `@assert` fences hold |
 | `make test-downstream` | `../SCEMonteCarlo.jl` | The dependent's suite against this checkout (needs the sibling) |
 | `make docs` | `docs/` | Strict Documenter build; executes every `@example` |
-| `make test-ci` | the CI matrix | `test-all` + extensions + examples + pins + docs — run before a release |
+| `make test-ci` | the CI matrix | `test-all` + extensions (incl. `test-spglib`) + examples + pins + docs — run before a release |
 | `make ci-local` | — | Cold-start reproduction of CI on the juliaup `release` channel |
 
 The core suite (`runtests.jl`) dispatches on the `TEST_MODE` env var
 (`default`/`all`/`unit`/`aqua`/`jet`) and never depends on Magesty. The oracle,
-Sunny, GLMNet, pin, and parity suites are separate environments that carry the
+Sunny, GLMNet, Spglib, pin, and parity suites are separate environments that carry the
 heavy/optional dependency the core deliberately omits. See the Makefile for the
 benchmark targets (`make bench-salcbasis`, `make bench-design-matrix`, …).
 

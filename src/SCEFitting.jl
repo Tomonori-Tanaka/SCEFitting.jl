@@ -30,6 +30,7 @@ include("geometry/neighborlist.jl")
 # --- symmetry (backend-pluggable; Spglib lives in an extension) ---
 include("symmetry/types.jl")
 include("symmetry/backend.jl")
+include("symmetry/symmetrize.jl")
 
 # --- basis: numeric kernels (self-contained submodules) ---
 include("basis/Harmonics.jl")
@@ -99,7 +100,7 @@ include("io/input.jl")
 export Lattice, Crystal, n_atoms, cartesian_positions
 # how periodic images / symmetry are chosen (passed into `SCEBasis`)
 export AbstractImageSelection, MinimumImage, AllImages
-export AbstractSymmetryBackend, NoSymmetry, SpglibBackend
+export AbstractSymmetryBackend, NoSymmetry, SpglibBackend, symmetrize
 # the SCE pipeline
 export BasisSpec, SCEBasis, SCEDataset, SCEPredictor, SCEFit, fit, refit, n_salcs, read_setup
 export symmetrized_lattice

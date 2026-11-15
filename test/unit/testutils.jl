@@ -22,6 +22,23 @@ function rand_rotation(rng::AbstractRNG)
     return SMatrix{3,3,Float64}(I) + sin(θ) * Kc + (1 - cos(θ)) * (Kc * Kc)
 end
 
+# The 48 signed permutation matrices: the point group of the cubic lattice in Cartesian
+# (and in the fractional coordinates of a cubic cell). Built by enumeration, not by any
+# symmetry code of the package. [Same helper as SLCE.jl's test utilities.]
+function oh48_matrices()
+    mats = SMatrix{3,3,Float64,9}[]
+    for p in ([1, 2, 3], [1, 3, 2], [2, 1, 3], [2, 3, 1], [3, 1, 2], [3, 2, 1]),
+        sx in (-1, 1), sy in (-1, 1), sz in (-1, 1)
+        M = zeros(3, 3)
+        signs = (sx, sy, sz)
+        for i = 1:3
+            M[i, p[i]] = signs[i]
+        end
+        push!(mats, SMatrix{3,3,Float64,9}(M))
+    end
+    return mats
+end
+
 # A random spin configuration: `3 × nat`, unit columns (fresh draw per column, so
 # neighboring spins differ and odd-Lf / anisotropic channels do not vanish).
 function randcfg(rng::AbstractRNG, nat::Integer)
