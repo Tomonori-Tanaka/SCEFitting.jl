@@ -90,6 +90,23 @@ end
         end
     end
 
+    @testset "multipole_terms hands out copies, not the basis's arrays" begin
+        model = SCEPredictor(b, 0.1, 0.1 .* randn(rng, K), keys)
+        es = [_rand_config(rng, 2) for _ = 1:4]
+        before = [predict_energy(model, e) for e in es]
+        terms = multipole_terms(model)
+        fresh = multipole_terms(model)
+        for t in terms                       # a consumer normalizing in place
+            t.folded .*= 2.0
+            fill!(t.atoms, 1)
+            fill!(t.shifts, SVector(1, 1, 1))
+        end
+        @test [predict_energy(model, e) for e in es] == before
+        again = multipole_terms(model)
+        @test all(again[i].folded == fresh[i].folded && again[i].atoms == fresh[i].atoms &&
+                  again[i].shifts == fresh[i].shifts for i in eachindex(again))
+    end
+
     @testset "MultipoleTerm field contract (downstream consumers pin on this)" begin
         # SCETools.jl's bridge reads exactly these fields; a rename/retype must fail here
         # (and then be synchronized downstream), not slip through the energy gates.

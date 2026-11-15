@@ -34,6 +34,21 @@ struct _DummyEstimator <: SCEFitting.AbstractEstimator end
         @test_throws DimensionMismatch SCEPredictor(basis, 0.0, zeros(m + 1))
     end
 
+    @testset "SCEPredictor refuses keys out of basis order" begin
+        # evaluators pair jphi[k] with salcs(basis)[k] positionally; coeftable labels
+        # rows by keys — a permuted key list would predict right and label wrong
+        @test m >= 2
+        k = basis.salc_basis.keys
+        perm = [2; 1; 3:m]
+        err = try; SCEPredictor(basis, 0.0, zeros(m), k[perm]); nothing; catch e; e; end
+        @test err isa ArgumentError && occursin("basis order", err.msg)
+        @test_throws ArgumentError SCEPredictor(basis, 0.0, zeros(m), k[perm],
+                                                fill(:free, m))
+        # a leading slice stays legal (coeftable's display subset)
+        @test SCEPredictor(basis, 0.0, zeros(1), k[1:1]).keys == k[1:1]
+        @test_throws ArgumentError SCEPredictor(basis, 0.0, zeros(1), k[2:2])
+    end
+
     rng = MersenneTwister(1)
     configs = [randcfg(rng, 2) for _ = 1:40]
 

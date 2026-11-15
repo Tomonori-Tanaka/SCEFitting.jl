@@ -390,12 +390,26 @@ end
 
 Base.getindex(d::SCEDataset, ::Colon)::SCEDataset = d[1:length(d)]
 
+# The geometry half of "the same basis". `SALCBasis.fingerprint` hashes the sorted
+# keys only, and a key carries no geometry: two cells of one structure type at
+# different lattice constants enumerate the same keys over the same atom count.
+# Compared exactly — the persistence round trip writes shortest-round-trip decimals,
+# so a reloaded crystal is bitwise the one that was saved.
+function _same_crystal(a::Crystal, b::Crystal)::Bool
+    return a.lattice.vectors == b.lattice.vectors && a.lattice.pbc == b.lattice.pbc &&
+           a.frac_positions == b.frac_positions && a.species == b.species &&
+           a.species_labels == b.species_labels
+end
+
 """
     vcat(a::SCEDataset, b::SCEDataset...) -> SCEDataset
 
 Concatenate datasets built on the **same basis** — checked by the SALC-basis
-fingerprint, so a dataset built from a persisted-and-reloaded basis concatenates
-with one built in-session. All parts must agree on carrying torque data or not.
+fingerprint AND the crystal (lattice, periodicity, fractional positions, species),
+so a dataset built from a persisted-and-reloaded basis concatenates with one built
+in-session, while two cells of one structure type at different lattice constants
+(same keys, same atom count, so the same fingerprint) are refused. All parts must
+agree on carrying torque data or not.
 Together with `dataset[idx]` this supports incremental data addition and
 resampling without rebuilding design matrices.
 """
@@ -409,6 +423,11 @@ function Base.vcat(a::SCEDataset, rest::SCEDataset...)::SCEDataset
         n_atoms(b.basis.crystal) == n_atoms(a.basis.crystal) ||
             throw(ArgumentError("dataset $k has $(n_atoms(b.basis.crystal)) atoms " *
                                 "per config, dataset 1 has $(n_atoms(a.basis.crystal))"))
+        _same_crystal(b.basis.crystal, a.basis.crystal) ||
+            throw(ArgumentError("dataset $k was built on a different crystal than " *
+                                "dataset 1 (same SALC keys, but the lattice, positions " *
+                                "or species differ) — its design rows describe another " *
+                                "structure"))
         has_torque(b) == has_torque(a) ||
             throw(ArgumentError("cannot vcat torque-bearing and energy-only datasets " *
                                 "(dataset $k differs from dataset 1)"))
@@ -611,6 +630,20 @@ struct SCEPredictor
             s in _SPLIT_KINDS || throw(ArgumentError(
                 "SCEPredictor: unknown split kind `$s` (expected one of $(_SPLIT_KINDS))"))
         end
+        # Every evaluator pairs `jphi[k]` with `salcs(basis)[k]` POSITIONALLY and never
+        # reads `keys`; only `coeftable` labels its rows with them. A permuted (or
+        # foreign) `keys` would therefore predict correctly and print a coefficient
+        # table with every row under the wrong cluster. A leading slice of the basis
+        # (`coeftable`'s display/hand-built subset) is positionally consistent and
+        # stays allowed.
+        bkeys = basis.salc_basis.keys
+        (keys === bkeys || (length(keys) <= length(bkeys) &&
+                            all(i -> keys[i] == bkeys[i], eachindex(keys)))) ||
+            throw(ArgumentError(
+                "SCEPredictor: `keys` is not the basis's SALC key list in basis " *
+                "order — coefficients pair with `salcs(basis)` positionally, so " *
+                "`keys[k]` must be `basis.salc_basis.keys[k]` (re-pair coefficients " *
+                "by key before building)"))
         return new(basis, j0, jphi, keys, split)
     end
 end

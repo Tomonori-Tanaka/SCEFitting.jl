@@ -6,6 +6,36 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — four input-pairing holes from the 2026-08-25 audit (2026-11-15)
+
+No fitted number changes; each item turns a silently wrong combination into an error.
+
+- **`read_embset_pair` refuses swapped arguments.** Every sibling check (configuration
+  count, block shape, bitwise-equal field blocks, "the same moments twice") is
+  symmetric in the two files, so `read_embset_pair(mint_path, mw_path)` loaded the bare
+  `M_int` as the configuration coordinates and the smoothed moments as the projection
+  target, and passed. The smoothed moments are the shorter ones: over five real archives
+  (FeRh 4×4×4 / 2×2×2 FM and AFM, FeGe 1×1×1 and 2×2×2) `Σ|MW_int| / Σ|M_int|` is
+  0.68–0.69 per file and 0.676–0.694 per configuration, so a pair whose first file is
+  longer in total is refused as swapped (the ratio is then ≈ 1.45). The synthetic unit
+  fixtures, which had the MW file longer, were corrected.
+- **`vcat` and `select_support(...; evalset)` compare the crystal.** "Same basis" was
+  decided by the SALC fingerprint, which hashes the keys only; two cells of one structure
+  type at different lattice constants have the same keys and atom count, so their design
+  rows were stacked as one dataset. Both now also require the same lattice, periodicity,
+  fractional positions and species (exactly — a persisted-and-reloaded basis still
+  concatenates). The fingerprint and the persisted format are unchanged.
+- **`SCEPredictor`'s inner constructor checks the key order.** The evaluators pair
+  `jphi[k]` with `salcs(basis)[k]` positionally and never read `keys`; `coeftable`
+  labels its rows with them, so a permuted key list predicted correctly and printed
+  every coupling under the wrong cluster. `keys[k]` must now be
+  `basis.salc_basis.keys[k]` (a leading slice stays legal for `coeftable`'s display
+  subset).
+- **`multipole_terms` returns copies.** `MultipoleTerm.atoms` / `shifts` / `folded`
+  were the basis's own arrays, so a consumer normalizing `folded` in place rewrote the
+  basis. They are copied now (once per model hand-off, not on a hot path).
+- The same four fixes were applied to SLCE.jl in the same change set.
+
 ### Changed — `[interaction].alias_rtol` rides in the setup file; loading a model no longer re-announces its alias groups (2026-10-05)
 
 Two of the minors deferred at the cross-orbit-alias landing (spec

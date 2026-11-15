@@ -339,7 +339,8 @@ capability consumed by both the introspection and the Sunny interop.
   numbers, the same dialect as SLCE.jl — spin-only files interchange, a joint file is
   refused by name, never flattened) and Magesty's legacy EMBSET set (`read_embset`,
   plus `read_embset_pair` for `EMBSET` + `EMBSET_mint` sibling archives: config count /
-  block shape / field blocks bitwise, energies deliberately uncompared). The moment
+  block shape / field blocks bitwise, argument order by the smoothed moments being the
+  shorter in total, energies deliberately uncompared). The moment
   channel's axis gates (`check_moment_gates`: mode-1 sign consistency on decomposable
   rows + axis-angle p99) run at extxyz generation, extxyz load and the pair reader.
   The **concrete per-code adapters live in the `SCETools.jl`

@@ -44,11 +44,12 @@ sce_fit = fit(SCEFit, train, OLS())
 rmse_holdout = sqrt(sum(abs2, predict_energy(sce_fit, test.configs) .- test.y_E) / length(test))
 
 more = SCEDataset(basis2, new_configs, new_energies)
-dataset = vcat(dataset, more)     # basis2 must be the same basis (fingerprint-checked)
+dataset = vcat(dataset, more)     # basis2 must be the same basis (keys and crystal checked)
 ```
 
 `vcat` accepts parts built on a persisted-and-reloaded basis (the check is the
-SALC-basis fingerprint, not object identity); mixing torque-bearing and
+SALC-basis fingerprint plus the crystal itself, not object identity — the same keys
+on a cell at another lattice constant are refused); mixing torque-bearing and
 energy-only datasets is an error.
 
 ## The fit and the analytic intercept

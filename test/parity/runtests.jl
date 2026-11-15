@@ -378,6 +378,16 @@ end
                                            constraint_axes = axes,
                                            axis_angle_p99_max = 10.0)
         @test length(data) == 121
+        # the real pair passed in the wrong order is refused by name (the sibling
+        # checks are symmetric; only the smoothed-moment length tells the files apart)
+        swerr = try
+            SCEFitting.read_embset_pair(mip, mwp; n_atoms = NAT, constraint_mode = 1,
+                                        constraint_axes = axes, axis_angle_p99_max = 10.0)
+            nothing
+        catch e
+            e
+        end
+        @test swerr isa ArgumentError && occursin("swapped", swerr.msg)
 
         spa = SCEFitting.MomentSpec(; lmax_env = [2, 2], sampled = [true, true],
                                     lmax_mark = 2, nbody = 2, cutoff_pair = 3.2,

@@ -21,6 +21,9 @@ coef · (4π)^(body/2) · Σ_μ folded[μ] ∏ᵢ Z_{ls[i], μ_i}(e_{atoms[i]}),
 ```
 
 (the same kernel as [`evaluate_salc`](@ref) for a single SALC term). See [`multipole_terms`](@ref).
+
+The arrays are the caller's own copies: mutating a returned term never reaches the
+model's basis.
 """
 struct MultipoleTerm
     coef::Float64
@@ -72,8 +75,12 @@ function multipole_terms(model::SCEPredictor; keep_zero::Bool = false)::Vector{M
         salc = salcs[k]
         for mem in salc.members
             for t in mem.terms
-                push!(out, MultipoleTerm(j, salc.body, mem.atoms, mem.shifts,
-                                         _term_spin_ls(t), t.folded))
+                # copies: the term is handed to downstream code, and the basis's
+                # own member arrays must not be reachable through it (an in-place
+                # normalization of `folded` would rewrite the basis)
+                push!(out, MultipoleTerm(j, salc.body, copy(mem.atoms),
+                                         copy(mem.shifts), _term_spin_ls(t),
+                                         copy(t.folded)))
             end
         end
     end

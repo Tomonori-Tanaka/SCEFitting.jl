@@ -79,6 +79,29 @@ using Random
         @test_throws ArgumentError vcat(ds, dse)             # torque vs energy-only
     end
 
+    @testset "vcat refuses another crystal with the same keys" begin
+        # the same cell at a 3 % larger lattice constant: the same pair shell
+        # (0.4·a, its image at 0.6·a stays outside the 1.5 cutoff), so the same keys
+        # over the same atom count — the fingerprint cannot tell them apart
+        crystal_b = Crystal(Lattice(Matrix(3.1 * I(3))), [0.2 -0.2; 0.0 0.0; 0.0 0.0],
+                            [1, 1], ["Fe"])
+        basis_b = SCEBasis(crystal_b, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2],
+                                                isotropy = true))
+        @test basis_b.salc_basis.fingerprint == basis.salc_basis.fingerprint
+        dsb = SCEDataset(basis_b, configs, energies)
+        err = try; vcat(dse, dsb); nothing; catch e; e; end
+        @test err isa ArgumentError && occursin("different crystal", err.msg)
+        # a persisted-and-reloaded basis is the same basis (exact round trip)
+        mktempdir() do tmp
+            path = joinpath(tmp, "basis.toml")
+            SCEFitting.save(path, basis)
+            basis_r = SCEFitting.load(SCEBasis, path)
+            dsr = SCEDataset(basis_r, configs, energies)
+            w = vcat(dse[1:3], dsr[4:6])
+            @test w.X_E == dse.X_E
+        end
+    end
+
     @testset "a slice fits and predicts the held-out part" begin
         jphi = randn(rng, length(basis.salc_basis))
         y = 0.3 .+ ds.X_E * jphi                             # in-span target

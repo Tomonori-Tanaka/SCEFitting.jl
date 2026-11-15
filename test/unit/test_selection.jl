@@ -928,6 +928,14 @@ end
         ds_other = SCEDataset(small, [Matrix(randcfg(rngs, 2)) for _ = 1:4],
                               randn(rngs, 4))
         @test_throws ArgumentError select_support(f; evalset = ds_other)
+        # the same keys on a 3 %-larger cell: equal fingerprint, another crystal
+        crystal_b = Crystal(Lattice(Matrix(3.1 * I(3))), [0.2 -0.2; 0.0 0.0; 0.0 0.0],
+                            [1, 1], ["Fe"])
+        basis_b = SCEBasis(crystal_b, BasisSpec(; nbody = 2, cutoff = 1.5, lmax = [2],
+                                                isotropy = false))
+        @test basis_b.salc_basis.fingerprint == basis.salc_basis.fingerprint
+        ds_b = SCEDataset(basis_b, ds_ev.configs, ds_ev.y_E)
+        @test_throws ArgumentError select_support(f; evalset = ds_b)
     end
 
     @testset "cross_validate" begin
