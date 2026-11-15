@@ -213,6 +213,40 @@ Easy to break silently — confirm before touching the algorithm.
   stored `tol` straight back to it), so changing any of these bands changes which
   already-written documents still open, and the diagnostic a reader sees blames the
   coordinates rather than the band.
+- **The rotations come from ONE symmetrized lattice, and validation runs BEFORE it**
+  (`symmetry/backend.jl` `_assemble_spacegroup` / `_idealized_cartesian_rotations` /
+  `_symmetric_lattice` ↔ `sce/model.jl` `symmetrized_lattice` /
+  `_report_symmetrized_lattice` / `_SYMMETRIZED_LATTICE_REPORT_RTOL` ↔
+  `basis/salcbasis.jl` `_build_wig_cache`, the only reader of `rotation_cart`).
+  [Backported from SLCE.jl 2f7d2d5, 2026-11-15.] Every operation's Cartesian rotation
+  is `A_s·W·A_s⁻¹` with `A_s` the metric `AᵀA` averaged over the operations, oriented
+  like `A` by a polar factor — orthogonal and closed under products exactly, ALWAYS
+  (not only when `A·W·A⁻¹` is off; the owner's decision upstream, for one code path).
+  Before it, a lattice symmetric only to `tol` (relaxed cell; hcp typed to six or five
+  decimals; bcc/fcc/hcp/B2 sheared 1e-7..3e-6) passed `_validate_ops` and was then
+  refused inside `wignerD_real` with a message blaming its own sampling, and at a
+  shear of 1e-9..1e-8 the defect entered the columns at first order. **Validation runs
+  on the raw `A·W·A⁻¹`** (`_validate_ops`, also inside `_restrict_to_pbc`): averaging
+  the metric makes ANY set of integer matrices orthogonal, so a check after it checks
+  nothing (gate: cubic operations offered for a tetragonal lattice are refused). Only
+  the rotations come from `A_s`; distances, cutoffs, tie decisions, readouts and the
+  atomic positions use the crystal as given, and `SCEBasis` says so in an `@info`
+  (given vs symmetrized lattice) above `_SYMMETRIZED_LATTICE_REPORT_RTOL` — printed
+  before the cluster build, so it is on screen when a tie split by the same asymmetry
+  then refuses the build. `MomentBasis` builds its own space group through the same
+  assembler (so its rotations are idealized too) but prints no report, as upstream.
+  The report formats numbers with `round` (this package has no Printf dependency);
+  upstream uses `@sprintf` — the text otherwise matches. A saved model re-runs the
+  assembler on load, so its `rotation_cart` is idealized there as well (the stored
+  SALCs are read verbatim and never rebuilt from it). Gates:
+  `test/unit/test_orientation.jl` (orthogonality and closure of the idealized
+  rotations; refusal of non-symmetries; a 5e-7-sheared bcc and hcp typed to five and
+  six decimals give the exact lattice's keys and values to round-off — exact because
+  those stretches leave the cubic/hexagonal rotations unchanged; the same idealized
+  rotations after a save/load round trip and in a sheared `MomentBasis`; the report;
+  NOT covered: a sheared slab on the `_restrict_to_pbc` path). Mutation-
+  tested: idealizing before validation, dropping the idealization, dropping the
+  average, dropping the polar factor, dropping the report — all killed.
 - **Image selection ↔ neighbor list ↔ cluster edges** (`geometry/neighborlist.jl`,
   `clusters/enumerate.jl`, `sce/model.jl`): `SCEBasis` threads one `images` value to
   **both** `build_neighbor_list` and `candidate_clusters`/`build_clusters`; they must
@@ -652,12 +686,21 @@ the one that bites.
 | Non-fused WS tie across orbits (face 2) | `unresolvable_columns` **freezes** every column of every orbit sharing an atom multiset — the determined sum too, so the fit fails loudly (`r2 ≈ 0.7` on the fixture); no split is ever published | `alias_groups` / `_ColumnTies` (`basis/aliases.jl`) **tie** the proportional orbits into one design column and read the coefficient back to every orbit with equal per-bond weight, recorded as `split = :convention` (`coeftable`, TOML v7, read-out warnings) | **Opposite decision on the same face, both deliberate.** Upstream's deliverable is a dispersion the data never constrained (`D(q)` was 52 % wrong under a silent split); this package's is a model to be tiled and sampled, where a dropped shell is a missing coupling. Do not "align" either way without re-deciding; a spin-spiral datum type would resolve the isotropic case in both |
 | `SolidHarmonics` | values + Euclidean gradient API (`solid_harmonics_grad[!]`, `grad_Rlm`) + `solid_harmonic_poly` (the ASR and lattice-side builders) | **values only** (347 → 240 lines); the value recurrence is upstream's line for line | No force rows here; do not re-port the gradient "because upstream has it" — count what the production path actually reads (`R₀₀ ≡ 1`) |
 | Self-image fitting door | `_refuse_self_image_basis` (`slce/model.jl`) at both dataset doors since `c7a4d26`, PLUS a refusal through `unresolvable_columns` on the displacement channel | `_refuse_self_image_basis` (`sce/model.jl`) at both `SCEDataset` constructors, before any design is built | **Converged on the door itself**; the residual is upstream's extra displacement-channel path, which screens a channel this package does not have. Basis BUILDING stays open in both (tiling templates) |
+| Orientation-dependent zero decisions (OPEN-WORK S-2 causes 2-3) | relative round-off cuts `_ROUNDOFF_RTOL = 1e-13` in both SALC engines, gauge pivot `_GAUGE_PIVOT_MIN = 1e-4` (`2f7d2d5`) | still the absolute `1e-10` / `1e-12` entry cuts and the `1e-8` Gram–Schmidt pivot in `basis/salcbasis.jl` | **Not yet ported** (OPEN-WORK F-5 item B, measured defective here too). Cause 4 of the same upstream commit — the symmetrized-lattice rotations — IS ported (closed below); do not read the identical `symmetry/backend.jl` as "S-2 is done here" |
 | Test oracles | `CountingOracle` (852 lines), `_ls_block_stats` (C-2 block diagonality), plus the Cartesian projector since `08743d1` | the ~45-line Cartesian projector only (`test/unit/test_mixedsalc.jl`, `_Q5`); C-2 deferred to wiring | Counts agree; the projector shares no code with the SALC machinery in either package |
 
 Closed on 2026-08-21 — now identical in both packages, no longer divergences:
 content-based `hash(::SiteFactor)` / `hash(::SiteDecor)` (SLCE `4122fba`), the
 comma-free `u(k:l)` decors token (`e828524`), and the validating persist reader
 (`7546616`, plus the key ↔ members check that followed the second review).
+
+Closed on 2026-11-15 — **symmetrized-lattice rotations** (SLCE `2f7d2d5`, cause 4 of
+S-2): `_idealized_cartesian_rotations` / `_symmetric_lattice` and the validate-then-
+idealize order in `_assemble_spacegroup` are line-for-line upstream's;
+`symmetrized_lattice(basis)` has upstream's name and fields
+(`input_lattice` / `symmetric_lattice` / `lattice_shift` / `metric_change`). Upstream's
+later `9d348de` (translation snap retired, atom map at `2·tol`, `symmetrize`) is NOT
+ported yet, so `symmetry/backend.jl` diffs again from that commit on.
 
 Closed on 2026-08-25 — **pointed body order**: SLCE `5684572` carries the same
 general-`N` enumeration, the same `_MOMENT_NBODY_MAX = 4` cap, `_combinations` /

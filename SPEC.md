@@ -95,6 +95,15 @@ capability consumed by both the introspection and the Sunny interop.
 - `AbstractSymmetryBackend` + `analyze_symmetry(backend, crystal; tol) -> SpaceGroup`;
   in-tree `NoSymmetry` (P1); `SpglibBackend` type in core, method in
   `ext/SCEFittingSpglibExt`. `map_sym` derived in-tree (shared by all backends).
+- The shared assembler validates the operations on the raw `A·W·A⁻¹` of the lattice
+  as given (integrality, orthogonality band, group closure) and only then replaces
+  every `SymOp.rotation_cart` by `A_s·W·A_s⁻¹`, with `A_s` the **symmetrized lattice**
+  (metric `AᵀA` averaged over the operations, oriented like `A` by a polar factor):
+  exactly orthogonal and closed under products, always (not only when `A·W·A⁻¹` is
+  off). Only the rotations come from `A_s`; distances, cutoffs, ties and readouts use
+  the crystal as given. `symmetrized_lattice(basis)` (exported) returns both lattices,
+  and `SCEBasis` reports them (`@info`) when the metric's relative asymmetry exceeds
+  1e-11. [SLCE.jl 2f7d2d5.]
 
 ### clusters (M6) — arbitrary body order
 - `ClusterMember` (atoms + per-site lattice `shift` R), `ClusterOrbit`, `ClusterSet`;

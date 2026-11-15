@@ -10,7 +10,7 @@ diagnostics, persistence, Sunny export, introspection) is realized; see `SPEC.md
 """
 module SCEFitting
 
-using LinearAlgebra: norm, det, I, eigen, eigvals, svdvals, svd, Symmetric, Diagonal,
+using LinearAlgebra: norm, cond, det, I, eigen, eigvals, svdvals, svd, Symmetric, Diagonal,
     dot, cross, qr, qr!, ColumnNorm
 using StaticArrays
 using Statistics: mean, quantile, std
@@ -102,6 +102,7 @@ export AbstractImageSelection, MinimumImage, AllImages
 export AbstractSymmetryBackend, NoSymmetry, SpglibBackend
 # the SCE pipeline
 export BasisSpec, SCEBasis, SCEDataset, SCEPredictor, SCEFit, fit, refit, n_salcs, read_setup
+export symmetrized_lattice
 export torque_weight_per_site
 export MomentSpec, MomentBasis, moment_resolvability
 export MomentDataset, MomentFit, MomentModel, predict_moment, rmse_moment,

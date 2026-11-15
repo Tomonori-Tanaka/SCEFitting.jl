@@ -6,6 +6,56 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Fixed — a lattice symmetric only to the tolerance was refused for the wrong reason (2026-11-15)
+
+**Numerical results change at round-off** for lattices whose `A·W·A⁻¹` carries
+round-off (non-orthogonal cells), and at first order in the asymmetry for lattices
+that are symmetric only to the search tolerance (which before were mostly refused).
+Backported from SLCE.jl `2f7d2d5` (cause 4 of OPEN-WORK S-2; the other three causes
+of that commit are not part of this change).
+
+- **What was wrong.** Each operation's Cartesian rotation was `A·W·A⁻¹` of the lattice
+  as given. For a lattice that has its symmetry only to `tol` that matrix is not
+  orthogonal. `_validate_ops` accepted it (its orthogonality band is what `tol` buys on
+  the shortest vector, and the comment on that band said six-decimal hexagonal cells
+  are accepted), and `wignerD_real` then refused it with a message blaming its own
+  sampling ("the sampling is degenerate"). Measured on `cc3e085`: bcc, fcc, hcp and B2
+  2×2×2 cells sheared by 1e-7 to 3e-6 and hcp with `a·√3/2` typed to six or five
+  decimals were all refused that way; at a shear of 1e-9 / 1e-8 the build went through
+  and the columns carried the defect at first order (relative 1.2e-9 / 1.2e-8 against
+  the unsheared cell).
+- **The fix.** The operations are validated on the raw `A·W·A⁻¹` as before, and only
+  then does every operation take its rotation from the **symmetrized lattice** `A_s`
+  (the metric `AᵀA` averaged over the operations, given the orientation of `A` by a
+  polar factor): `A_s·W·A_s⁻¹` is orthogonal and multiplies exactly as the integer
+  matrices do. Always, not only when `A·W·A⁻¹` is off (one code path; the same
+  decision as upstream). The order matters: averaging makes ANY integer set
+  orthogonal, so a check after the idealization would check nothing. Only the
+  rotations change; distances, cutoffs, tie decisions, readouts and atomic positions
+  use the crystal as given. A 5e-7-sheared bcc and hcp typed to six / five decimals
+  now build the exact lattice's basis (same keys, values to 8e-16).
+- **New: `symmetrized_lattice(basis)`** (exported) returns the lattice you gave and the
+  one the rotations come from (`input_lattice`, `symmetric_lattice`, `lattice_shift`,
+  `metric_change` — upstream's names), and `SCEBasis` prints both (`@info`) when the
+  metric's relative asymmetry exceeds 1e-11, before the cluster build. Coordinates
+  symmetric only to `tol` can still split a distance tie and be refused by the
+  cluster enumeration; no `symmetrize` yet (OPEN-WORK F-5 item E). `MomentBasis`
+  gets the idealized rotations through the same assembler but prints no report.
+- **Pins** (`test/pin`, change detectors): hcp_Co, wz_GaN and rs_MnO move at round-off
+  in L1 (max relative entry change 1.2e-15) and L2 (`design_frob2` 3.4e-16, `coef` /
+  `heldout` ≤ 1.1e-14 relative per entry, `r2` bit-identical); L0 / L0′ unchanged;
+  bcc_Fe, B2_FeRh and the pointed B2_FeRh roster bit-identical. Every move is inside
+  the tier's off-platform tolerances. NOT recaptured in this change (awaiting the
+  owner's instruction, PIN.md rule 5).
+- **Real-data parity** (`test/parity`, re-measured on this tree against SLCE.jl
+  `9d348de`): FeGe B20 2×2×2 columns `lsum2` / `full` / `nbody4` / per-body `lsum`
+  0.00e+00, FeRh B2 4×4×4 0.00e+00 (upstream measured 5.5e-16 while only it had the
+  change); acceptance σ within 0.15 % of reference, unchanged.
+- Gates: `test/unit/test_orientation.jl` (new; also a save/load round trip and a
+  `MomentBasis` on the sheared lattice). Mutation-tested: idealizing before
+  validation, dropping the idealization, the average, the polar factor, or the
+  report — all killed.
+
 ### Fixed — four input-pairing holes from the 2026-08-25 audit (2026-11-15)
 
 No fitted number changes; each item turns a silently wrong combination into an error.
