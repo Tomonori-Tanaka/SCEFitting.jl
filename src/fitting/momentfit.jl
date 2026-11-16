@@ -727,6 +727,11 @@ Two families of column get an exact `0`, which the estimators read as **unpenali
 Any OTHER zero is refused: zero means a structural exemption, so it is never inferred
 from a sample.
 
+Every other column gets **one weight per block** (the columns sharing every key label
+but `block`, within one mark class): the mean of `mⱼ` over the block's measured columns,
+which does not depend on the gauge inside the block. The reference configurations are
+drawn along the crystal axes, so a crystal turned as a whole gets the same numbers.
+
 Unlike the energy channel, the moment design reaches the estimator with **no row
 whitening**, so the column norms the solver sees are `n_rows · mⱼ`. Relative weighting
 and scale invariance are unaffected — it is a uniform factor — but λ on this channel is
@@ -747,7 +752,8 @@ function penalty_metric(mb::MomentBasis; free_intercepts::Bool = true,
     measured = setdiff(1:p, structural)
 
     nat = n_atoms(mb.crystal)
-    cfgs = _reference_configs(nat, Int(nconfig), Int(seed))
+    cfgs = _reference_configs(nat, Int(nconfig), Int(seed),
+                              _crystal_frame(mb.crystal, mb.spacegroup))
     nmark = max(1, length(mb.marked_atoms))
     # Accumulate over configuration chunks rather than building the whole reference
     # design: the full `nconfig · n_marked × p` block is ~100 MB for a 3x3x3 supercell
@@ -777,6 +783,10 @@ function penalty_metric(mb::MomentBasis; free_intercepts::Bool = true,
     _refuse_zero_metric(m, "penalty_metric(::MomentBasis)"; exempt = structural,
                         hint = " `moment_resolvability` should have named it, and " *
                                "that it did not is worth understanding before fitting.")
+    # One weight per block (one mark class), after the refusal, which must read the
+    # measured norms (see the energy side).
+    _blockwise_metric!(m, [(_block_key(s), _mark_class(s)) for s in salcs(mb)],
+                       structural)
     return m
 end
 

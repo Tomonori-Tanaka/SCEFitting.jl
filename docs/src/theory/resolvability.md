@@ -88,7 +88,30 @@ that aggregate to zero — or become linearly dependent within the orbit — are
 with a warning naming the orbit, channel, and reason. Per orbit (and for members
 with all-distinct atoms) the surviving functions are linearly independent by
 construction, so the fit and every coefficient-level readout stay well-posed; the
-model space is unchanged (the drop is exact). Dependence **across** orbits — tied
+model space is unchanged (the drop is exact).
+
+The decision is taken **per block** — the columns sharing every label of their key
+but `block` — not column by column. Symmetry fixes the space a block spans, not the
+columns inside it (those are a gauge, chosen along the crystal axes; see
+[the basis guide](../guide/basis.md)), and a tie cancels a *subspace* of the block,
+which need not be spanned by single columns. A test that walks the columns one by
+one, each against its own norm, therefore answers a question about the gauge: on a
+tetragonal pair basis turned by ``\theta = 10^{-6}`` it kept a column whose aggregate
+was the ``\theta``-small image of an exact zero, whose coefficient then came out
+about ``1/\theta`` too large (the per-bond matrices of `bilinear_terms` off by a
+factor ``2\times10^6`` while the cell-summed ones were right), and at
+``\theta = 10^{-8}`` it kept 6 columns instead of 4. Now each block's aggregates,
+projected off what the orbit already keeps, are decided by one singular-value
+decomposition against the block's gross mass (its largest unaggregated norm); a value
+that is neither a cancellation nor content is refused rather than guessed. The block
+keeps an orthonormal complement of what it loses, chosen in the coordinates of its
+own columns: a block that loses nothing keeps its columns, and one whose survivors are
+single columns keeps exactly those under their own keys. When the survivors are
+combinations of the block's columns, the warning names the block and a count instead
+of keys, and [`regauged_columns`](@ref) lists the block — its columns depend on the
+cell (the same crystal on a ``(3,3,3)`` cell, or with other lattice vectors, has other
+columns there), so compare such models through read-outs that do not depend on the
+gauge (`bilinear_terms`, predictions), not column by column. Dependence **across** orbits — tied
 images the point group does not relate, sitting in separate orbits — is a different
 face of the same tie and is handled separately: see
 [When symmetry does not fuse the tie](@ref) below. Measured on bulk MnTe with SOC (3×3×3 supercell, ``P6_3/mmc``): 51 raw SALCs
@@ -97,8 +120,9 @@ design with `max|coef| ~ 1e7`. The remedy for the *physics* (recovering the drop
 content) is still a reference cell that breaks the tie **in every direction whose
 displacement carries a half-lattice-vector component** — doubling one axis alone
 moves only the ties along that axis. (The joint-family SLCE.jl classifies and
-freezes such columns at readout — `unresolvable_columns` there; this package removes
-them from the basis at build time.)
+freezes such columns at readout — `unresolvable_columns` there, after re-gauging each
+block so that its vanishing part is columns of its own; this package removes them from
+the basis at build time. The pointed moment basis here freezes, as upstream does.)
 [Adapted from SLCE.jl de79b92/3e68fc1; reduction added with the MnTe fix.]
 
 ## When symmetry does not fuse the tie

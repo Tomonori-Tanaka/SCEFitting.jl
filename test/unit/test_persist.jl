@@ -19,6 +19,7 @@ end
 # Deep, bit-exact structural equality of two bases' SALC content.
 function _basis_identical(a::SCEBasis, b::SCEBasis)
     a.salc_basis.keys == b.salc_basis.keys || return false
+    a.salc_basis.regauged == b.salc_basis.regauged || return false
     length(a.salc_basis.salcs) == length(b.salc_basis.salcs) || return false
     for (sa, sb) in zip(a.salc_basis.salcs, b.salc_basis.salcs)
         (sa.key == sb.key && sa.body == sb.body && sa.decors == sb.decors &&
@@ -176,7 +177,11 @@ end
         @test m2.basis.salc_basis.keys == model.basis.salc_basis.keys
         @test all(k.L_S == k.Lf && MR.is_pure_spin(k)
                   for k in m2.basis.salc_basis.keys)
-        @test m2.basis.salc_basis.fingerprint == model.basis.salc_basis.fingerprint
+        # a pre-v8 document carries the legacy gauge tag: same keys, different
+        # fingerprint (the columns are compared verbatim just below)
+        @test m2.basis.salc_basis.gauge == 1
+        @test m2.basis.salc_basis.fingerprint ==
+              hash(model.basis.salc_basis.keys, hash(1))
         @test m2.jphi == model.jphi
         @test _basis_identical(m2.basis, model.basis)
         @test predict_energy(m2, testcfgs) == predict_energy(model, testcfgs)

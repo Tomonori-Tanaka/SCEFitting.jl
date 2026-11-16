@@ -10,10 +10,11 @@ meaningful rows); the caller brings the table / IO package. The reference energy
 is the model intercept (not a per-row quantity); read it with [`intercept`](@ref).
 """
 
-const _COEF_NAMES = (:body, :orbit_id, :decors, :L_S, :Lf, :block, :J, :alias_group, :split)
-const _COEF_COLTYPES = (Int, Int, String, Int, Int, Int, Float64, Int, Symbol)
+const _COEF_NAMES = (:body, :orbit_id, :decors, :L_S, :Lf, :block, :regauged, :J,
+                     :alias_group, :split)
+const _COEF_COLTYPES = (Int, Int, String, Int, Int, Int, Bool, Float64, Int, Symbol)
 const _CoefRow = NamedTuple{_COEF_NAMES,
-                            Tuple{Int,Int,String,Int,Int,Int,Float64,Int,Symbol}}
+                            Tuple{Int,Int,String,Int,Int,Int,Bool,Float64,Int,Symbol}}
 
 # The sorted decoration label as a flat string. A pure-spin decor renders as its
 # bare `l` (so a v4-shaped key reads "1,1,2" exactly as before); a displacement
@@ -33,9 +34,10 @@ end
 
 A Tables.jl-compatible table of fitted SCE coefficients: parallel `keys` /
 `jphi` (column `J`) / `alias_group` (index into [`alias_groups`](@ref), `0` for none)
-/ `split` (`:free`, `:convention`, `:legacy` — see [`SCEPredictor`](@ref)), plus the
-intercept `j0`. Build it with [`coeftable`](@ref); iterate it for `NamedTuple` rows,
-or hand it to any Tables.jl sink.
+/ `split` (`:free`, `:convention`, `:legacy` — see [`SCEPredictor`](@ref)) /
+`regauged` (see [`regauged_columns`](@ref)), plus the intercept `j0`. Build it with
+[`coeftable`](@ref); iterate it for `NamedTuple` rows, or hand it to any Tables.jl
+sink. `regauged` defaults to all `false` for a table assembled by hand.
 """
 struct SCECoefficients
     keys::Vector{SALCKey}
@@ -43,25 +45,30 @@ struct SCECoefficients
     j0::Float64
     alias_group::Vector{Int}
     split::Vector{Symbol}
+    regauged::Vector{Bool}
 
     function SCECoefficients(keys::Vector{SALCKey}, jphi::Vector{Float64}, j0::Real,
-                             alias_group::Vector{Int}, split::Vector{Symbol})
+                             alias_group::Vector{Int}, split::Vector{Symbol};
+                             regauged::AbstractVector{Bool} = fill(false, length(keys)))
         length(keys) == length(jphi) ||
             throw(ArgumentError("got $(length(keys)) keys for $(length(jphi)) coefficients"))
         length(alias_group) == length(jphi) && length(split) == length(jphi) ||
             throw(ArgumentError("alias_group / split must have one entry per coefficient"))
-        return new(keys, jphi, Float64(j0), alias_group, split)
+        length(regauged) == length(jphi) ||
+            throw(ArgumentError("got $(length(keys)) keys for $(length(regauged)) " *
+                                "regauged flags"))
+        return new(keys, jphi, Float64(j0), alias_group, split, collect(Bool, regauged))
     end
 end
 
-# Without provenance columns: no alias group, every coefficient `:free`.
+# Without provenance columns: no alias group, every coefficient `:free`, none re-gauged.
 SCECoefficients(keys::Vector{SALCKey}, jphi::Vector{Float64}, j0::Real) =
     SCECoefficients(keys, jphi, j0, zeros(Int, length(jphi)), fill(:free, length(jphi)))
 
 @inline _coef_row(c::SCECoefficients, i::Int)::_CoefRow =
     (body = c.keys[i].body, orbit_id = c.keys[i].orbit_id,
      decors = _decor_string(c.keys[i].decors), L_S = c.keys[i].L_S,
-     Lf = c.keys[i].Lf, block = c.keys[i].block, J = c.jphi[i],
+     Lf = c.keys[i].Lf, block = c.keys[i].block, regauged = c.regauged[i], J = c.jphi[i],
      alias_group = c.alias_group[i], split = c.split[i])
 
 """
@@ -71,11 +78,16 @@ SCECoefficients(keys::Vector{SALCKey}, jphi::Vector{Float64}, j0::Real) =
 A Tables.jl-compatible table of the fitted coefficients — one row per SALC with
 columns `body`, `orbit_id`, `decors` (the sorted decoration label as a string:
 a pure-spin key reads like `"1,1,2"`, displacement factors as `u(k:l)`), `L_S`,
-`Lf`, `block`, `J` (the coefficient `Jϕ`), `alias_group` (the index into
-[`alias_groups`](@ref) of the cross-orbit alias group the SALC belongs to, `0` for
-none) and `split` (`:free`, or `:convention` when `J` was read back from a tied
-column with the equal per-bond weight and is therefore a convention rather than a
-measurement; `:legacy` for a model loaded from a pre-v7 file). For an `SCEFit`
+`Lf`, `block`, `regauged` (see below), `J` (the coefficient `Jϕ`), `alias_group`
+(the index into [`alias_groups`](@ref) of the cross-orbit alias group the SALC belongs
+to, `0` for none) and `split` (`:free`, or `:convention` when `J` was read back from a
+tied column with the equal per-bond weight and is therefore a convention rather than a
+measurement; `:legacy` for a model loaded from a pre-v7 file). `regauged` is `true`
+on the columns of a block whose gauge this reference cell chose — part of the
+block was dropped by the reduction and the rest may recombine its columns, see
+[`regauged_columns`](@ref); such coefficients are not comparable column by column with
+a model of the same crystal on another cell or along other lattice vectors, compare
+through `bilinear_terms` or predictions instead. For an `SCEFit`
 the table is the SALC-space expansion of `coef(f)` (see [`SCEPredictor`](@ref)`(f)`).
 The intercept `j0` is available via [`intercept`](@ref).
 Example: `using DataFrames; DataFrame(coeftable(f))`.
@@ -86,8 +98,12 @@ function coeftable(m::SCEPredictor)::SCECoefficients
     # hand-built slice); the alias index is per basis SALC, so it applies only to a
     # full-length coefficient vector.
     ties = _column_ties(m.basis)
-    ag = length(m.jphi) == length(ties.col_of) ? _alias_index(ties) : zeros(Int, length(m.jphi))
-    return SCECoefficients(copy(m.keys), copy(m.jphi), m.j0, ag, copy(m.split))
+    full = length(m.jphi) == length(ties.col_of)
+    ag = full ? _alias_index(ties) : zeros(Int, length(m.jphi))
+    flags = fill(false, length(m.jphi))
+    full && (flags[regauged_columns(m.basis)] .= true)
+    return SCECoefficients(copy(m.keys), copy(m.jphi), m.j0, ag, copy(m.split);
+                           regauged = flags)
 end
 # `copy` duplicates the `jphi` and key vectors so the table is independent of later
 # refits; the `SALCKey`s themselves are shared (they are treated as immutable — used
@@ -130,6 +146,7 @@ function Base.show(io::IO, ::MIME"text/plain", c::SCECoefficients)
             ["L_S"; [string(c.keys[i].L_S) for i = 1:nshow]],
             ["Lf"; [string(c.keys[i].Lf) for i = 1:nshow]],
             ["block"; [string(c.keys[i].block) for i = 1:nshow]],
+            ["regauged"; [c.regauged[i] ? "yes" : "" for i = 1:nshow]],
             ["J"; [_fmtj(c.jphi[i]) for i = 1:nshow]],
             ["alias"; [c.alias_group[i] == 0 ? "" : string(c.alias_group[i]) for i = 1:nshow]],
             ["split"; [c.split[i] === :free ? "" : string(c.split[i]) for i = 1:nshow]])

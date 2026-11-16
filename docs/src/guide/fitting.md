@@ -142,6 +142,14 @@ m_j(w) = (1-w)\,\mathrm{Var}[\Phi_j]
 configurations — removes that, leaving only the prior you state deliberately through
 `theta`.
 
+The metric carries **one weight per block** — the columns sharing every key label but
+`block` — namely the mean of ``m_j`` over the block's columns (the trace of the block's
+reference Gram divided by their number). The columns inside a block are a gauge (see
+[the basis guide](basis.md)), and a weight per column would make the penalty, and with
+it a penalized fit, depend on that choice. The reference configurations are drawn along
+the crystal axes, so a turned crystal gets the same metric rather than a second
+Monte-Carlo estimate of it.
+
 ```julia
 estimator = GroupAdaptiveRidge(basis; lambda = 1e-5, theta = 1.0)   # metric attached
 m   = penalty_metric(basis; torque_weight = 0.3)              # or build it yourself

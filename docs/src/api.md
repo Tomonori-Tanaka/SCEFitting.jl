@@ -110,6 +110,7 @@ hand-set coefficients (both are documented under [`SCEPredictor`](@ref)).
 BasisSpec
 SCEBasis
 symmetrized_lattice
+regauged_columns
 SCEDataset
 SCEPredictor
 SCEFit

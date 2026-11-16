@@ -283,7 +283,7 @@ end
         E = predict_energy(gen, cfgs)
         m = SCEPredictor(fit(SCEFit, SCEDataset(basis, cfgs, E), OLS()))
         doc = MA._to_doc(m)
-        @test Int(doc["schema_version"]) == 7
+        @test Int(doc["schema_version"]) == MA.PERSIST_SCHEMA_VERSION >= 7
         @test [c["split"] for c in doc["couplings"]] == ["convention", "convention", "free", "free"]
         # the loader recomputes the groups silently: no construction-time `@info`
         # (the `split` column is the provenance; the readouts still warn)

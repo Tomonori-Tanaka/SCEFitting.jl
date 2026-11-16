@@ -147,6 +147,11 @@ function _count_single_site_l2_invariants(rots, n::Int)
     return rank(P; atol = 1e-8)
 end
 
+# The crystal-frame Wigner table matching an operations' table `wc` of `sgx` (same
+# largest `l`), for the engine calls below.
+_fcache(xt, sgx, wc) = SCEFitting._build_frame_cache(xt, sgx,
+                                                     maximum(first, keys(wc); init = 0))
+
 @testset "mixed-channel SALC engine" begin
     rng = MersenneTwister(0x51ce)
 
@@ -159,6 +164,7 @@ end
     trs = [SVector{3,Float64}(0, 0, 0) for _ in rots]
     sg = _assemble_spacegroup(xtal, rots, trs, "Pm-3m", 221; tol = 1e-5)
     wc = _build_wig_cache(sg, 4)
+    fc = SCEFitting._build_frame_cache(xtal, sg, 4)
     cs1 = build_clusters(xtal, build_neighbor_list(xtal, 2.1), sg; nbody = 1)
     O1 = cs1.by_body[1][1]
 
@@ -172,6 +178,7 @@ end
     trsB = [SVector{3,Float64}(0, 0, 0) for _ in rotsB]
     sgB = _assemble_spacegroup(xtalB, rotsB, trsB, "P4/mmm", 123; tol = 1e-5)
     wcB = _build_wig_cache(sgB, 4)
+    fcB = SCEFitting._build_frame_cache(xtalB, sgB, 4)
     csB = build_clusters(xtalB, build_neighbor_list(xtalB, 1.1), sgB; nbody = 2)
     O2 = csB.by_body[2][1]                      # the 1.0-long x bond orbit
 
@@ -182,10 +189,12 @@ end
     z3 = SVector{3,Float64}(0, 0, 0)
     sgP1 = _assemble_spacegroup(xtal, [I3], [z3], "P1", 1; tol = 1e-5)
     wcP1 = _build_wig_cache(sgP1, 2)
+    fcP1 = SCEFitting._build_frame_cache(xtal, sgP1, 2)
     O1P1 = build_clusters(xtal, build_neighbor_list(xtal, 2.1), sgP1;
                           nbody = 1).by_body[1][1]
     sgP1B = _assemble_spacegroup(xtalB, [I3], [z3], "P1", 1; tol = 1e-5)
     wcP1B = _build_wig_cache(sgP1B, 2)
+    fcP1B = SCEFitting._build_frame_cache(xtalB, sgP1B, 2)
     O2P1 = build_clusters(xtalB, build_neighbor_list(xtalB, 1.1), sgP1B;
                           nbody = 2).by_body[2][1]
     # -- fixture C: fixture B's bond plus a SPECTATOR atom 1 far from it, so the
@@ -195,6 +204,7 @@ end
     xtalC = Crystal(latB, [0.5 1/6 -1/6; 0.5 0.0 0.0; 0.5 0.0 0.0], [1, 1, 1], ["Fe"])
     sgP1C = _assemble_spacegroup(xtalC, [I3], [z3], "P1", 1; tol = 1e-5)
     wcP1C = _build_wig_cache(sgP1C, 2)
+    fcP1C = SCEFitting._build_frame_cache(xtalC, sgP1C, 2)
     csC = build_clusters(xtalC, build_neighbor_list(xtalC, 1.1), sgP1C; nbody = 2)
     @test length(csC.by_body[2]) == 1               # the spectator is out of reach
     O2P1C = csC.by_body[2][1]
@@ -204,7 +214,8 @@ end
     # reproduce the production engine's SALCs bitwise — same keys (block indices
     # included) and same members (slots and folded tensors, `==` on Float64).
     function anti_drift(xt, sgx, N, O, lmax, isotropy, wcx)
-        old = _orbit_salcs(xt, sgx, N, 1, O, lmax, LSUM_UNCAPPED, isotropy, wcx)
+        fcx = _fcache(xt, sgx, wcx)
+        old = _orbit_salcs(xt, sgx, N, 1, O, lmax, LSUM_UNCAPPED, isotropy, wcx, fcx)
         labels = unique(spin_ls(s.key) for s in old)
         @test !isempty(labels)
         # The decor engine sees a sorted multiset, so which site may carry which
@@ -215,7 +226,7 @@ end
         admit = t -> all(t[i].spin_l <= lmax[O.species[i]] for i in eachindex(t))
         for lab in labels
             olab = [s for s in old if spin_ls(s.key) == lab]
-            new = _orbit_salcs_decors(xt, sgx, N, 1, O, [spin_decors(lab)], wcx;
+            new = _orbit_salcs_decors(xt, sgx, N, 1, O, [spin_decors(lab)], wcx, fcx;
                                       isotropy = isotropy, admit = admit)
             @test [s.key for s in olab] == [s.key for s in new]
             @test all(s.key.L_S == s.key.Lf for s in new)
@@ -236,6 +247,7 @@ end
         # just span equality).
         for (xt, st) in (_mx_triangle_cs(), _mx_triangle_c3v())
             wc3 = _build_wig_cache(st, 2)
+            fc3 = SCEFitting._build_frame_cache(xt, st, 2)
             cs3 = build_clusters(xt, build_neighbor_list(xt, 2.2), st; nbody = 3)
             @test anti_drift(xt, st, 3, cs3.by_body[3][1], [2], false, wc3) > 0
         end
@@ -249,6 +261,7 @@ end
         # pass it. The triangle supplies the cycle; first make sure it is there.
         xt, st = _mx_triangle_c3v()
         wc3 = _build_wig_cache(st, 2)
+        fc3 = SCEFitting._build_frame_cache(xt, st, 2)
         cs3 = build_clusters(xt, build_neighbor_list(xt, 2.2), st; nbody = 3)
         O3 = cs3.by_body[3][1]
         perms = unique(last.(SCEFitting._stabilizer(xt, st, O3.representative)))
@@ -275,7 +288,7 @@ end
                       SiteDecor(; disp = (1, 0))])]
         rng3 = MersenneTwister(0xc3c3)
         for lab in labs
-            ss = _orbit_salcs_decors(xt, st, 3, 1, O3, [lab], wc3; isotropy = false)
+            ss = _orbit_salcs_decors(xt, st, 3, 1, O3, [lab], wc3, fc3; isotropy = false)
             @test !isempty(ss)
             for _ = 1:4
                 e = reduce(hcat, [normalize(randn(rng3, 3)) for _ = 1:3])
@@ -307,6 +320,7 @@ end
         # permuted pair.
         xt2, st2 = _mx_triangle_cs2()
         wc2 = _build_wig_cache(st2, 2)
+        fc2 = SCEFitting._build_frame_cache(xt2, st2, 2)
         cs2 = build_clusters(xt2, build_neighbor_list(xt2, 2.2), st2; nbody = 3)
         O3 = cs2.by_body[3][1]
         @test anti_drift(xt2, st2, 3, O3, [2, 1], false, wc2) > 0
@@ -315,11 +329,12 @@ end
         # apex, which shifts every `block` index of the admissible orbit. The
         # count below is the one the apex cap forbids.
         lab112 = spin_decors([1, 1, 2])
-        capped = _orbit_salcs_decors(xt2, st2, 3, 1, O3, [lab112], wc2;
+        capped = _orbit_salcs_decors(xt2, st2, 3, 1, O3, [lab112], wc2, fc2;
                                      isotropy = false,
                                      admit = t -> all(t[i].spin_l <= [2, 1][O3.species[i]]
                              for i in eachindex(t)))
-        uncapped = _orbit_salcs_decors(xt2, st2, 3, 1, O3, [lab112], wc2; isotropy = false)
+        uncapped = _orbit_salcs_decors(xt2, st2, 3, 1, O3, [lab112], wc2, fc2;
+                                       isotropy = false)
         @test length(uncapped) > length(capped) > 0
         @test [s.key for s in uncapped] != [s.key for s in capped]
         # `isotropy = true` is the same screen in both engines: the pure-spin
@@ -329,10 +344,10 @@ end
         @test anti_drift(xt2, st2, 3, O3, [2, 1], true, wc2) > 0
         @test anti_drift(xtalB, sgB, 2, O2, [2], true, wcB) > 0
         full = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2,
-                                   [spin_decors([1, 1]), spin_decors([2, 2])], wcB;
+                                   [spin_decors([1, 1]), spin_decors([2, 2])], wcB, fcB;
                                    isotropy = false)
         iso = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2,
-                                  [spin_decors([1, 1]), spin_decors([2, 2])], wcB;
+                                  [spin_decors([1, 1]), spin_decors([2, 2])], wcB, fcB;
                                   isotropy = true)
         sub = [s for s in full if s.key.L_S == 0]
         @test 0 < length(iso) < length(full)
@@ -346,23 +361,24 @@ end
         # Single site, spin l = 2 × disp (k = 0, l = 2): two rank-2 factors on
         # one site under O_h.
         lab_e = [SiteDecor(; spin = 2, disp = (0, 2))]
-        se = _orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab_e], wc; isotropy = false)
+        se = _orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab_e], wc, fc; isotropy = false)
         @test length(se) == _count_single_site_l2_invariants(rots, 2)
         @test length(se) == 2                       # E_g ⊕ T_2g, one square each
         @test all(s.key.L_S == 2 for s in se)
         # |u|² trace channel: one rank-2 factor times a scalar ⇒ no invariant.
         lab_t = [SiteDecor(; spin = 2, disp = (1, 0))]
         @test _count_single_site_l2_invariants(rots, 1) == 0
-        @test isempty(_orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab_t], wc;
+        @test isempty(_orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab_t], wc, fc;
                                           isotropy = false))
         # `isotropy = true` (L_S = 0 only) empties the L_S = 2 sector.
-        @test isempty(_orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab_e], wc; isotropy = true))
+        @test isempty(_orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab_e], wc, fc;
+                                          isotropy = true))
 
         # Both bond sites carry spin l = 1 AND disp (0, 1): the degree-(1,1,1,1)
         # form on the d4h bond.
         lab = [SiteDecor(; spin = 1, disp = (0, 1)),
                SiteDecor(; spin = 1, disp = (0, 1))]
-        sall = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], wcB; isotropy = false)
+        sall = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], wcB, fcB; isotropy = false)
         @test length(sall) ==
               _count_bond_1111_invariants(rotsB, R -> R[1, 1] < 0)
         # The literal is Burnside by hand, and it is NOT redundant with the
@@ -376,7 +392,7 @@ end
         # The chirality twist (ê₁×ê₂)·(u₁×u₂) lives in L_S = 1 and survives the
         # centrosymmetric bond; `isotropy = true` (L_S = 0) removes it.
         @test any(s.key.L_S == 1 for s in sall)
-        s0 = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], wcB; isotropy = true)
+        s0 = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], wcB, fcB; isotropy = true)
         @test !isempty(s0)                          # or the four checks below are vacuous
         @test all(s.key.L_S == 0 for s in s0)
         subset = [s for s in sall if s.key.L_S == 0]
@@ -404,14 +420,14 @@ end
     @testset "u = 0 degeneracy, pure-spin consistency, and the refusals" begin
         lab = [SiteDecor(; spin = 1, disp = (0, 1)),
                SiteDecor(; spin = 1, disp = (0, 1))]
-        sall = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], wcB; isotropy = false)
+        sall = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], wcB, fcB; isotropy = false)
         e = reduce(hcat, [normalize(randn(rng, 3)) for _ = 1:2])
         u0 = zeros(3, 2)
         for s in sall
             @test evaluate_salc(s, e, u0) == 0.0     # exact: homogeneous ≥ 1
         end
         # pure-spin SALCs evaluate identically through the joint form, ∀u
-        pure = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [spin_decors([1, 1])], wcB;
+        pure = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [spin_decors([1, 1])], wcB, fcB;
                                    isotropy = false)
         u = randn(rng, 3, 2) * 0.3
         for s in pure
@@ -434,7 +450,7 @@ end
         # the wrong 4π), and the impure-only label above cannot tell the two
         # apart.
         lab_p = sort([SiteDecor(; disp = (1, 0)), SiteDecor(; spin = 2)])
-        pointed = _orbit_salcs_decors(xtalB, sgP1B, 2, 1, O2P1, [lab_p], wcP1B;
+        pointed = _orbit_salcs_decors(xtalB, sgP1B, 2, 1, O2P1, [lab_p], wcP1B, fcP1B;
                                       isotropy = false)
         @test !isempty(pointed)
         @test any(SCEFitting.is_pure_spin, first(pointed).decors)
@@ -446,15 +462,16 @@ end
         lab2 = [SiteDecor(; spin = 1, disp = (0, 1)),
                 SiteDecor(; spin = 1, disp = (0, 1))]
         @test_throws ArgumentError _orbit_salcs_decors(xtalB, sgB, 2, 1, O2,
-                                                       [lab2, lab2], wcB; isotropy = false)
+                                                       [lab2, lab2], wcB, fcB;
+                                                       isotropy = false)
     end
 
     @testset "mixed space-group invariance + time reversal" begin
         lab = [SiteDecor(; spin = 1, disp = (0, 1)),
                SiteDecor(; spin = 1, disp = (0, 1))]
-        sall = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], wcB; isotropy = false)
+        sall = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], wcB, fcB; isotropy = false)
         lab1 = [SiteDecor(; spin = 2, disp = (0, 2))]
-        s1 = _orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab1], wc; isotropy = false)
+        s1 = _orbit_salcs_decors(xtal, sg, 1, 1, O1, [lab1], wc, fc; isotropy = false)
         for _ = 1:6
             # bond crystal: ops with x → −x swap the two atom columns
             e = reduce(hcat, [normalize(randn(rng, 3)) for _ = 1:2])
@@ -485,23 +502,23 @@ end
 
     @testset "label validation" begin
         @test_throws ArgumentError _orbit_salcs_decors(xtalB, sgB, 2, 1, O2,
-            [[SiteDecor(; spin = 1), SiteDecor(; spin = 2)]], wcB;
+            [[SiteDecor(; spin = 1), SiteDecor(; spin = 2)]], wcB, fcB;
             isotropy = false)                                                  # Σl odd
         @test_throws ArgumentError _orbit_salcs_decors(xtalB, sgB, 2, 1, O2,
-            [[SiteDecor(; spin = 1)]], wcB; isotropy = false)                 # wrong N
+            [[SiteDecor(; spin = 1)]], wcB, fcB; isotropy = false)                 # wrong N
         @test_throws ArgumentError _orbit_salcs_decors(xtalB, sgB, 2, 1, O2,
-            [[SiteDecor(; spin = 2), SiteDecor(; spin = 1, disp = (0, 1))]], wcB;
+            [[SiteDecor(; spin = 2), SiteDecor(; spin = 1, disp = (0, 1))]], wcB, fcB;
             isotropy = false)                                                  # unsorted
         # `isotropy` is a required keyword: upstream SLCE.jl's engine takes
         # `soc::Bool` in that positional slot with the OPPOSITE polarity, so a
         # verbatim upstream call must fail to dispatch, not invert the screen.
         lab = [SiteDecor(; spin = 1, disp = (0, 1)), SiteDecor(; spin = 1, disp = (0, 1))]
         @test_throws MethodError _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab],
-                                                     false, wcB)
+                                                     false, wcB, fcB)
         @test_throws MethodError _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab],
-                                                     true, wcB)
+                                                     true, wcB, fcB)
         @test_throws UndefKeywordError _orbit_salcs_decors(xtalB, sgB, 2, 1, O2,
-                                                           [lab], wcB)
+                                                           [lab], wcB, fcB)
     end
 
     @testset "pure-spin surfaces refuse a decorated basis; persistence keeps it" begin
@@ -510,7 +527,7 @@ end
         # basis, so both refuse rather than under-count or mis-scale.
         lab = [SiteDecor(; spin = 1, disp = (0, 1)),
                SiteDecor(; spin = 1, disp = (0, 1))]
-        sall = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], wcB; isotropy = false)
+        sall = _orbit_salcs_decors(xtalB, sgB, 2, 1, O2, [lab], wcB, fcB; isotropy = false)
         sb = SCEFitting.SALCBasis(sall, [s.key for s in sall])
         spec = SCEFitting.BasisSpec(xtalB; nbody = 2, lmax = 1, cutoff = 1.1)
         sce = SCEFitting.SCEBasis(xtalB, sgB, sb, spec)
@@ -520,7 +537,7 @@ end
         # and on the pointed shape, whose label contains a pure-spin decor (an
         # `any`-shaped guard would let it through; see the refusals testset)
         labp = sort([SiteDecor(; disp = (1, 0)), SiteDecor(; spin = 2)])
-        sp = _orbit_salcs_decors(xtalB, sgP1B, 2, 1, O2P1, [labp], wcP1B;
+        sp = _orbit_salcs_decors(xtalB, sgP1B, 2, 1, O2P1, [labp], wcP1B, fcP1B;
                                  isotropy = false)
         sbp = SCEFitting.SALCBasis(sp, [s.key for s in sp])
         scep = SCEFitting.SCEBasis(xtalB, sgP1B, sbp, spec)
@@ -666,7 +683,8 @@ end
         rngP = MersenneTwister(0x9a25)
         radii = (1.3, 0.6, 1.7)          # per atom column; spectator gets 1.3
         for (xt, sgx, N, O, wcx, label, LS) in cases
-            ss = _orbit_salcs_decors(xt, sgx, N, 1, O, [label], wcx; isotropy = false)
+            fcx = _fcache(xt, sgx, wcx)
+            ss = _orbit_salcs_decors(xt, sgx, N, 1, O, [label], wcx, fcx; isotropy = false)
             atoms = sort(O.representative.atoms)
             nat = size(xt.frac_positions, 2)
             @test all(s.members[1].atoms == atoms for s in ss)
@@ -678,7 +696,7 @@ end
             # the total spin rank is a good quantum number of every SALC, and the
             # isotropy screen is exactly its L_S = 0 part (bitwise)
             @test Set(s.key.L_S for s in ss) == LS
-            iso = _orbit_salcs_decors(xt, sgx, N, 1, O, [label], wcx; isotropy = true)
+            iso = _orbit_salcs_decors(xt, sgx, N, 1, O, [label], wcx, fcx; isotropy = true)
             sub = [s for s in ss if s.key.L_S == 0]
             @test isempty(iso) == !(0 in LS)
             @test [s.key for s in iso] == [s.key for s in sub]
@@ -701,7 +719,7 @@ end
         # the (4π) exponent counts SPIN slots, not slots: the spin-free mark
         # evaluates to |u|² R₀₀ = |u|² exactly (here 0.09 + 0.16 + 1.44), no 4π
         sm = only(_orbit_salcs_decors(xtal, sgP1, 1, 1, O1P1,
-                                      [[SiteDecor(; disp = (1, 0))]], wcP1;
+                                      [[SiteDecor(; disp = (1, 0))]], wcP1, fcP1;
                                       isotropy = false))
         um = reshape([0.3, -0.4, 1.2], 3, 1)
         @test evaluate_salc(sm, reshape([0.0, 0.0, 1.0], 3, 1), um) ≈ 1.69 rtol = 1e-13

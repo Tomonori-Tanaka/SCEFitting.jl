@@ -401,3 +401,23 @@ two-field vs three-field toy struct: 140 -> 232). It is per *scratch*, not per
 term or per entry — 8e-6 of the total — and it is what buys a single evaluation
 workspace shared by both channels instead of a second one allocated per term.
 Wall time stays inside the 5 % secondary gate on both.
+
+## 2026-11-16 — crystal-frame gauge + block-wise per-orbit reduction
+
+`bench_salcbasis` (bcc Fe 4×4×4, 128 atoms, lmax 3, cutoff 6.0, 4 threads; before =
+`git archive` of 50d2c82, after = this change, same machine, back to back):
+
+| | before | after | delta |
+|---|---|---|---|
+| median | 1700 ms | 1177 ms | −31 % |
+| allocs | 48,782,704 | 37,163,304 | −24 % |
+| memory | 3895 MiB | 3495 MiB | −10 % |
+| `n_salcs` | 129 | 129 | — |
+
+The projection now builds one extra `D × D` matrix per block (`to_cartesian`, the
+crystal-frame action), and a first cut that ran the block-wise reduction (dense block,
+SVD, thin QR) on every orbit measured 2098 ms / 4764 MiB (+23 % / +22 %). The reduction
+now skips every orbit without a tie (`_block_has_tie`): nothing can be dropped there,
+and the column-wise MGS it replaces used to run on those orbits too, which more than
+pays for the frame. Tied orbits pay a dense SVD and a thin QR per block instead of the
+dictionary MGS.

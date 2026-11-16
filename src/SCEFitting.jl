@@ -85,6 +85,7 @@ include("io/extxyz.jl")
 # Pointed (site-marked) SALC basis for the adiabatic site-moment channel — rides the
 # decor engine; the data boundary above supplies its trio.
 include("basis/momentbasis.jl")
+include("basis/regauge.jl")        # the gauge of a block the reference cell decides
 include("fitting/momentfit.jl")
 
 # TOML input files (`input.toml` → crystal + energy-side `BasisSpec` + symmetry, and
@@ -105,7 +106,7 @@ export AbstractSymmetryBackend, NoSymmetry, SpglibBackend, symmetrize
 export BasisSpec, SCEBasis, SCEDataset, SCEPredictor, SCEFit, fit, refit, n_salcs, read_setup
 export symmetrized_lattice
 export torque_weight_per_site
-export MomentSpec, MomentBasis, moment_resolvability
+export MomentSpec, MomentBasis, moment_resolvability, regauged_columns
 export MomentDataset, MomentFit, MomentModel, predict_moment, rmse_moment,
     moment_band_profile, moment_local_field, moment_coverage, moment_simple_floor
 export predict_energy, predict_torque, has_torque

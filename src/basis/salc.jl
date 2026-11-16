@@ -198,12 +198,33 @@ struct SALC
     members::Vector{SALCMember}
 end
 
+# The gauge convention of freshly built SALC columns (see `SALCBasis`). Bump it, and
+# map older persisted documents to the convention they were written under, whenever
+# the choice of columns inside a multiplicity block changes. [Ported from SLCE.jl
+# a248d4b.]
+const SALC_GAUGE_CONVENTION = 2
+
 """
-    SALCBasis(salcs, keys)
+    SALCBasis(salcs, keys; gauge = SALC_GAUGE_CONVENTION, regauged = Int[])
 
 An ordered list of [`SALC`](@ref)s (sorted by key), the matching `keys` vector
-(used to address design-matrix columns), and a structural `fingerprint`
-(`hash` of the sorted keys; gauge-independent).
+(used to address design-matrix columns), the `gauge` convention the columns were
+built under, the columns whose block this reference cell re-gauged (`regauged`), and
+a structural `fingerprint` (`hash` of the sorted keys, seeded by `gauge`).
+
+`gauge` names how the columns inside a multiplicity block are chosen; two bases with
+the same keys but different conventions span the same space with different columns,
+so their coefficients do not pair. Convention 1 is the gauge of the Cartesian lab
+frame with the column-by-column reduction (persisted documents before schema 8);
+convention 2 (current) chooses the columns along axes fixed to the crystal and
+reduces each block of a tied orbit as a whole. Seeding the fingerprint with it makes
+every fingerprint check (metric provenance, dataset combination, evaluation sets)
+refuse to pair coefficients across conventions.
+
+`regauged` lists, in ascending order, the columns of every block of which the
+reduction dropped a proper, nonzero part (see [`regauged_columns`](@ref)). It is
+recorded at the build, because the dropped part is not in the basis to recompute it
+from, and persisted with it.
 
 The constructor enforces the column-addressing contract every consumer relies on
 — `keys[i] == salcs[i].key`, strictly increasing (hence sorted and injective) —
@@ -214,9 +235,16 @@ coefficients rather than fail. [Backported from SLCE.jl bde9ded.]
 struct SALCBasis
     salcs::Vector{SALC}
     keys::Vector{SALCKey}
+    gauge::Int
+    regauged::Vector{Int}
     fingerprint::UInt64
 
-    function SALCBasis(salcs::Vector{SALC}, keys::Vector{SALCKey})
+    function SALCBasis(salcs::Vector{SALC}, keys::Vector{SALCKey};
+                       gauge::Integer = SALC_GAUGE_CONVENTION,
+                       regauged::AbstractVector{<:Integer} = Int[])
+        gauge in (1, SALC_GAUGE_CONVENTION) || throw(ArgumentError(
+            "SALCBasis: unknown gauge convention $gauge (known: 1, " *
+            "$SALC_GAUGE_CONVENTION)"))
         length(salcs) == length(keys) || throw(DimensionMismatch(
             "SALCBasis: $(length(salcs)) SALCs but $(length(keys)) keys"))
         for i in eachindex(keys)
@@ -229,7 +257,11 @@ struct SALCBasis
             keys[i - 1] < keys[i] || throw(ArgumentError(
                 "SALCBasis: keys are not sorted at column $i — column order is key order"))
         end
-        return new(salcs, keys, hash(keys))
+        rg = collect(Int, regauged)
+        (issorted(rg; lt = <=) && all(j -> 1 <= j <= length(keys), rg)) ||
+            throw(ArgumentError("SALCBasis: regauged columns must be strictly " *
+                                "increasing indices into 1:$(length(keys)); got $rg"))
+        return new(salcs, keys, Int(gauge), rg, hash(keys, hash(Int(gauge))))
     end
 end
 

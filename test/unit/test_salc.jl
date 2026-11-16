@@ -32,7 +32,8 @@ end
         @test length(basis) > 0
         @test issorted(basis.keys)
         @test allunique(basis.keys)
-        @test basis.fingerprint == hash(basis.keys)
+        @test basis.fingerprint ==
+              hash(basis.keys, hash(SCEFitting.SALC_GAUGE_CONVENTION))
         @test any(s -> s.Lf > 0, basis.salcs)   # anisotropic channels present & tested
     end
 

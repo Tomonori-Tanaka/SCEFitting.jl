@@ -208,6 +208,30 @@ addressed by a canonical
 block) that names a fixed interaction independent of construction order. The design-matrix
 columns, the persisted coefficients, and [`coeftable`](@ref) all key off it.
 
+### The columns inside a block
+
+The columns that share every label but `block` form a **block**. Symmetry fixes the
+space a block spans, not the columns inside it; which orthonormal columns are chosen
+is a *gauge*. It is chosen along axes fixed to the crystal — the lattice vectors of the
+symmetrized lattice, made orthonormal in their order (`a₁`, then the `a₁a₂` plane;
+`symmetrized_lattice(basis).crystal_axes`) — so a crystal turned as a whole gets the
+turned columns, and anything that singles out columns (a support selection, a
+per-column penalty, a sparse estimator) does not depend on the orientation. The gauge
+does still depend on the *lattice vectors*: the same crystal described by other lattice
+vectors can get other columns inside its blocks (the span, the fitted model and every
+read-out of an unpenalized or block-invariant fit are the same; an adaptive estimator,
+which weighs columns one by one, is not invariant to that choice). For a lattice whose
+matrix is upper triangular with a positive diagonal the crystal axes are the Cartesian
+axes.
+
+On a reference cell with a Wigner–Seitz boundary tie, part of a block can vanish on
+every configuration the cell can express. The build drops that part and keeps the rest
+of the block, chosen in the coordinates of its own columns; see
+[Periodic resolvability](../theory/resolvability.md). [`regauged_columns`](@ref) lists
+the columns of such blocks, and [`coeftable`](@ref) flags them in its `regauged`
+column: they depend on the cell, so compare them across cells through gauge-free
+read-outs only.
+
 You can also build a basis from a human-authored `input.toml` instead of constructing the
 objects in Julia — see [Persistence and I/O](io.md).
 

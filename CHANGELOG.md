@@ -6,6 +6,110 @@ release, so everything lives under *Unreleased*.
 
 ## [Unreleased]
 
+### Changed (BREAKING) — the columns inside a block are chosen along the crystal axes, and the per-orbit reduction decides block by block (2026-11-16)
+
+Ported from SLCE.jl `a248d4b` (itself from SphericalTensorFC `c7b9957` for the frame).
+The columns that share every label of their key but `block` (a **block**) span a space
+the symmetry fixes; the columns themselves are a gauge. Two things depended on that gauge
+and should not have.
+
+- **The gauge followed the Cartesian axes.** `_project_and_fold` and its decor twin now
+  choose `W = to_cartesian·canon(to_cartesianᵀ·V1)` with `to_cartesian` the action of the
+  crystal frame `_crystal_frame` (the vectors of the symmetrized lattice made orthonormal
+  in order) on every site axis. An `Lf = 0` (`isotropy = true`) column is a scalar the
+  frame cannot move (gated). Projection, transport and the member fold are untouched.
+  Columns of a crystal turned by any orthogonal matrix, proper or not, are the turned
+  columns (≤ 1e-10 through the evaluator, gated). Columns change on every lattice whose
+  matrix is not upper triangular with a positive diagonal (fcc primitive, rhombohedral);
+  on the others the change is round-off. The gauge follows the lattice VECTORS:
+  `(a1, a2, a1 + a3)` keeps the frame, `(a2, a3, a1)` changes it (same span, same OLS
+  model). `symmetrized_lattice(basis)` gains `crystal_axes`.
+- **The per-orbit reduction decided column by column.** `_reduce_orbit_salcs` walked the
+  SALCs in emission order and dropped each whose aggregated function was zero or
+  dependent relative to its OWN norm. In a crystal turned by a small θ it kept the
+  θ-small image of an exact zero. Now each block's aggregates, projected off the span the
+  orbit already keeps, go through one SVD against the block's gross mass (largest
+  unaggregated norm) at `_CANCELLATION_RTOL = 1e-10`; a relative singular value in
+  `(1e-10, 1e-6]` (`_REGAUGE_BAND_TOP`) is refused as undecidable (measured margins:
+  cancellations ≤ 1.6e-15, content ≥ 1.0; pointed blocks 5.3e-17 / 4.5e-2; gated with
+  three decades of headroom). The block keeps `canon(N1)` in the coordinates of its own
+  crystal-frame columns, each survivor under the key of the column it was pivoted on;
+  a block that loses nothing, and a survivor that is a single column, are bit-identical
+  to the projection's output. The warning names a dropped column by key, and a
+  recombined block as the block with a count. `regauged_columns(basis)` (exported) lists
+  the columns of every block a proper, nonzero part of which went; `coeftable` carries it
+  as a new `regauged` column (between `block` and `J`, as upstream). Those coefficients belong to the cell.
+- **The pointed basis** gets upstream's re-gauge unchanged: a partly vanishing block (one
+  mark class) becomes `[canon(N1) canon(N0)]`, so `moment_resolvability` names the whole
+  vanishing subspace and the fit freezes it; `regauged_columns(mb)` lists those blocks.
+- **The penalty metric** gives one weight per block (the mean over the block, the trace
+  of its reference Gram over its column count; for a tied alias column, the set of
+  blocks of its SALCs), and draws its reference ensemble along the crystal axes, so a
+  turned crystal gets the same numbers instead of a second Monte-Carlo estimate.
+- **Persistence**: schema 8. `SALCBasis` carries `gauge` (`SALC_GAUGE_CONVENTION = 2`
+  for fresh builds, 1 for documents before schema 8), which seeds its `fingerprint`, and
+  `regauged` (recorded at the build, stored as `regauged_columns`; it cannot be
+  recomputed, the dropped part is not stored). Old documents load verbatim and predict
+  what they predicted; their fingerprint no longer matches a fresh build of the same
+  crystal, so no fingerprint check pairs their coefficients with the new columns.
+- **Measured before (`50d2c82`) → after** (Spglib groups; scripts outside the repo):
+
+  | quantity | before | after |
+  |---|---|---|
+  | tetragonal pair basis, `lmax = 1`, SALCs at θ = 1e-8 / 1e-7 (3 axes) | 6, 4, 5 / 6, 4, 6 (correct: 4) | 4 everywhere, 1e-12…0.3 |
+  | same, `lmax = 2` | 23, 19, 22 / 24, 16, 24 (correct: 16) | 16 everywhere |
+  | bct two-species, `lmax = 1` | 3 on one axis at 1e-8 and 1e-7 (correct: 2) | 2 everywhere |
+  | tetragonal, per-bond `bilinear_terms` vs Q·M₀·Qᵀ (OLS) at θ = 1e-6 | 2.3e6 (bct 1.3e6) | 1.6e-15 (bct 1.1e-15) |
+  | same at θ = 1e-8 / 1e-4 / 0.3 | 1.2e-15 (6 SALCs) / 2.3e4 / 4.7 | ≤ 2.0e-15 |
+  | hcp (2,2,2) `lmax = 2`, per-bond, turned vs axes: OLS / AdaptiveRidge / metric Ridge / refit | 14.2 / 14.2 / 13.9 / 14.2 | ≤ 6.6e-15 |
+  | rhombohedral 80° (2,2,2), same | 1.6e-2 (all four) | ≤ 3.7e-15 |
+  | fcc primitive (2,2,2), same | 2.6e-15 / 4.0e-5 / 8.9e-6 / 2.6e-15 | ≤ 3.9e-15 |
+  | the three cells, `(a1, a2, a1 + a3)` vs axes | ≤ 1.8e-14 | ≤ 1.7e-14 |
+  | the three cells, `(a2, a3, a1)` vs axes, OLS / refit | — | ≤ 3.8e-15 |
+
+  SALC counts agree across the four descriptions (hcp 34, fcc 12, rhombohedral 33). With
+  the cyclic description (another frame) AdaptiveRidge differs by 4.5e-4–8.9e-4 and the
+  metric Ridge by 3.6e-6–6.3e-5: per-column adaptive weights and a reference sample drawn
+  in another frame are not invariant under a change of the columns inside a block. That
+  is the estimator and the Monte-Carlo metric, not the gauge, and is left as it is.
+- Tests: `test/unit/test_gauge.jl` (new) with oracles outside the construction
+  (evaluator on turned configurations, sampled designs, `bilinear_terms` and
+  per-instance energies mapped by Cartesian position); `test_orientation.jl` flips the
+  θ = 1e-8 / 1e-7 `@test_broken` to `@test`, tightens the turned-SALC gate from O(θ) up to
+  a sign to round-off, and adds the per-bond readout gate. Mutations (run on
+  `test_orientation.jl` + `test_gauge.jl` + `test_salc.jl`, 2540 assertions; each
+  restored): column-by-column reduction in the crystal frame 10 failures in
+  `test_gauge.jl` (the cyclic-description gate, the drop naming, the record);
+  per-column own norm instead of the block's gross mass 25 failures + 6 errors;
+  Cartesian frame 39; band top raised to 1e-2 1 + 1 error; cut lowered to 1e-16
+  13 errors; per-column energy metric 17; per-column pointed metric 2; lab-frame
+  reference ensemble 12; pointed re-gauge skipped 2.
+
+- **Cross-package parity** (`test/parity`, new testset, no external data): pure-spin
+  `lmax = 2` pair bases on hcp (2,2,2), fcc primitive (2,2,2), rhombohedral 80° (2,2,2)
+  in two descriptions and an untied fcc (3,3,3) cell, against SLCE.jl `4a478b1`: per
+  block, the columns kept here equal SLCE's live (non-frozen) count on every cell
+  (hcp 34 = 46 − 12, fcc 12 = 15 − 3, rhombohedral 33 = 40 − 7, untied 9 = 9), the
+  spans agree to ≤ 1.2e-15, and the columns under one key agree to ≤ 1.2e-15. The
+  real-data moment parity is unchanged (FeGe and FeRh columns 0.00e+00, acceptance σ
+  within 0.15 %).
+- **Regression pins** (not recaptured; the owner decides): L0 and L0′ unchanged on all
+  six fixtures; L1 `folded` moves bitwise on all six (bcc_Fe 88/472 entries, B2_FeRh
+  88/472, hcp_Co 124/568, wz_GaN 43/144, rs_MnO 640/2832, B2_FeRh_pointed 2976/8648),
+  by at most 1.6e-15 of the largest entry; L2 `design_frob2` / `r2` / `rmse` / `coef` /
+  `heldout` move by ≤ 1.4e-15 relative. All six lattices are upper triangular, so the
+  frame is the identity up to round-off and no pinned block is recombined; identical at
+  `-t 4` and `-t 1`.
+- **Performance** (`bench_salcbasis`, bcc Fe 4×4×4, lmax 3): 1700 → 1177 ms median,
+  allocations −24 % (an orbit without a tie now skips the reduction; `bench/BENCH_LOG.md`).
+- **Downstream**: SCEMonteCarlo.jl (`git archive` of 9529572 against this tree) 18797
+  assertions, green.
+
+BREAKING CHANGE: SALC columns inside multiplicity blocks change on every
+non-upper-triangular lattice and on every tied cell whose block loses a proper part;
+`coeftable` gains a column; penalized metric fits change; persisted bases before
+schema 8 get a different fingerprint from a fresh build.
+
 ### Fixed — `select_fit` called every group alive at a λ where the fit explained nothing; the path is no longer warm-started; `select_support` can select the empty support (2026-11-15)
 
 Ported from SLCE.jl `0add649`. On a target with no coupling (i.i.d. noise energies, the

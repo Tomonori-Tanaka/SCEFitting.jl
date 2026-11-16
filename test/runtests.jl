@@ -41,6 +41,7 @@ end
         include("unit/test_coupledbasis.jl")
         include("unit/test_symmetry.jl")
         include("unit/test_orientation.jl")   # symmetrized-lattice rotations
+        include("unit/test_gauge.jl")         # the gauge inside a block
         include("unit/test_symmetrize.jl")    # symmetrize + the atom map
         include("unit/test_clusters.jl")
         include("unit/test_imageselection.jl")

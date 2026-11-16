@@ -222,6 +222,53 @@ function _reference_configs(nat::Int, nconfig::Int, seed::Int)::Vector{Matrix{Fl
     return cfgs
 end
 
+# The reference ensemble seen from the crystal: each direction, drawn as components
+# along the crystal frame `Q` (`_crystal_frame`), turned to Cartesian components as an
+# axial vector, `det(Q)·Q·e`. The distribution is uniform either way, so the expectation
+# the metric estimates is unchanged; what changes is the SAMPLE: a crystal turned by `R`
+# (frame `R·Q`) now draws the turned sample, so its metric is the same numbers, not a
+# second Monte-Carlo estimate of them — the residual seed noise (a few per cent per
+# column) used to make a metric fit depend on how the crystal was turned. [Ported from
+# SLCE.jl a248d4b.]
+function _reference_configs(nat::Int, nconfig::Int, seed::Int,
+                            frame::AbstractMatrix{<:Real})::Vector{Matrix{Float64}}
+    turn = det(frame) * Matrix{Float64}(frame)
+    return [turn * e for e in _reference_configs(nat, nconfig, seed)]
+end
+
+# One weight per block (the columns sharing every label but `block`, refined by
+# `class`): the mean of the measured norms over the block's columns that are not
+# `exempt`, i.e. the trace of the block's reference Gram over its live columns divided
+# by their number. The columns of a block are a gauge — the symmetry fixes their span,
+# not the columns — and a weight per column would make the penalty depend on that
+# choice: inside a block whose reference Gram is not a multiple of the identity a
+# per-column weight is not rotation invariant, so a metric fit moved with the gauge
+# (upstream measured 8.8 % of β on a turned hcp pure-spin basis before 2026-11-16).
+# The trace does not depend on the gauge. `exempt` columns get exactly 0. A
+# single-column block keeps its own value bit for bit. `blocks[j]` is the block label
+# of column `j`. [Ported from SLCE.jl a248d4b.]
+function _blockwise_metric!(m::Vector{Float64}, blocks::AbstractVector,
+                            exempt::AbstractVector{Int})
+    groups = Dict{Any,Vector{Int}}()
+    for (j, g) in enumerate(blocks)
+        push!(get!(groups, g, Int[]), j)
+    end
+    eset = Set(exempt)
+    for cols in values(groups)
+        live = [j for j in cols if !(j in eset)]
+        if length(cols) > 1 && !isempty(live)
+            weight = sum(m[live]) / length(live)
+            for j in live
+                m[j] = weight
+            end
+        end
+    end
+    for j in exempt
+        m[j] = 0.0
+    end
+    return m
+end
+
 # An accidental zero in a metric would silently unpenalize a column. Zero is reserved
 # for a STRUCTURAL exemption — an intercept, an identically vanishing column — so a
 # numerically-zero estimate is refused rather than floored. `exempt` names the columns

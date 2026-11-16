@@ -265,13 +265,14 @@ end
 # nothing else, so the number of SALCs, and the rank of the design they span, are
 # those of the crystal along the axes for every orientation.
 #
-# NOT fixed by that change, and recorded as broken: θ = 1e-8 and 1e-7. There the
-# per-orbit function-space reduction (`_reduce_orbit_salcs`) keeps a column whose
-# aggregated function is θ-small and dependent on the others to round-off: it is
-# reached first in key order, so the dependence test, relative to its own (θ-small)
-# norm, cannot see it. Repairing that needs a rank decision over the whole block,
-# pivoted on the large functions, which interacts with the choice of gauge inside a
-# block; it is an open decision, not a threshold.
+# Not fixed by that change, and fixed on 2026-11-16: θ = 1e-8 and 1e-7. There the
+# per-orbit function-space reduction (`_reduce_orbit_salcs`) walked the columns one by
+# one, each judged against its own norm, and kept a column whose aggregated function
+# was θ-small and dependent on the others to round-off (measured on 50d2c82: 22–24
+# SALCs instead of 16 at lmax = 2, 5–6 instead of 4 at lmax = 1, 3 instead of 2 on the
+# bct cell). The reduction now decides the rank of each block at once against the
+# block's gross mass, and the block's columns are chosen along the crystal axes, so a
+# turned crystal's aggregate is the turned aggregate of the aligned one.
 
 # The 16 point operations of the tetragonal lattice (those of the cube that keep z).
 _ori_tetragonal_ops() = [W for W in oh48_matrices() if abs(W[3, 3]) == 1]
@@ -286,8 +287,7 @@ function _ori_design_rank(b, nat; nconf = 200)
 end
 
 const _ORI_COUNT_AXES = ([1.0, 2.0, 3.0], [1.0, 0.0, 0.0], [0.3, -0.5, 0.8])
-const _ORI_COUNT_ANGLES = (1e-12, 1e-10, 1e-9, 1e-6, 1e-5, 1e-4, 1e-3, 0.3)
-const _ORI_COUNT_OPEN = (1e-8, 1e-7)         # the reduction's window, see above
+const _ORI_COUNT_ANGLES = (1e-12, 1e-10, 1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 0.3)
 
 @testset "the SALC count does not depend on the orientation of the crystal" begin
     tetA = [3.4 0 0; 0 3.4 0; 0 0 6.0]
@@ -302,7 +302,6 @@ const _ORI_COUNT_OPEN = (1e-8, 1e-7)         # the reduction's window, see above
              ("bct two species", bctA, [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 2], ["Fe", "Co"],
               BasisSpec(["Fe", "Co"]; nbody = 2, cutoff = 2.9, lmax = [1, 1],
                         isotropy = false), 2))
-    open_wrong = String[]
     for (name, A, frac, species, labels, spec, expected) in cases
         rots, trans = SMatrix{3,3,Float64,9}[], SVector{3,Float64}[]
         for W in _ori_tetragonal_ops(), j in axes(frac, 2)
@@ -322,19 +321,15 @@ const _ORI_COUNT_OPEN = (1e-8, 1e-7)         # the reduction's window, see above
         @test n_salcs(aligned) == expected
         @test _ori_design_rank(aligned, nat) == expected
         wrong = String[]
-        for axis in _ORI_COUNT_AXES, θ in (_ORI_COUNT_ANGLES..., _ORI_COUNT_OPEN...)
+        for axis in _ORI_COUNT_AXES, θ in _ORI_COUNT_ANGLES
             b = build(_ori_rodrigues(axis, θ) * A)
             got = (n_salcs(b), _ori_design_rank(b, nat))
             got == (expected, expected) && continue
-            push!(θ in _ORI_COUNT_OPEN ? open_wrong : wrong,
-                  "$name axis=$axis θ=$θ → $got")
+            push!(wrong, "$name axis=$axis θ=$θ → $got")
         end
         isempty(wrong) || @info "orientation-dependent SALC count" wrong
         @test isempty(wrong)
     end
-    # the open window (see the header of this block): still wrong; this turns into an
-    # unexpected pass — and must be promoted to `@test` — once the reduction is fixed
-    @test_broken isempty(open_wrong)
 end
 
 @testset "the pointed basis does not depend on the orientation of the crystal" begin
@@ -362,7 +357,7 @@ end
     aligned = signature(A)
     @test aligned == (43, 25)
     wrong = String[]
-    for axis in _ORI_COUNT_AXES, θ in (_ORI_COUNT_ANGLES..., _ORI_COUNT_OPEN...)
+    for axis in _ORI_COUNT_AXES, θ in _ORI_COUNT_ANGLES
         got = signature(_ori_rodrigues(axis, θ) * A)
         got == aligned || push!(wrong, "axis=$axis θ=$θ → $got")
     end
@@ -379,12 +374,12 @@ end
     # the pivot at 1e-4 a size-θ remainder is never chosen, and the SALCs of the turned
     # crystal, evaluated on the turned spins, are the aligned crystal's to O(θ).
     #
-    # Oracle: continuity in θ against the aligned crystal, UP TO A SIGN per SALC. The
-    # sign is fixed by the first component above an absolute 1e-8 (`_sign_canon!`, kept
-    # absolute on purpose), so it can flip once entries of size θ appear; which way a
-    # column's gauge points in the crystal frame is a separate, open question. The bound
-    # 10·θ sits above the measured 0.44·θ (hcp) and ~θ² (fcc), and far below the O(1)
-    # jump.
+    # Since 2026-11-16 the gauge is chosen along the crystal axes, which turn with the
+    # crystal, so the columns of the turned crystal are the turned columns to round-off
+    # — not merely to O(θ), and with no sign left to flip (the sign is fixed in the
+    # crystal's own coordinates). Oracle: the aligned crystal through the evaluator on
+    # the turned spins. Measured ≤ 2e-15 relative; the bound 1e-10 is far below both the
+    # O(θ) drift of the Cartesian gauge and the O(1) jump.
     rng = MersenneTwister(84)
     fcc = [0 0.5 0.5; 0.5 0 0.5; 0.5 0.5 0]
     a, c = 2.5, 2.5 * 1.633
@@ -409,11 +404,67 @@ end
             @test b.salc_basis.keys == aligned.salc_basis.keys
             b.salc_basis.keys == aligned.salc_basis.keys || continue
             v = [evaluate_salc(s, Q * e) for s in SCEFitting.salcs(b), e in es]
-            dev = maximum(min(maximum(abs, v[i, :] - v0[i, :]),
-                              maximum(abs, v[i, :] + v0[i, :])) for i in axes(v, 1))
-            dev <= 10θ * scale + 1e-12 * scale ||
-                @info "gauge jump" name axis θ relative = dev / scale
-            @test dev <= 10θ * scale + 1e-12 * scale
+            dev = maximum(abs, v - v0)
+            dev <= 1e-10 * scale || @info "gauge jump" name axis θ relative = dev / scale
+            @test dev <= 1e-10 * scale
+        end
+    end
+end
+
+@testset "per-bond readouts of a slightly turned crystal are the turned readouts" begin
+    # The defect the per-column reduction left behind: on the tetragonal pair basis
+    # turned by θ = 1e-6, a kept column whose aggregate on the cell was θ-small (the
+    # turned image of an exact zero) got a coefficient about 1/θ too large, and the
+    # per-bond matrices of `bilinear_terms` came out 2.3e6 times off (bct: 1.3e6), while
+    # the cell-summed matrices — all the data constrain — were right (measured on
+    # 50d2c82). Oracle: the aligned crystal fitted to the same noiseless data; every
+    # bond matrix of the turned fit must be Q·M·Qᵀ of the aligned one. Measured ≤ 4.4e-15
+    # relative at every θ from 1e-9 to 0.3; the bound is 1e-10.
+    tetA = [3.4 0 0; 0 3.4 0; 0 0 6.0]
+    bctA = [3.0 0 0; 0 3.0 0; 0 0 3.6]
+    cases = (("tetragonal lmax=1", tetA, [0.0 0.3; 0.0 0.1; 0.0 0.5], [1, 1], ["Fe"],
+              BasisSpec(["Fe"]; nbody = 2, cutoff = 3.3, lmax = [1], isotropy = false)),
+             ("bct two species", bctA, [0.0 0.5; 0.0 0.5; 0.0 0.5], [1, 2], ["Fe", "Co"],
+              BasisSpec(["Fe", "Co"]; nbody = 2, cutoff = 2.9, lmax = [1, 1],
+                        isotropy = false)))
+    for (name, A, frac, species, labels, spec) in cases
+        rots, trans = SMatrix{3,3,Float64,9}[], SVector{3,Float64}[]
+        for W in _ori_tetragonal_ops(), j in axes(frac, 2)
+            species[j] == species[1] || continue
+            t = mod.(frac[:, j] .- W * frac[:, 1], 1.0)
+            all(i -> any(k -> species[k] == species[i] &&
+                              maximum(abs.(mod.(W * frac[:, i] .+ t .- frac[:, k] .+ 0.5,
+                                                1.0) .- 0.5)) < 1e-9, axes(frac, 2)),
+                axes(frac, 2)) || continue
+            push!(rots, W)
+            push!(trans, SVector{3,Float64}(t))
+        end
+        build(L) = _ori_quiet(() -> SCEBasis(Crystal(Lattice(L), frac, species, labels),
+                                             spec; backend = _OrientationOps(rots, trans)))
+        b0 = build(A)
+        nat = size(frac, 2)
+        rng = MersenneTwister(9)
+        truth = SCEPredictor(b0, 0.0, (1 .+ rand(rng, n_salcs(b0))) .* 1e-2)
+        cfg = [randcfg(rng, nat) for _ = 1:60]
+        E = predict_energy(truth, cfg)
+        T = predict_torque(truth, cfg)
+        f0 = _ori_quiet(() -> fit(SCEFit, SCEDataset(b0, cfg, E, T), OLS();
+                                  torque_weight = 0.5))
+        bt0 = bilinear_terms(SCEPredictor(f0))
+        scale = maximum(norm(M) for M in values(bt0.pairs))
+        for θ in (1e-8, 1e-7, 1e-6, 1e-4)
+            Q = _ori_rodrigues([1.0, 2.0, 3.0], θ)
+            b = build(Q * A)
+            f = _ori_quiet(() -> fit(SCEFit, SCEDataset(b, [Q * e for e in cfg], E,
+                                                        [Q * t for t in T]), OLS();
+                                     torque_weight = 0.5))
+            bt = _ori_quiet(() -> bilinear_terms(SCEPredictor(f)))
+            @test keys(bt.pairs) == keys(bt0.pairs)
+            dev = maximum(norm(bt.pairs[k] - Q * bt0.pairs[k] * Q')
+                          for k in keys(bt0.pairs))
+            dev <= 1e-10 * scale ||
+                @info "per-bond readout moved" name θ relative = dev / scale
+            @test dev <= 1e-10 * scale
         end
     end
 end

@@ -283,6 +283,14 @@ The torque term's `1/(3·n_atoms)` is the per-row average the assembly's `√(w/
 already applies (`n_T = n_E·3·n_atoms`); dropping it would misscale the two blocks
 against each other by the atom count.
 
+The scale is **one weight per block** — the columns sharing every label of their
+[`SALCKey`](@ref) but `block` (for a tied alias column, the blocks of the SALCs tied
+into it): the mean of `mⱼ` over the block, i.e. the trace of the block's reference Gram
+over its column count. The columns inside a block are a gauge, and a per-column weight
+would make a penalized fit depend on it. The reference configurations are drawn along
+the crystal axes (`symmetrized_lattice(basis).crystal_axes`), so a crystal turned as a
+whole gets the same numbers, not a second Monte-Carlo estimate of them.
+
 The metric is a property of the **basis**, not of the training data — deliberately, so
 that λ can be compared between cells, so that cross-validation needs no per-fold
 recomputation to stay leak-free, and so the prior sits on the function space rather
@@ -316,7 +324,8 @@ function penalty_metric(basis::SCEBasis; torque_weight::Real = 0.0,
     (isfinite(w) && 0 <= w <= 1) ||
         throw(ArgumentError("torque_weight must be in [0, 1]; got $torque_weight"))
     nat = n_atoms(basis.crystal)
-    cfgs = _reference_configs(nat, Int(nconfig), Int(seed))
+    cfgs = _reference_configs(nat, Int(nconfig), Int(seed),
+                              _crystal_frame(basis.crystal, basis.spacegroup))
     sal = basis.salc_basis.salcs
     ties = _column_ties(basis)
     p = length(ties.columns)          # design columns (tied alias groups count once)
@@ -380,6 +389,12 @@ function penalty_metric(basis::SCEBasis; torque_weight::Real = 0.0,
         m[t] = (1 - w) * varj + w * (st / K) / (3 * nat)
     end
     _refuse_zero_metric(m, "penalty_metric(::SCEBasis)")
+    # One weight per block, after the refusal (which must read the measured norms). A
+    # design column's block is the set of blocks of the SALCs tied into it: an untied
+    # column is its SALC's block, and the columns of two blocks tied orbit by orbit by
+    # an alias group form one block of design columns.
+    blocks = [sort!([_block_key(sal[j]) for j in cols]) for cols in ties.columns]
+    _blockwise_metric!(m, blocks, Int[])
     return m
 end
 

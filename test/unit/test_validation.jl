@@ -139,6 +139,16 @@ end
         # duplicate column
         dup = [good[1], good[1]]
         @test_throws ArgumentError SCEFitting.SALCBasis(dup, SCEFitting.SALCKey[s.key for s in dup])
+        # the gauge convention is a known one, and the re-gauged columns are strictly
+        # increasing indices of the basis
+        @test_throws ArgumentError SCEFitting.SALCBasis(good, keys; gauge = 3)
+        @test_throws ArgumentError SCEFitting.SALCBasis(good, keys; regauged = [2, 1])
+        @test_throws ArgumentError SCEFitting.SALCBasis(good, keys; regauged = [1, 1])
+        @test_throws ArgumentError SCEFitting.SALCBasis(good, keys;
+                                                        regauged = [length(keys) + 1])
+        @test SCEFitting.SALCBasis(good, keys; regauged = [1, 2]).regauged == [1, 2]
+        # a different gauge convention gives a different fingerprint for the same keys
+        @test SCEFitting.SALCBasis(good, keys; gauge = 1).fingerprint != sb.fingerprint
     end
 
     @testset "SCEBasis field-wise call cannot skip the species check" begin

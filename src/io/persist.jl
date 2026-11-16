@@ -39,8 +39,16 @@ const _SCHEMA_MODEL = "scefitting/sce-model"
 #     alias group's coefficient: "free" / "convention"). Older model docs load with
 #     `split = :legacy` on the SALCs of a tied group and `:free` elsewhere; basis
 #     docs are unchanged (the ties are recomputed on load, never stored).
-const PERSIST_SCHEMA_VERSION = 7
-const _PERSIST_READABLE_VERSIONS = (2, 3, 4, 5, 6, 7)
+# v8: SALC columns gauged along axes fixed to the crystal, and each block of a tied
+#     orbit reduced as a whole (its surviving columns may recombine the block). The
+#     basis records which columns belong to such a block ("regauged_columns", indices
+#     into "salcs"; it cannot be recomputed, the dropped part is not stored). The
+#     stored tensors are read verbatim either way; older documents are tagged gauge
+#     convention 1 with no re-gauged column, so their fingerprint differs from a fresh
+#     build of the same crystal and their coefficients are never paired with the new
+#     columns.
+const PERSIST_SCHEMA_VERSION = 8
+const _PERSIST_READABLE_VERSIONS = (2, 3, 4, 5, 6, 7, 8)
 
 # Normalize -0.0 → +0.0 so two builds of the same object serialize byte-identically
 # (eigensolvers on different BLAS can flip a sign of zero); -0.0 == 0.0 anyway.
@@ -108,6 +116,7 @@ function _basis_doc(b::SCEBasis)
         "symmetry" => _symmetry_doc(b.spacegroup),
         "spec" => _spec_doc(b.spec),
         "fingerprint" => string(b.salc_basis.fingerprint),   # UInt64 as a string (JSON numbers lose >2^53)
+        "regauged_columns" => collect(Int, b.salc_basis.regauged),
         "salcs" => [_salc_doc(s) for s in b.salc_basis.salcs])
 end
 
@@ -354,15 +363,28 @@ function _basis_from_doc(d)::SCEBasis
                           _canonicalize_members(s.members))
                      for s in salcs]
     end
+    version = Int(d["schema_version"])
+    regauged = Int[]
+    if version >= 8
+        haskey(d, "regauged_columns") || throw(ArgumentError(
+            "schema_version $version basis has no `regauged_columns`"))
+        regauged = collect(Int, d["regauged_columns"])
+        all(j -> 1 <= j <= length(salcs), regauged) || throw(ArgumentError(
+            "`regauged_columns` $regauged index outside the $(length(salcs)) stored SALCs"))
+    end
     keyvec = SALCKey[s.key for s in salcs]
     if !issorted(keyvec)
         p = sortperm(keyvec)
         salcs = salcs[p]
         keyvec = keyvec[p]
+        regauged = invperm(p)[regauged]
     end
     allunique(keyvec) ||
         throw(ArgumentError("loaded SALC keys are not injective (duplicate design-matrix columns)"))
-    sb = SALCBasis(salcs, keyvec)
+    # Documents before v8 were written under the Cartesian-frame, column-by-column
+    # convention (gauge 1): same tensors, a fingerprint that never matches a fresh build.
+    sb = SALCBasis(salcs, keyvec; gauge = version < 8 ? 1 : SALC_GAUGE_CONVENTION,
+                   regauged = sort!(regauged))
     # Alias groups are recomputed (at the default `alias_rtol`) but not re-announced:
     # the couplings' `split` column carries the provenance, and the readouts warn.
     return SCEBasis(crystal, sg, sb, spec; report = false)

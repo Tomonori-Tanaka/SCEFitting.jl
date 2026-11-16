@@ -132,17 +132,30 @@ capability consumed by both the introspection and the Sunny interop.
   **combined (ordering × path × `Mf`) space**: each op acts by rotating every site axis
   (`wignerD_real(l_i, R)`) and relabeling axes by `invperm(perm)`, with the action
   matrix read off by contraction against the orthonormal coupled tensors. Deterministic
-  axis-pivoted gauge; per-ordering fold into a multi-term SALC (one `SALCTerm` per
-  ordering). `SALCKey` (canonical, injective column address — `block` runs across split
-  ordering orbits) + `SALCBasis` (sorted keys + fingerprint). `evaluate_salc(salc, e)`.
-  The build ends with an exact **function-space reduction per orbit**: each SALC's
-  aggregated (shift-blind) monomial coefficients — keyed `(atoms, ls, index)`, the
-  linear space `evaluate_salc` actually spans under cell-periodic evaluation — are
-  checked, and combinations that aggregate to zero or go linearly dependent within
-  the orbit (WS-boundary ties / merged near-tie shells folding distinct instances
-  onto one atom set) are dropped with a warning naming orbit, channel, and reason
-  (surviving keys keep their `block` numbers; gaps are legal). The independence
-  guarantee is per orbit, distinct-atom members only. **Cross-orbit alias groups** —
+  axis-pivoted gauge, **taken along the crystal axes** (`_crystal_frame`: the vectors of
+  the symmetrized lattice made orthonormal in order, the same matrices on every site
+  axis), so the columns of a turned crystal are the turned columns (gated in
+  `test/unit/test_gauge.jl`); the gauge still follows the lattice vectors. Per-ordering
+  fold into a multi-term SALC (one `SALCTerm` per ordering). `SALCKey` (canonical,
+  injective column address — `block` runs across split ordering orbits) + `SALCBasis`
+  (sorted keys, the gauge convention `SALC_GAUGE_CONVENTION = 2`, the re-gauged
+  columns, and a fingerprint of the keys seeded by the convention).
+  `evaluate_salc(salc, e)`. The build ends with an exact **function-space reduction per
+  orbit, block by block**: each SALC's aggregated (shift-blind) monomial coefficients —
+  keyed `(atoms, ls, index)`, the linear space `evaluate_salc` actually spans under
+  cell-periodic evaluation — are checked per block (columns sharing every key label but
+  `block`, in emission order, projected off what the orbit already keeps), the block's
+  rank decided by one SVD against its gross mass (largest unaggregated norm) at
+  `_CANCELLATION_RTOL = 1e-10`, a value up to `_REGAUGE_BAND_TOP = 1e-6` refused, and
+  combinations that aggregate to zero or go linearly dependent within the orbit
+  (WS-boundary ties / merged near-tie shells folding distinct instances onto one atom
+  set) are dropped with a warning naming them (by key when the survivors are single
+  columns, as a block with a count when they recombine it). The survivors are
+  `canon(N1)` in the block's own coordinates, each under the key of its pivot column
+  (an untouched block or a single-column survivor is bit-identical; gaps in `block`
+  are legal). `regauged_columns(basis)` (exported) lists the columns of every block a
+  proper part of which went. The independence guarantee is per orbit, distinct-atom
+  members only. **Cross-orbit alias groups** —
   distinct orbits whose members join the same atom sets through periodic images the
   space group does not relate, so that their aggregated functions are proportional
   on the cell (e.g. Nd₂Fe₁₄B 1×1×1: ten such pairs of pair orbits) — are detected
@@ -242,7 +255,9 @@ capability consumed by both the introspection and the Sunny interop.
   decoration multiset `"decors"` and total spin rank `"L_S"` instead of `"ls"`, and
   maps v2–v4 keys on read through the total, value-preserving relabel
   (per-site `l` → a pure-spin decor, `L_S := Lf`) — so older documents load with
-  bit-identical predictions and no migration tool),
+  bit-identical predictions and no migration tool; version 7 adds the couplings'
+  `split`; version 8 records the re-gauged columns and tags every older document as
+  gauge convention 1, whose fingerprint differs from a fresh build's),
   and the *full* SALC basis (every member / term / folded tensor); a model adds `j0`
   and per-`SALCKey` coefficients. Reload reconstructs the basis verbatim (no
   re-projection) and re-pairs coefficients to the basis **by key**, not by position.
@@ -287,7 +302,11 @@ capability consumed by both the introspection and the Sunny interop.
   substitution (exact — one mark per label), threaded per column, a mark→term index
   value-identical to the full evaluation. `moment_resolvability` (D9′): symbolic
   signature rank in the independent variables `(a, ê_a, e)`, null combinations naming
-  dependent columns, mark-class census. A repeated-atom star (two images of one
+  dependent columns, mark-class census. On a tied cell a block (one mark class) a
+  proper part of which vanishes is re-gauged as `[canon(N1) canon(N0)]` at the build
+  (`basis/regauge.jl`, the energy reduction's block rule), so the vanishing columns
+  this gate names are the whole vanishing subspace; `regauged_columns(mb)` lists
+  such blocks. A repeated-atom star (two images of one
   neighbor, or an environment on an image of the mark) is refused by
   `_pointed_star_candidates` at the enumeration; this gate's `UnclassifiableBasis`
   is the backstop for a candidate source that skips that rule. Validated by independent
@@ -336,7 +355,9 @@ capability consumed by both the introspection and the Sunny interop.
 - **Tabular results** (`sce/coeftable.jl`): `coeftable(fit | model) -> SCECoefficients`
   is a **Tables.jl** source — one row per SALC (`body`, `orbit_id`, `decors` as a
   comma string — `"1,1,2"` on a pure-spin key, exactly the old `ls` column —, `L_S`,
-  `Lf`, `block`, `J`, `alias_group`, `split`) — so it drops into `DataFrame` / `CSV.write` /
+  `Lf`, `block`, `regauged` — flags the columns of a block whose gauge the reference
+  cell chose, not comparable across cells —, `J`, `alias_group`, `split`) — so
+  it drops into `DataFrame` / `CSV.write` /
   `Arrow.write`. The library owns the internal-storage → labeled-row mapping; the caller
   brings the table/IO package. `j0` is the intercept (`intercept(c)`), not a row.
   Tables.jl is a lightweight core dep.
@@ -463,7 +484,12 @@ capability consumed by both the introspection and the Sunny interop.
   validating `MetricProvenance` (channel, `torque_weight`, `nconfig`, `seed`, basis
   fingerprint) the `fit` / `refit` / `select_fit` / `cross_validate` doors check;
   `AdaptiveLasso` carries one through its pilot. `SCEFitting.with_lambda(est, λ)` moves
-  an estimator along a λ path with the metric intact.
+  an estimator along a λ path with the metric intact. **One weight per block**: within
+  a block (per mark class in the pointed basis; for a tied alias column, the set of
+  blocks of its SALCs) every column gets the block's mean — the trace of its reference
+  Gram over its column count, independent of the gauge inside the block — and the
+  reference ensemble is drawn along the crystal axes, so a turned crystal gets the
+  same metric.
   The metric sits in the **denominator** of the adaptive weight maps, which is what makes
   the estimators invariant under a column rescaling and preserves the `λ·v_g` fixed
   point; the IRLS cold starts and the stopping rule (metric coordinates, penalized

@@ -325,11 +325,12 @@ Easy to break silently — confirm before touching the algorithm.
   pivot is `_GAUGE_PIVOT_MIN = 1e-4`; the absolute 1e-10 / 1e-12 cuts and the 1e-8
   pivot they replaced made the SALC count depend on how the crystal is turned. Gates
   in `test/unit/test_orientation.jl`: the SALC count and design rank of a turned
-  crystal equal the aligned crystal's (pure spin and pointed; θ = 1e-8 / 1e-7 still
-  `@test_broken`, a reduction-order defect — see the ledger), and a slightly turned
-  crystal keeps the aligned crystal's SALCs to O(θ) up to a sign per SALC (the only
-  gate that sees the pivot: at 1e-8 the block gauge jumps O(1) from θ = 1e-7 on with
-  every count unchanged). **The construction's last step is
+  crystal equal the aligned crystal's at every angle from 1e-12 to 0.3 (pure spin and
+  pointed; θ = 1e-8 / 1e-7 were `@test_broken` until the block-wise reduction landed,
+  2026-11-16), a slightly turned crystal keeps the aligned crystal's SALCs to round-off
+  (the crystal-frame gauge; the pivot gate: at 1e-8 the block gauge jumped O(1) from
+  θ = 1e-7 on with every count unchanged), and the per-bond `bilinear_terms` of a
+  turned fit are the turned readouts (1/θ off before). **The construction's last step is
   `_canonicalize_members`** (`basis/salc.jl`): the ordered, anchored images (one per
   site ordering — the space the projection needs) are folded to one member per
   physical instance (sites sorted by `(atom, shift)`, `shifts[1] == 0` re-anchored,
@@ -342,8 +343,8 @@ Easy to break silently — confirm before touching the algorithm.
   `test/unit/testutils.jl`, applied by `test_salc.jl` and 3-body `test_nbody.jl`)
   and the pre-v4 fold test in `test_persist.jl`. At `N ≥ 3` also confirm SALCs are
   linearly independent (design-matrix rank = #SALC). **After canonicalization each
-  orbit is function-space reduced** (`_reduce_orbit_salcs`, `basis/salcbasis.jl`):
-  SALCs are expanded into aggregated shift-blind monomial coefficients keyed
+  orbit is function-space reduced, block by block** (`_reduce_orbit_salcs`,
+  `basis/salcbasis.jl`; see the gauge entry below): SALCs are expanded into aggregated shift-blind monomial coefficients keyed
   `(atoms, ls, index)` — the space `evaluate_salc` actually spans, since evaluation
   never reads `shifts` — and combinations that aggregate to zero or go dependent
   within the orbit (WS-boundary ties / merged near-tie shells folding instances onto
@@ -372,6 +373,58 @@ Easy to break silently — confirm before touching the algorithm.
   mutable state in the per-orbit path (or a lazily-filled cache) reintroduces a race;
   keep it task-local. Gate: `test/unit/test_salc.jl` "build is deterministic / thread-safe"
   plus the oracle, run under `julia -t N>1`.
+- **The gauge inside a block: crystal axes, then a block-wise reduction**
+  (`symmetry/backend.jl` `_crystal_frame` ↔ `basis/salcbasis.jl` `_build_frame_cache` /
+  the `to_cartesian` line of `_project_and_fold` AND `_project_and_fold_decors` /
+  `_reduce_orbit_salcs` / `_canonical_basis_pivots` ↔ `basis/regauge.jl` `_block_split`
+  / `_refuse_undecidable` / `_REGAUGE_BAND_TOP` / `_regauge_vanishing` /
+  `_moment_signature_of` / `regauged_columns` ↔ `basis/salc.jl`
+  `SALC_GAUGE_CONVENTION` / `SALCBasis.gauge` / `.regauged` ↔ `io/persist.jl` schema 8
+  (`regauged_columns`) ↔ `fitting/metric.jl` `_blockwise_metric!` / the crystal-frame
+  `_reference_configs` ↔ `fitting/selection.jl` / `fitting/momentfit.jl`
+  `penalty_metric` ↔ `sce/coeftable.jl` `regauged` ↔ `sce/model.jl`
+  `symmetrized_lattice(...).crystal_axes`). [Ported from SLCE.jl a248d4b, 2026-11-16.]
+  A BLOCK is the columns sharing every key label but `block` (one mark class more in the
+  pointed basis — never mix mark classes, they predict different atoms). Symmetry fixes
+  its span, not its columns. (1) The columns are
+  `W = to_cartesian·canon(to_cartesianᵀ·V1)`, `to_cartesian` the action of the crystal
+  frame `Q` (vectors of the symmetrized lattice, Gram–Schmidt in order; improper for a
+  left-handed lattice) on every site axis — `det(Q)^{Σl} = +1`, so polar and axial
+  agree, and an `Lf = 0` (`isotropy = true`) column is a scalar the frame cannot move
+  (gated). Projection, transport and the member fold are untouched. The gauge follows
+  the LATTICE VECTORS, not the orientation: `(a1, a2, a1 + a3)` keeps the frame, a
+  cyclic relabelling `(a2, a3, a1)` changes it (same span, same OLS model; an adaptive
+  estimator and the Monte-Carlo metric differ at 1e-4 / 1e-5 there, measured). (2) The
+  energy basis DROPS what a tied cell cannot see, per block: in emission order, the
+  block's aggregates projected off the orbit's kept span go through one SVD against the
+  block's GROSS mass (largest unaggregated norm) at `_CANCELLATION_RTOL`, a value in
+  `(_CANCELLATION_RTOL, _REGAUGE_BAND_TOP]` is refused, and the block keeps
+  `canon(N1)` in its own columns' coordinates, each new column under the key of the
+  column it was pivoted on (W entries below `_ROUNDOFF_RTOL` snapped, unit columns
+  copied; an orbit with no repeated atom multiset is returned as built without an
+  expansion) — so an untouched block and a single-column survivor are bit-identical, and
+  the warning names a dropped single column by key, a recombined block by count. The
+  per-column MGS this replaced judged each column against its own norm and kept the
+  θ-small image of a zero in a turned crystal (count wrong at θ = 1e-8 / 1e-7, per-bond
+  readouts 1/θ off at 1e-6). Measured margins: cancellations ≤ 1.6e-15, content ≥ 1.0
+  of the gross mass (pointed: 5.3e-17 / 4.5e-2), gated with three decades of headroom.
+  (3) The pointed basis FREEZES, as upstream: `_regauge_vanishing` re-gauges a partly
+  vanishing block as `[canon(N1) canon(N0)]` so `moment_resolvability` names exactly the
+  vanishing subspace. (4) `regauged_columns` lists the blocks a cell chose — recorded at
+  the build and persisted on the energy side (the dropped part is not there to
+  recompute from), recomputed from the vanishing set on the pointed side; same
+  definition as upstream (a proper, nonzero part gone), so it includes blocks whose
+  survivors are single columns. (5) The penalty metric gives one weight per block (trace
+  / count; for a tied alias column the set of blocks of its SALCs) AFTER the zero
+  refusal, and draws its reference ensemble along the crystal axes. (6) `SALCBasis`
+  carries `gauge` (2 fresh, 1 for documents before schema 8), which seeds the
+  fingerprint. Gates: `test/unit/test_gauge.jl` (columns turn with the crystal incl.
+  improper R, with an in-suite Cartesian-frame mutant; isotropic columns inert; kept
+  span = sampled span with full rank; margins; untouched blocks bit-identical; dropped
+  directions named; three descriptions → same bond matrices and per-instance energies
+  under OLS / AdaptiveRidge / metric Ridge / refit; metric per block and orientation
+  free; persistence of the tag; pointed nullity per block = frozen count) and
+  `test_orientation.jl`.
 - **Design-matrix columns are identified by `SALCKey`** (`SALCBasis.keys`, sorted),
   not by construction order. The key layout is `(body, orbit_id, decors, L_S, Lf,
   block)`: `decors` is the sorted `SiteDecor` multiset (this package builds pure-spin
@@ -398,7 +451,10 @@ Easy to break silently — confirm before touching the algorithm.
   alive as long as v2 model files circulate. Schema v4 stores SALC members in the
   canonical duplicate-free form; `_basis_from_doc` folds pre-v4 members on load
   (`_canonicalize_members`) — keep that branch alive as long as v3 model files
-  circulate, and never write a non-canonical basis.
+  circulate, and never write a non-canonical basis. Schema v8 stores the re-gauged
+  columns (`regauged_columns`, indices into `salcs`, required) and reads every older
+  document as gauge convention 1 with none re-gauged (`SALCBasis.gauge` seeds the
+  fingerprint, so an old and a fresh basis of one crystal never pair coefficients).
 - **BasisSpec sugar resolution ↔ canonical consumers** (`sce/truncation.jl`,
   `sce/model.jl`, `io/input.jl`, **`basis/momentbasis.jl`**): the ergonomic forms (label keys, `"*"` wildcards,
   body-keyed tables, unordered `"A-B"` pair keys, specificity resolution) are expanded
@@ -543,8 +599,10 @@ Easy to break silently — confirm before touching the algorithm.
 - **`coeftable` columns ↔ `SALCKey` fields** (`sce/coeftable.jl`): each result row is
   read straight off a `SALCKey` (`body` / `orbit_id` / `decors`→comma string / `L_S` /
   `Lf` / `block`) plus `jphi`; the `J` column pairs with `basis.salc_basis.keys` **positionally**
-  (same order as the design matrix). Add or rename a `SALCKey` field → update the row
-  builder, the `Tables.Schema`, and `test/unit/test_coeftable.jl`.
+  (same order as the design matrix); `alias_group` / `split` / `regauged` are the
+  provenance columns after it (`regauged` from `regauged_columns(basis)`, full-length
+  predictors only). Add or rename a `SALCKey` field → update the row builder, the
+  `Tables.Schema`, and `test/unit/test_coeftable.jl`.
 - **DFT training-torque target ↔ the model torque convention** (`io/dftsource.jl`): the
   training torque carried by a `SpinDatum` is `τ_a = m_a × B_a` (`B` = constraining field),
   which must stay the *same* physical quantity, sign, and `3×n_atoms` config/atom/`xyz` layout
@@ -638,7 +696,9 @@ Easy to break silently — confirm before touching the algorithm.
   and its weight update, `_solve_gar`'s cold start, `_gar_weights!`, and the three
   `_penalty_diagonal` methods. Miss one and the diagnostics use a different penalty
   diagonal than the solver — the failure class `_refuse_refit_diagnostic` was written
-  for. It also enters the FIVE estimator-expansion points of `select_fit` (the path
+  for. The metric itself is one weight per BLOCK (`_blockwise_metric!`, both channels;
+  see the gauge entry) — a per-column weight inside a block is a gauge-dependent
+  penalty. It also enters the FIVE estimator-expansion points of `select_fit` (the path
   solve, the GCV weights, the per-fold solve, the cold re-solve of the selected point,
   and that point's GCV): the `GroupAdaptiveRidge` inner constructor takes `metric` /
   `metric_provenance` as positional arguments with no default so a missed site is a
@@ -730,11 +790,11 @@ the one that bites.
 | Penalty-metric spellings | `_group_adaptive_weights!`, `_effective_dof_gram` / `_effective_dof_free`, `cost_exponent`, `FixedCoefficients`, the `row_groups` / `nullspace` keywords of `solve_coefficients` | `_gar_weights!`, `_edof` / `_edof_free`, `theta`, `PrecomputedPilot`, the `groups` keyword | Same formulas, different names — port LOGIC, never signatures. Upstream additionally compresses the penalty as `Z'·Diagonal(D)·Z` under an ASR / freeze reparameterization (there is no reparameterization here), so its `metric` is indexed by the **basis** columns while the design handed to the solver may be narrower |
 | Admission | `_admit_assignment(t, species, …)` — a production, species-resolved rule | only the `admit` hook; callers (tests) transcribe the per-species `lmax` | The pointed builder's own mark-aware rule is the `admit` closure in `basis/momentbasis.jl`'s constructor (D4, landed); upstream's `_admit_assignment` is the reference, not a drop-in |
 | `[moment]` TOML section | none (no TOML moment input; the spec is spelled `soc`) | `read_setup(path).moment::Union{Nothing,MomentSpec}`, `MomentBasis(path)` (`io/input.jl`) | Exists only here. A port upstream must flip the key to `soc` with the OPPOSITE polarity; this reader refuses a `soc` key by name. The two body-keyed tables in the section follow OPPOSITE rules and the choice does not follow from the code: `[moment.cutoff_star]` must cover `3:nbody` EXACTLY (a missing radius would fall back to `cutoff_pair`, a number unrelated to that order), `[moment.lsum]` is PARTIAL (a missing cap means no cap, the documented default). A port must re-decide that, not copy it |
-| Function-space reduction | none | `_function_vector` / `_reduce_orbit_salcs` (pure-spin only; refuses decorated SALCs, message = wiring checklist) | Exists only here; upstream ports nothing back |
+| Function-space reduction | none (route A freezes instead, after re-gauging each block so its vanishing part is columns) | `_function_vector` / `_reduce_orbit_salcs`, block by block (pure-spin only; refuses decorated SALCs, message = wiring checklist) | Exists only here; upstream ports nothing back. Same block rule (gross mass, `_CANCELLATION_RTOL`, the band to `_REGAUGE_BAND_TOP`) on both sides; here the vanishing part is DROPPED and the block keeps `canon(N1)` under its pivots' keys, upstream keeps `[canon(N1) canon(N0)]` under the block's keys in ascending order and freezes `N0` |
+| `regauged_columns` / `coeftable.regauged` | recomputed from `unresolvable_columns`; the `regauged` column sits between `block` and `J` | recorded at the build in `SALCBasis.regauged` and persisted (schema 8 `regauged_columns`); the column sits between `block` and `J`, as upstream | Same definition (a block a proper, nonzero part of which the cell removed). The record cannot be recomputed here because the dropped part is gone; do not "re-sync" it into a recomputation |
 | Non-fused WS tie across orbits (face 2) | `unresolvable_columns` **freezes** every column of every orbit sharing an atom multiset — the determined sum too, so the fit fails loudly (`r2 ≈ 0.7` on the fixture); no split is ever published | `alias_groups` / `_ColumnTies` (`basis/aliases.jl`) **tie** the proportional orbits into one design column and read the coefficient back to every orbit with equal per-bond weight, recorded as `split = :convention` (`coeftable`, TOML v7, read-out warnings) | **Opposite decision on the same face, both deliberate.** Upstream's deliverable is a dispersion the data never constrained (`D(q)` was 52 % wrong under a silent split); this package's is a model to be tiled and sampled, where a dropped shell is a missing coupling. Do not "align" either way without re-deciding; a spin-spiral datum type would resolve the isotropic case in both |
 | `SolidHarmonics` | values + Euclidean gradient API (`solid_harmonics_grad[!]`, `grad_Rlm`) + `solid_harmonic_poly` (the ASR and lattice-side builders) | **values only** (347 → 240 lines); the value recurrence is upstream's line for line | No force rows here; do not re-port the gradient "because upstream has it" — count what the production path actually reads (`R₀₀ ≡ 1`) |
 | Self-image fitting door | `_refuse_self_image_basis` (`slce/model.jl`) at both dataset doors since `c7a4d26`, PLUS a refusal through `unresolvable_columns` on the displacement channel | `_refuse_self_image_basis` (`sce/model.jl`) at both `SCEDataset` constructors, before any design is built | **Converged on the door itself**; the residual is upstream's extra displacement-channel path, which screens a channel this package does not have. Basis BUILDING stays open in both (tiling templates) |
-| Orientation-dependent zero decisions: the per-orbit reduction | none (no `_reduce_orbit_salcs`; its sum rule decides ranks instead) | `_reduce_orbit_salcs`' per-SALC MGS in key order, dependence judged relative to the SALC's OWN aggregated norm | **Open here only.** With the entry cuts and the pivot ported (closed below), a tetragonal pair basis turned by θ = 1e-8 / 1e-7 still keeps a θ-small aggregated function that is dependent on the others to round-off (4–8 extra columns, rank-deficient design); the gate records it as `@test_broken` (`test/unit/test_orientation.jl`). A fix is a rank decision over the whole block pivoted on the large functions, entangled with the gauge choice inside a block (OPEN-WORK S-3) — an owner decision, not a threshold |
 | Test oracles | `CountingOracle` (852 lines), `_ls_block_stats` (C-2 block diagonality), plus the Cartesian projector since `08743d1` | the ~45-line Cartesian projector only (`test/unit/test_mixedsalc.jl`, `_Q5`); C-2 deferred to wiring | Counts agree; the projector shares no code with the SALC machinery in either package |
 
 Closed on 2026-08-21 — now identical in both packages, no longer divergences:
@@ -755,6 +815,17 @@ do: the closure message names `SCEBasis`; `symmetrize`'s docstring says a `SpinD
 carries no geometry and that `read_extxyz`'s `reference` refuses (the 1e-6 Å
 `_REF_GEOM_ATOL` band; upstream reads a position difference as a displacement); upstream's Spglib sweep lives in
 `test/integration/`, this package's in its own `test/spglib/` tier.
+
+Closed on 2026-11-16 — **the gauge inside a block** (SLCE `a248d4b`): the crystal-frame
+gauge (`_crystal_frame`, the `to_cartesian` line in both engines, `_build_frame_cache`),
+the pointed re-gauge (`_regauge_vanishing`, `_block_split`, `_REGAUGE_BAND_TOP`,
+`_combine_salcs`, `_mark_class`, `_moment_signature_of`), the per-block metric with its
+crystal-frame ensemble, `crystal_axes`, and `SALC_GAUGE_CONVENTION` are upstream's. The
+per-orbit reduction's orientation defect (θ = 1e-8 / 1e-7 counts, 1/θ per-bond readouts)
+is fixed by the same block rule here, applied to dropping (rows above). Upstream's
+consumer changes that need frozen energy columns (`_effective_dof_nullspace` dead rows,
+`select_fit` in free coordinates, `dof`'s `_flat_in_span`, `build_asr`'s
+`residual_groups`) have no counterpart: this package's energy basis has no frozen column.
 
 Closed on 2026-11-15 — **orientation-independent zero decisions in both SALC engines**
 (SLCE `2f7d2d5`, causes 2 and 3 of S-2): the tensor-entry and coefficient cuts are

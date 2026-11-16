@@ -73,7 +73,9 @@ Base.showerror(io::IO, e::UnclassifiableBasis) =
 # mass; a column that merely has few terms still has a ratio of order 1. A cut
 # taken against the matrix's own maximum cannot see the case where EVERYTHING
 # cancels, which is exactly what a Wigner–Seitz-tied cell produces. (Same value
-# and reading as upstream's `_CANCELLATION_RTOL`.)
+# and reading as upstream's `_CANCELLATION_RTOL`.) The same cut decides the rank of a
+# block in the energy basis's per-orbit reduction and in the pointed re-gauge
+# (`_block_split`, `basis/regauge.jl`), each against the block's gross mass.
 const _CANCELLATION_RTOL = 1e-10
 
 # ── MomentSpec ─────────────────────────────────────────────────────────────────────
@@ -565,6 +567,7 @@ function MomentBasis(crystal::Crystal, spec::MomentSpec;
 
     maxl = max(spec.lmax_mark, maximum(spec.lmax_env; init = 0))
     wcache = _build_wig_cache(sg, maxl)
+    fcache = _build_frame_cache(crystal, sg, maxl)
     cart = cartesian_positions(crystal)
     A = Matrix(crystal.lattice.vectors)
     fac = 1.0 + tie_tol
@@ -574,8 +577,8 @@ function MomentBasis(crystal::Crystal, spec::MomentSpec;
     labels_by_body = Dict(b => _moment_labels(spec, b) for b in 1:spec.nbody)
 
     # Threaded over orbits, exactly as `build_salc_basis` threads the same work. Each
-    # task owns one orbit and writes only its own slot, `wcache` is built above and
-    # read-only, and the output is sorted by key below — so the result is identical at
+    # task owns one orbit and writes only its own slot, `wcache` and `fcache` are built above
+    # and read-only, and the output is sorted by key below — so the result is identical at
     # any thread count and any schedule.
     #
     # `:greedy` because per-orbit cost spans orders of magnitude AND the expensive
@@ -634,8 +637,14 @@ function MomentBasis(crystal::Crystal, spec::MomentSpec;
             end
             return true
         end
-        got = _orbit_salcs_decors(crystal, sg, body, oid, O, labels, wcache;
-                                  isotropy = spec.isotropy, admit = admit)
+        # The vanishing subspace of every block (one mark class) is made columns of its
+        # own, which `moment_resolvability` then names and the fit freezes
+        # (`_regauge_vanishing`, `basis/regauge.jl`).
+        got = _regauge_vanishing(_orbit_salcs_decors(crystal, sg, body, oid, O, labels,
+                                                     wcache, fcache;
+                                                     isotropy = spec.isotropy,
+                                                     admit = admit),
+                                 _moment_block_signature, _mark_class)
         edgetuple = Tuple(sort([round(edges[a, b]; digits = 6)
                                 for a = 1:body for b = (a + 1):body]))
         parts[w] = got

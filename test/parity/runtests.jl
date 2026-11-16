@@ -427,3 +427,120 @@ end
         @printf("  FeRh column parity: worst relative column deviation %.2e\n", w)
     end
 end
+
+# ── pure spin: the gauge inside a block on tied, non-upper-triangular cells ─────────
+
+# Both packages choose the columns of a block along the crystal axes and decide what a
+# tied cell cannot see per block, against the block's gross mass; SLCE freezes that
+# part as columns of its own, this package drops it (SLCE.jl a248d4b). Needs no data:
+# synthetic crystals with brute-force groups. Oracle: the other implementation, read
+# through the evaluator on random spins — per block, the number of columns this
+# package keeps equals SLCE's live (non-frozen) count, and the kept columns span
+# SLCE's live span. Measured on SLCE 4a478b1: counts equal on all five cells, span
+# residual ≤ 1.2e-15, and the columns under one key agree to ≤ 1.2e-15 (on these cells
+# only zero directions are dropped, so both sides keep canon(N1) of one expansion).
+function _ps_frac(A0, F, M)
+    Minv = inv(Float64.(M))
+    pos = Vector{Vector{Float64}}()
+    for i = -4:4, j = -4:4, k = -4:4, s = 1:size(F, 2)
+        f = Minv * (F[:, s] .+ [i, j, k])
+        f = f .- floor.(f .+ 1e-9)
+        any(p -> norm(p .- f) < 1e-6, pos) || push!(pos, f)
+    end
+    return reduce(hcat, pos)
+end
+function _ps_ops(A0, M, frac)
+    G0 = A0' * A0
+    Mf = Float64.(M)
+    on_atom(x) = any(p -> maximum(abs.(mod.(x .- p .+ 0.5, 1.0) .- 0.5)) < 1e-8,
+                     eachcol(frac))
+    rots, trans = SMatrix{3,3,Float64,9}[], SVector{3,Float64}[]
+    for t in Iterators.product(ntuple(_ -> -1:1, 9)...)
+        W0 = reshape(collect(Float64, t), 3, 3)
+        abs(abs(det(W0)) - 1) < 1e-9 || continue
+        maximum(abs, W0' * G0 * W0 - G0) < 1e-9 * maximum(abs, G0) || continue
+        W = round.(Mf \ (W0 * Mf))
+        for b in axes(frac, 2)
+            tr = mod.(frac[:, b] .- W * frac[:, 1], 1.0)
+            all(q -> on_atom(W * q .+ tr), eachcol(frac)) || continue
+            push!(rots, SMatrix{3,3,Float64}(W))
+            push!(trans, SVector{3,Float64}(tr))
+        end
+    end
+    return rots, trans
+end
+struct _PSOpsA <: SCEFitting.AbstractSymmetryBackend
+    r::Vector{SMatrix{3,3,Float64,9}}
+    t::Vector{SVector{3,Float64}}
+end
+SCEFitting.analyze_symmetry(b::_PSOpsA, cr::SCEFitting.Crystal; tol::Real = 1e-5) =
+    SCEFitting._assemble_spacegroup(cr, b.r, b.t, "brute force", 0; tol = tol)
+struct _PSOpsB <: SLCE.AbstractSymmetryBackend
+    r::Vector{SMatrix{3,3,Float64,9}}
+    t::Vector{SVector{3,Float64}}
+end
+SLCE.analyze_symmetry(b::_PSOpsB, cr::SLCE.Crystal; tol::Real = 1e-5) =
+    SLCE._assemble_spacegroup(cr, b.r, b.t, "brute force", 0; tol = tol)
+_ps_block(k) = (k.body, k.orbit_id, [d.spin_l for d in k.decors], k.L_S, k.Lf)
+
+@testset "pure spin — blocks of a tied cell, SCEFitting vs SLCE" begin
+    rh(α = deg2rad(80.0), a = 3.0) = (c = cos(α); s = sin(α); cy = (c - c^2) / s;
+                                      a * [1 c c; 0 s cy; 0 0 sqrt(1 - c^2 - cy^2)])
+    hcp = [2.5 -1.25 0; 0 2.5 * sqrt(3) / 2 0; 0 0 4.08]
+    fcc = 1.8 * [0 1 1; 1 0 1; 1 1 0]
+    origin = reshape([0.0, 0, 0], 3, 1)
+    m2 = [2 0 0; 0 2 0; 0 0 2]
+    cases = (("hcp (2,2,2)", hcp, [1/3 2/3; 2/3 1/3; 1/4 3/4], m2, 4.2),
+             ("fcc primitive (2,2,2)", fcc, origin, m2, Inf),
+             ("rhombohedral (2,2,2)", rh(), origin, m2, Inf),
+             ("rhombohedral (a1, a2, a1+a3)", rh(), origin, [2 0 2; 0 2 0; 0 0 2], Inf),
+             ("fcc primitive (3,3,3), untied", fcc, origin, 3 .* [1 0 0; 0 1 0; 0 0 1],
+              2.6))
+    for (name, A0, F, M, cut) in cases
+        frac = _ps_frac(A0, F, M)
+        r, t = _ps_ops(A0, M, frac)
+        L = A0 * M
+        nat = size(frac, 2)
+        quietly(f) = Base.CoreLogging.with_logger(f, Base.CoreLogging.NullLogger())
+        bb = quietly(() -> SLCE.SLCEBasis(
+            SLCE.Crystal(SLCE.Lattice(L), frac, ones(Int, nat), ["X"]),
+            SLCE.BasisSpec(; nbody = 2, cutoff = cut, lmax = [2], soc = true);
+            backend = _PSOpsB(r, t), tol = 1e-6))
+        ba = quietly(() -> SCEFitting.SCEBasis(
+            SCEFitting.Crystal(SCEFitting.Lattice(L), frac, ones(Int, nat), ["X"]),
+            SCEFitting.BasisSpec(; nbody = 2, cutoff = cut, lmax = [2], isotropy = false);
+            backend = _PSOpsA(r, t), tol = 1e-6))
+        frozen = Set(quietly(() -> SLCE.unresolvable_columns(bb)))
+        rng = MersenneTwister(1)
+        es = [(E = randn(rng, 3, nat); E ./ sqrt.(sum(abs2, E; dims = 1))) for _ = 1:150]
+        sb = SLCE.salcs(bb)
+        sa = SCEFitting.salcs(ba)
+        gb = Dict{Any,Vector{Int}}()
+        ga = Dict{Any,Vector{Int}}()
+        for (j, s) in enumerate(sb)
+            j in frozen || push!(get!(gb, _ps_block(s.key), Int[]), j)
+        end
+        for (j, s) in enumerate(sa)
+            push!(get!(ga, _ps_block(s.key), Int[]), j)
+        end
+        @test Set(keys(ga)) == Set(keys(gb))
+        span = 0.0
+        column = 0.0
+        for k in keys(gb)
+            haskey(ga, k) || continue
+            @test length(ga[k]) == length(gb[k])
+            Xb = [SLCE.evaluate_salc(sb[j], e) for e in es, j in gb[k]]
+            Xa = [SCEFitting.evaluate_salc(sa[j], e) for e in es, j in ga[k]]
+            Q = Matrix(qr(Xb).Q)
+            span = max(span, norm(Xa - Q * (Q' * Xa)) / norm(Xa))
+            for (ia, ja) in enumerate(ga[k]), (ib, jb) in enumerate(gb[k])
+                sa[ja].key.block == sb[jb].key.block || continue
+                column = max(column, maximum(abs, Xa[:, ia] - Xb[:, ib]) / maximum(abs, Xb))
+            end
+        end
+        @printf("  %-32s SLCE %d columns, %d frozen; SCEFitting %d; span %.1e, same key %.1e\n",
+                name, length(sb), length(frozen), length(sa), span, column)
+        @test span <= 1e-10
+        @test column <= 1e-10
+    end
+end
